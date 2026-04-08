@@ -1,7 +1,7 @@
 ﻿using GentleBook.Api.Services;
 using Hangfire;
 
-namespace Skinbloom.Api.Options
+namespace GentleBook.Api.Options
 {
     // Add this class to your project
     public class HangfireJobScheduler : IHostedService

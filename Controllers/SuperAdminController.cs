@@ -58,6 +58,9 @@ public class SuperAdminController : ControllerBase
                 t.CreatedAt,
                 CompanyName = t.Settings != null ? t.Settings.CompanyName : t.Name,
                 LogoUrl = t.Settings != null ? t.Settings.LogoUrl : null,
+                PrimaryColor = t.Settings != null ? t.Settings.PrimaryColor : null,
+                EmployeeCount = _db.Employees.IgnoreQueryFilters().Count(e => e.TenantId == t.Id),
+                BookingCount = _db.Bookings.IgnoreQueryFilters().Count(b => b.TenantId == t.Id),
                 Subscription = t.Subscription == null ? null : new
                 {
                     t.Subscription.Plan,
@@ -195,6 +198,20 @@ public class SuperAdminController : ControllerBase
         if (tenant == null) return NotFound();
         tenant.IsActive = false;
         tenant.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    /// <summary>Delete a tenant and all its data.</summary>
+    [HttpDelete("tenants/{id:guid}")]
+    public async Task<IActionResult> DeleteTenant(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var tenant = await _db.Tenants.FindAsync(id);
+        if (tenant == null) return NotFound();
+
+        _db.Tenants.Remove(tenant);
         await _db.SaveChangesAsync();
         return NoContent();
     }

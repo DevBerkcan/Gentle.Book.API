@@ -1,6 +1,7 @@
 // Controllers/PublicBookingController.cs
 // Public, unauthenticated endpoints — tenant identified by slug.
 using GentleBook.Api.Data;
+using GentleBook.Api.Data.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;

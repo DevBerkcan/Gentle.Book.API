@@ -202,7 +202,7 @@ public class BookingsController : ControllerBase
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <title>Fehler - Skinbloom</title>
+                    <title>Fehler - GentleBook</title>
                     <style>
                         body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
                         .error { color: #dc3545; }
@@ -211,7 +211,7 @@ public class BookingsController : ControllerBase
                 <body>
                     <h1 class='error'>❌ Ungültiger Bestätigungslink</h1>
                     <p>Der Bestätigungslink ist ungültig oder abgelaufen.</p>
-                    <p><a href='https://skinbloom.de'>Zurück zur Website</a></p>
+                    <p><a href='https://gentlebook.app'>Zurück zur Website</a></p>
                 </body>
                 </html>", "text/html");
             }
@@ -222,7 +222,7 @@ public class BookingsController : ControllerBase
             <!DOCTYPE html>
             <html>
             <head>
-                <title>Buchung bestätigt - Skinbloom</title>
+                <title>Buchung bestätigt - GentleBook</title>
                 <style>
                     body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
                     .success {{ color: #28a745; }}
@@ -249,7 +249,7 @@ public class BookingsController : ControllerBase
                     <p><strong>Preis:</strong> {booking.Booking.Price:C}</p>
                     <p><strong>Status:</strong> <span style='color: #28a745; font-weight: bold;'>{booking.Status}</span></p>
                 </div>
-                <p><a href='https://skinbloom.de' style='color: #007bff; text-decoration: none;'>Zurück zur Website</a></p>
+                <p><a href='https://gentlebook.app' style='color: #007bff; text-decoration: none;'>Zurück zur Website</a></p>
             </body>
             </html>", "text/html");
         }
@@ -261,7 +261,7 @@ public class BookingsController : ControllerBase
             <!DOCTYPE html>
             <html>
             <head>
-                <title>Fehler - Skinbloom</title>
+                <title>Fehler - GentleBook</title>
                 <style>
                     body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
                     .error {{ color: #dc3545; }}
@@ -271,7 +271,7 @@ public class BookingsController : ControllerBase
                 <h1 class='error'> Fehler bei der Bestätigung</h1>
                 <p><strong>Fehler:</strong> {ex.Message}</p>
                 <p>Bitte kontaktieren Sie uns telefonisch oder per Email.</p>
-                <p><a href='https://www.skinbloom-aesthetics.ch/'>Zurück zur Website</a></p>
+                <p><a href='https://www.gentlebook.app/'>Zurück zur Website</a></p>
             </body>
             </html>", "text/html");
         }
@@ -341,7 +341,7 @@ public class BookingsController : ControllerBase
                         <h2 class='title'>Ungültiger Stornierungslink</h2>
                         <p class='message'>Der Stornierungslink ist ungültig oder abgelaufen.</p>
                         <p style='margin-top: 30px;'>
-                            <a href='https://www.skinbloom-aesthetics.ch/' class='button'>Zurück zur Website</a>
+                            <a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a>
                         </p>
                     </div>
                     <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
@@ -379,7 +379,7 @@ public class BookingsController : ControllerBase
                         <div class='error'>✧</div>
                         <h2 class='title'>Buchung nicht gefunden</h2>
                         <p class='message'>Die Buchung konnte nicht gefunden werden.</p>
-                        <p style='margin-top: 30px;'><a href='https://www.skinbloom-aesthetics.ch/' class='button'>Zurück zur Website</a></p>
+                        <p style='margin-top: 30px;'><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
                     </div>
                     <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
                 </div>
@@ -430,7 +430,7 @@ public class BookingsController : ControllerBase
                             <div class='detail-row'><span class='detail-label'>Preis</span><span class='detail-value'>{booking.Booking.Price:0.00} CHF</span></div>
                             <div class='detail-row'><span class='detail-label'>Status</span><span class='detail-value'><span class='status-cancelled'>Storniert</span></span></div>
                         </div>
-                        <p style='margin-top: 30px;'><a href='https://www.skinbloom-aesthetics.ch/' class='button'>Zurück zur Website</a></p>
+                        <p style='margin-top: 30px;'><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
                     </div>
                     <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
                 </div>
@@ -477,7 +477,7 @@ public class BookingsController : ControllerBase
                             <div class='detail-row'><span class='detail-label'>Uhrzeit</span><span class='detail-value'>{booking.Booking.StartTime} - {booking.Booking.EndTime}</span></div>
                             <div class='detail-row'><span class='detail-label'>Status</span><span class='detail-value'><span class='status-completed'>Abgeschlossen</span></span></div>
                         </div>
-                        <p style='margin-top: 30px;'><a href='https://www.skinbloom-aesthetics.ch/' class='button'>Zurück zur Website</a></p>
+                        <p style='margin-top: 30px;'><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
                     </div>
                     <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
                 </div>
@@ -513,7 +513,7 @@ public class BookingsController : ControllerBase
                         <div style='color: #D8B0AC; font-size: 48px; margin-bottom: 20px;'>✧</div>
                         <h2 style='font-size: 24px; font-weight: 700; color: #1E1E1E;'>Stornierung fehlgeschlagen</h2>
                         <p style='color: #8A8A8A; margin-bottom: 30px;'>{result.Message}</p>
-                        <p><a href='https://www.skinbloom-aesthetics.ch/' class='button'>Zurück zur Website</a></p>
+                        <p><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
                     </div>
                     <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
                 </div>
@@ -563,14 +563,14 @@ public class BookingsController : ControllerBase
                         <div class='detail-row'><span class='detail-label'>Grund</span><span class='detail-value'>Storniert vom Kunden per E-Mail-Link</span></div>
                     </div>
                     <div style='margin: 30px 0;'>
-                        <a href='https://skinbloombooking.gentlegroup.de/booking' class='button'>Neuen Termin buchen</a>
-                        <a href='https://www.skinbloom-aesthetics.ch/' class='button-secondary'>Zurück zur Website</a>
+                        <a href='https://gentlebook.runasp.net/booking' class='button'>Neuen Termin buchen</a>
+                        <a href='https://www.gentlebook.app/' class='button-secondary'>Zurück zur Website</a>
                     </div>
                     <p class='email-notice'>* Sie erhalten eine Bestätigungs-Email an: {booking.Customer.Email}</p>
                 </div>
                 <div class='footer'>
                     <p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p>
-                    <p style='margin: 10px 0 0 0;'>www.skinbloom-aesthetics.ch</p>
+                    <p style='margin: 10px 0 0 0;'>www.gentlebook.app</p>
                     <p style='margin: 10px 0 0 0;'>© 2026 GentleBook</p>
                 </div>
             </div>
@@ -601,7 +601,7 @@ public class BookingsController : ControllerBase
                     <div style='color: #D8B0AC; font-size: 48px; margin-bottom: 20px;'>✧</div>
                     <h2 style='font-size: 24px; font-weight: 700; color: #1E1E1E; margin-bottom: 20px;'>Fehler bei der Stornierung</h2>
                     <p style='color: #8A8A8A; margin-bottom: 30px;'>{ex.Message}</p>
-                    <p><a href='https://www.skinbloom-aesthetics.ch/' class='button'>Zurück zur Website</a></p>
+                    <p><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
                 </div>
                 <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
             </div>
@@ -634,7 +634,7 @@ public class BookingsController : ControllerBase
                     <div style='color: #D8B0AC; font-size: 48px; margin-bottom: 20px;'>✧</div>
                     <h2 style='font-size: 24px; font-weight: 700; color: #1E1E1E; margin-bottom: 20px;'>Unerwarteter Fehler</h2>
                     <p style='color: #8A8A8A; margin-bottom: 30px;'>Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es später erneut oder kontaktieren Sie uns.</p>
-                    <p><a href='https://www.skinbloom-aesthetics.ch/' class='button'>Zurück zur Website</a></p>
+                    <p><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
                 </div>
                 <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
             </div>

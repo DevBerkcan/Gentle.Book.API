@@ -3,7 +3,7 @@ using GentleBook.Api.DTOs;
 using GentleBook.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
-namespace Skinbloom.Api.Services;
+namespace GentleBook.Api.Services;
 
 public class EmployeeAuthService
 {

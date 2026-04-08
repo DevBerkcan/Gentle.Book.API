@@ -11,4 +11,5 @@ public class BlockedTimeSlot
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public Guid? EmployeeId { get; set; }
     public Employee? Employee { get; set; }
+    public Tenant Tenant { get; set; } = null!;
 }

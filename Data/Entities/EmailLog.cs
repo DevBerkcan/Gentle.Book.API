@@ -13,7 +13,8 @@ public class EmailLog
     public string? ErrorMessage { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-    // Navigation properties
+    // Navigation
+    public Tenant Tenant { get; set; } = null!;
     public Booking? Booking { get; set; }
 }
 

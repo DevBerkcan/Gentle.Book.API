@@ -1,5 +1,6 @@
 // Data/GentleBookDbContext.cs
 using GentleBook.Api.Data.Entities;
+using GentleBook.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace GentleBook.Api.Data;

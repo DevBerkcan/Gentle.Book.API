@@ -3,7 +3,7 @@ using GentleBook.Api.DTOs;
 using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Skinbloom.Api.Services;
+using GentleBook.Api.Services;
 
 namespace GentleBook.Api.Controllers;
 

@@ -49,8 +49,8 @@ public class AvailabilityService
         }
 
         // 3. Buchungsintervall aus Settings holen
-        var intervalSetting = await _context.Settings.FindAsync("BOOKING_INTERVAL_MINUTES");
-        var intervalMinutes = int.Parse(intervalSetting?.Value ?? "15");
+        var tenantSettings = await _context.TenantSettings.FirstOrDefaultAsync();
+        var intervalMinutes = tenantSettings?.BookingIntervalMinutes ?? 15;
 
         // 4. Alle Zeitslots generieren
         var timeSlots = GenerateTimeSlots(
@@ -115,8 +115,8 @@ public class AvailabilityService
         if (businessHours == null || !businessHours.IsOpen)
             return new List<TimeSlotDto>();
 
-        var intervalSetting = await _context.Settings.FindAsync("BOOKING_INTERVAL_MINUTES");
-        var intervalMinutes = int.Parse(intervalSetting?.Value ?? "15");
+        var tenantSettings = await _context.TenantSettings.FirstOrDefaultAsync();
+        var intervalMinutes = tenantSettings?.BookingIntervalMinutes ?? 15;
 
         var timeSlots = GenerateTimeSlots(
             businessHours.OpenTime,

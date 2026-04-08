@@ -2,9 +2,9 @@
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
 using Microsoft.EntityFrameworkCore;
-using Skinbloom.Api.Data.Entities;
+using GentleBook.Api.Data.Entities;
 
-namespace Skinbloom.Api.Services;
+namespace GentleBook.Api.Services;
 
 public class ServiceService
 {

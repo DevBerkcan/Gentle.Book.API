@@ -276,8 +276,8 @@ public class EmailService
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("Skinbloom Buchungssystem", _emailOptions.SenderEmail));
-            message.To.Add(new MailboxAddress("GentleBook", "info@skinbloom-aesthetics.ch"));
+            message.From.Add(new MailboxAddress("GentleBook Buchungssystem", _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
             message.Subject = $"[Buchungssystem] {subject}";
 
             var builder = new BodyBuilder
@@ -314,7 +314,7 @@ public class EmailService
         <div style='background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); padding: 30px; text-align: center; border-bottom: 3px solid #C09995;'>
             <p style='color: #C09995; font-size: 32px; margin: 0 0 10px 0;'>✧</p>
             <h1 style='color: #ffffff; font-size: 20px; margin: 0 0 6px 0;'>Neue Buchung eingegangen</h1>
-            <p style='color: #C09995; font-size: 13px; margin: 0; letter-spacing: 1px; text-transform: uppercase;'>Skinbloom Buchungssystem</p>
+            <p style='color: #C09995; font-size: 13px; margin: 0; letter-spacing: 1px; text-transform: uppercase;'>GentleBook Buchungssystem</p>
         </div>
         <div style='padding: 30px;'>
             <table style='width: 100%; border-collapse: collapse;'>
@@ -361,13 +361,13 @@ public class EmailService
                 </tr>" : "")}
             </table>
             <p style='color: #64748b; font-size: 12px; margin-top: 20px; text-align: center;'>
-                Diese Nachricht wurde automatisch vom Skinbloom Buchungssystem generiert.
+                Diese Nachricht wurde automatisch vom GentleBook Buchungssystem generiert.
             </p>
         </div>
         <div style='background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 100%); padding: 20px; text-align: center; border-top: 3px solid #C09995;'>
             <p style='color: #C09995; font-size: 18px; margin: 0 0 8px 0;'>✧</p>
             <p style='color: #ffffff; font-size: 13px; font-weight: 700; margin: 0 0 4px 0;'>GentleBook</p>
-            <p style='color: #a3a3a3; font-size: 12px; margin: 0;'>Elisabethenstrasse 41 · 4051 Basel · info@skinbloom-aesthetics.ch</p>
+            <p style='color: #a3a3a3; font-size: 12px; margin: 0;'>GentleBook – Online Buchungssystem</p>
         </div>
     </div>
 </body>
@@ -377,7 +377,7 @@ public class EmailService
     private string GetInternalBookingNotificationText(Booking booking, Customer customer, Service service)
     {
         return $@"
-SKINBLOOM BUCHUNGSSYSTEM – NEUE BUCHUNG
+GENTLEBOOK BUCHUNGSSYSTEM – NEUE BUCHUNG
 ------------------------------------------------
 Kunde:    {customer.FullName}
 E-Mail:   {customer.Email ?? "–"}
@@ -407,7 +407,7 @@ Diese Nachricht wurde automatisch generiert.";
         <div style='background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); padding: 30px; text-align: center; border-bottom: 3px solid #C09995;'>
             <p style='color: #C09995; font-size: 32px; margin: 0 0 10px 0;'>✧</p>
             <h1 style='color: #ffffff; font-size: 20px; margin: 0 0 6px 0;'>Buchung storniert</h1>
-            <p style='color: #C09995; font-size: 13px; margin: 0; letter-spacing: 1px; text-transform: uppercase;'>Skinbloom Buchungssystem</p>
+            <p style='color: #C09995; font-size: 13px; margin: 0; letter-spacing: 1px; text-transform: uppercase;'>GentleBook Buchungssystem</p>
         </div>
         <div style='padding: 30px;'>
             <table style='width: 100%; border-collapse: collapse;'>
@@ -450,13 +450,13 @@ Diese Nachricht wurde automatisch generiert.";
                 </tr>" : "")}
             </table>
             <p style='color: #64748b; font-size: 12px; margin-top: 20px; text-align: center;'>
-                Diese Nachricht wurde automatisch vom Skinbloom Buchungssystem generiert.
+                Diese Nachricht wurde automatisch vom GentleBook Buchungssystem generiert.
             </p>
         </div>
         <div style='background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 100%); padding: 20px; text-align: center; border-top: 3px solid #C09995;'>
             <p style='color: #C09995; font-size: 18px; margin: 0 0 8px 0;'>✧</p>
             <p style='color: #ffffff; font-size: 13px; font-weight: 700; margin: 0 0 4px 0;'>GentleBook</p>
-            <p style='color: #a3a3a3; font-size: 12px; margin: 0;'>Elisabethenstrasse 41 · 4051 Basel · info@skinbloom-aesthetics.ch</p>
+            <p style='color: #a3a3a3; font-size: 12px; margin: 0;'>GentleBook – Online Buchungssystem</p>
         </div>
     </div>
 </body>
@@ -466,7 +466,7 @@ Diese Nachricht wurde automatisch generiert.";
     private string GetInternalCancellationNotificationText(Booking booking, Customer customer, Service service)
     {
         return $@"
-SKINBLOOM BUCHUNGSSYSTEM – STORNIERUNG
+GENTLEBOOK BUCHUNGSSYSTEM – STORNIERUNG
 ------------------------------------------------
 Kunde:        {customer.FullName}
 E-Mail:       {customer.Email ?? "–"}
@@ -842,7 +842,7 @@ Diese Nachricht wurde automatisch generiert.";
             </div>
             <div class='footer-contact'>
                 Tel: +41 61 123 45 67<br>
-                Email: info@skinbloom-aesthetics.ch
+                info@gentlebook.app
             </div>
             <div class='footer-links'>
                 <a href='{_emailOptions.BaseUrl}/datenschutz'>Datenschutz</a>
@@ -1019,7 +1019,7 @@ Diese Nachricht wurde automatisch generiert.";
                 <div class='cancel-text'>
                     Wir freuen uns, Sie bald wieder bei uns begrüßen zu dürfen.
                 </div>
-                <a href='https://skinbloombooking.gentlegroup.de/booking' style='display: inline-block; background: linear-gradient(135deg, #3c3d3c, #A87B77 100%); color: #000000; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>Neuen Termin buchen
+                <a href='https://gentlebook.runasp.net' style='display: inline-block; background: linear-gradient(135deg, #3c3d3c, #A87B77 100%); color: #000000; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>Neuen Termin buchen
                 </a>
             </div>";
 
@@ -1097,7 +1097,7 @@ Diese Nachricht wurde automatisch generiert.";
     private string GetConfirmationEmailText(Booking booking, string cancellationUrl)
     {
         return $@"
-SKINBLOOM AESTHETICS - IHRE BUCHUNGSBESTÄTIGUNG
+GENTLEBOOK - IHRE BUCHUNGSBESTÄTIGUNG
 
 ------------------------------------------------
 Hallo {booking.Customer.FirstName},
@@ -1126,8 +1126,8 @@ Elisabethenstrasse 41
 4051 Basel, Schweiz
 
 Tel: +41 61 123 45 67
-Email: info@skinbloom-aesthetics.ch
-Web: www.skinbloom-aesthetics.ch
+info@gentlebook.app
+gentlebook.app
 
 ------------------------------------------------
 © {DateTime.UtcNow.Year} GentleBook. Alle Rechte vorbehalten.";
@@ -1136,7 +1136,7 @@ Web: www.skinbloom-aesthetics.ch
     private string GetConfirmationReceiptText(Booking booking, Customer customer, Service service, string cancellationUrl)
     {
         return $@"
-SKINBLOOM AESTHETICS - BUCHUNG BESTÄTIGT
+GENTLEBOOK - BUCHUNG BESTÄTIGT
 
 ------------------------------------------------
 Hallo {customer.FirstName},
@@ -1157,13 +1157,13 @@ KONTAKT:
 ------------------------------------------------
 GentleBook
 Tel: +41 61 123 45 67
-Email: info@skinbloom-aesthetics.ch";
+info@gentlebook.app";
     }
 
     private string GetCancellationEmailText(Booking booking, Customer customer, Service service)
     {
         return $@"
-SKINBLOOM AESTHETICS - STORNIERUNGSBESTÄTIGUNG
+GENTLEBOOK - STORNIERUNGSBESTÄTIGUNG
 
 ------------------------------------------------
 Hallo {customer.FirstName},
@@ -1180,19 +1180,19 @@ Storniert am: {DateTime.UtcNow:dd.MM.yyyy HH:mm} Uhr
 
 NEUEN TERMIN BUCHEN:
 ------------------------------------------------
-https://skinbloombooking.gentlegroup.de/booking
+https://gentlebook.runasp.net
 
 KONTAKT:
 ------------------------------------------------
 GentleBook
 Tel: +41 61 123 45 67
-Email: info@skinbloom-aesthetics.ch";
+info@gentlebook.app";
     }
 
     private string GetReminderEmailText(Booking booking, string cancellationUrl)
     {
         return $@"
-SKINBLOOM AESTHETICS - TERMINERINNERUNG
+GENTLEBOOK - TERMINERINNERUNG
 
 ------------------------------------------------
 Hallo {booking.Customer.FirstName},

@@ -68,6 +68,9 @@ Properties/PublishProfiles/
 *.pubxml
 *.pubxml.user
 
+# Deployment SQL scripts (contain schema — ok to commit, but keep out of accidental runs)
+# deploy-migration.sql
+
 # ASP.NET Scaffolding
 ScaffoldingReadMe.txt
 

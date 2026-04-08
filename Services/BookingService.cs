@@ -433,9 +433,14 @@ public class BookingService
 
     private async Task<int> GetSettingValueAsync(string key, int defaultValue)
     {
-        var setting = await _context.Settings.FindAsync(key);
-        if (setting == null) return defaultValue;
-        return int.TryParse(setting.Value, out var value) ? value : defaultValue;
+        var tenantSettings = await _context.TenantSettings.FirstOrDefaultAsync();
+        if (tenantSettings == null) return defaultValue;
+        return key switch
+        {
+            "MAX_ADVANCE_BOOKING_DAYS" => tenantSettings.MaxAdvanceBookingDays,
+            "BOOKING_INTERVAL_MINUTES" => tenantSettings.BookingIntervalMinutes,
+            _ => defaultValue
+        };
     }
 
     // ── DTO mapping ───────────────────────────────────────────────
