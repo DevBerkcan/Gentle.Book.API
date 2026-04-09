@@ -10,11 +10,13 @@ public class ServiceService
 {
     private readonly GentleBookDbContext _context;
     private readonly ILogger<ServiceService> _logger;
+    private readonly ITenantContext _tenantContext;
 
-    public ServiceService(GentleBookDbContext context, ILogger<ServiceService> logger)
+    public ServiceService(GentleBookDbContext context, ILogger<ServiceService> logger, ITenantContext tenantContext)
     {
         _context = context;
         _logger = logger;
+        _tenantContext = tenantContext;
     }
 
     // ── PUBLIC METHODS (for booking widget) ─────────────────────────
@@ -398,6 +400,7 @@ public class ServiceService
         var service = new Service
         {
             Id = Guid.NewGuid(),
+            TenantId = _tenantContext.TenantId ?? throw new InvalidOperationException("TenantId fehlt"),
             Name = dto.Name,
             Description = dto.Description,
             DurationMinutes = dto.DurationMinutes,
@@ -697,6 +700,7 @@ public class ServiceService
         var category = new ServiceCategory
         {
             Id = Guid.NewGuid(),
+            TenantId = _tenantContext.TenantId ?? throw new InvalidOperationException("TenantId fehlt"),
             Name = dto.Name,
             Description = dto.Description,
             DisplayOrder = dto.DisplayOrder,

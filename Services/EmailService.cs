@@ -1252,4 +1252,70 @@ Tel: +41 61 123 45 67";
 
         return (Guid.Empty, string.Empty);
     }
+
+    /// <summary>
+    /// Sends a welcome / onboarding email to a newly created TenantAdmin with their login credentials.
+    /// </summary>
+    public async Task SendWelcomeEmailAsync(string recipientEmail, string firstName, string tenantSlug, string password)
+    {
+        try
+        {
+            var frontendBase = _emailOptions.BaseUrl?.Replace("/api", "") ?? "https://gentle-book-ui.vercel.app";
+            var loginUrl = $"{frontendBase}/admin/login";
+            var profileUrl = $"{frontendBase}/booking/{tenantSlug}";
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName ?? "GentleBook", _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = "Willkommen bei GentleBook – Ihre Zugangsdaten";
+
+            var builder = new BodyBuilder();
+            builder.HtmlBody = $"""
+                <!DOCTYPE html>
+                <html>
+                <head><meta charset="utf-8"></head>
+                <body style="font-family:Arial,sans-serif;background:#f5edeb;margin:0;padding:20px;">
+                  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
+                    <div style="background:linear-gradient(135deg,#E8C7C3,#D8B0AC);padding:32px;text-align:center;">
+                      <h1 style="color:#fff;margin:0;font-size:28px;">Willkommen!</h1>
+                      <p style="color:rgba(255,255,255,.9);margin:8px 0 0;">Ihr GentleBook-Konto ist bereit</p>
+                    </div>
+                    <div style="padding:32px;">
+                      <p style="color:#1E1E1E;font-size:16px;">Hallo {firstName},</p>
+                      <p style="color:#555;">Ihr Buchungssystem wurde erfolgreich eingerichtet. Hier sind Ihre Zugangsdaten:</p>
+                      <div style="background:#f5edeb;border-radius:12px;padding:20px;margin:24px 0;">
+                        <p style="margin:0 0 8px;color:#8A8A8A;font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Ihre Login-Daten</p>
+                        <p style="margin:4px 0;color:#1E1E1E;"><strong>E-Mail:</strong> {recipientEmail}</p>
+                        <p style="margin:4px 0;color:#1E1E1E;"><strong>Passwort:</strong> <code style="background:#fff;padding:2px 8px;border-radius:6px;font-size:15px;">{password}</code></p>
+                        <p style="margin:4px 0;color:#1E1E1E;"><strong>Ihr Link:</strong> <a href="{profileUrl}" style="color:#E8C7C3;">{profileUrl}</a></p>
+                      </div>
+                      <div style="text-align:center;margin:24px 0;">
+                        <a href="{loginUrl}" style="display:inline-block;background:linear-gradient(135deg,#E8C7C3,#D8B0AC);color:#fff;text-decoration:none;padding:14px 32px;border-radius:12px;font-weight:bold;font-size:16px;">
+                          Jetzt einloggen →
+                        </a>
+                      </div>
+                      <p style="color:#8A8A8A;font-size:13px;">Bitte ändern Sie Ihr Passwort nach dem ersten Login. Bei Fragen stehen wir Ihnen jederzeit zur Verfügung.</p>
+                    </div>
+                    <div style="background:#f5edeb;padding:16px;text-align:center;">
+                      <p style="color:#8A8A8A;font-size:12px;margin:0;">Powered by GentleBook · <a href="{profileUrl}" style="color:#E8C7C3;">Ihr Profil ansehen</a></p>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """;
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.StartTls);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Welcome email sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send welcome email to {Email}", recipientEmail);
+            // Don't throw — user was already created, email failure is non-critical
+        }
+    }
 }

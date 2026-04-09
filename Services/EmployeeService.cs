@@ -9,11 +9,13 @@ public class EmployeeService
 {
     private readonly GentleBookDbContext _context;
     private readonly ILogger<EmployeeService> _logger;
+    private readonly ITenantContext _tenantContext;
 
-    public EmployeeService(GentleBookDbContext context, ILogger<EmployeeService> logger)
+    public EmployeeService(GentleBookDbContext context, ILogger<EmployeeService> logger, ITenantContext tenantContext)
     {
         _context = context;
         _logger = logger;
+        _tenantContext = tenantContext;
     }
 
     // Updated GetAllAsync to optionally filter by service using the junction table
@@ -194,6 +196,7 @@ public class EmployeeService
         var employee = new Employee
         {
             Id = Guid.NewGuid(),
+            TenantId = _tenantContext.TenantId ?? throw new InvalidOperationException("TenantId fehlt"),
             Name = request.Name.Trim(),
             Role = request.Role?.Trim() ?? "Mitarbeiterin",
             Specialty = request.Specialty?.Trim(),

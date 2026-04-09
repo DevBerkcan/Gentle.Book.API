@@ -16,11 +16,13 @@ public class SuperAdminController : ControllerBase
 {
     private readonly GentleBookDbContext _db;
     private readonly IConfiguration _config;
+    private readonly EmailService _emailService;
 
-    public SuperAdminController(GentleBookDbContext db, IConfiguration config)
+    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService)
     {
         _db = db;
         _config = config;
+        _emailService = emailService;
     }
 
     private IActionResult ForbidIfNotSuperAdmin()
@@ -134,14 +136,18 @@ public class SuperAdminController : ControllerBase
         _db.Subscriptions.Add(subscription);
 
         // Optionally create the first TenantAdmin user
-        if (!string.IsNullOrWhiteSpace(dto.AdminEmail) && !string.IsNullOrWhiteSpace(dto.AdminPassword))
+        string? plainPassword = null;
+        string? adminFirstName = null;
+        if (!string.IsNullOrWhiteSpace(dto.AdminEmail))
         {
+            plainPassword = !string.IsNullOrWhiteSpace(dto.AdminPassword) ? dto.AdminPassword : GeneratePassword();
+            adminFirstName = dto.AdminFirstName ?? "Admin";
             var adminUser = new PlatformUser
             {
                 TenantId = tenant.Id,
                 Email = dto.AdminEmail.ToLowerInvariant(),
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.AdminPassword, workFactor: 12),
-                FirstName = dto.AdminFirstName ?? "Admin",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(plainPassword, workFactor: 12),
+                FirstName = adminFirstName,
                 LastName = dto.AdminLastName ?? tenant.Name,
                 Role = PlatformRole.TenantAdmin,
             };
@@ -149,6 +155,12 @@ public class SuperAdminController : ControllerBase
         }
 
         await _db.SaveChangesAsync();
+
+        // Send welcome email with credentials after save
+        if (!string.IsNullOrWhiteSpace(dto.AdminEmail) && dto.SendWelcomeEmail != false && plainPassword != null)
+        {
+            _ = _emailService.SendWelcomeEmailAsync(dto.AdminEmail.ToLowerInvariant(), adminFirstName!, slug, plainPassword);
+        }
 
         return CreatedAtAction(nameof(GetTenant), new { id = tenant.Id }, new
         {
@@ -250,23 +262,28 @@ public class SuperAdminController : ControllerBase
 
     // ── Users ─────────────────────────────────────────────────────────────
 
-    /// <summary>Add a TenantAdmin user to a tenant.</summary>
+    /// <summary>Add a TenantAdmin user to a tenant. Auto-generates password if none provided, sends welcome email.</summary>
     [HttpPost("tenants/{id:guid}/users")]
     public async Task<IActionResult> CreateTenantUser(Guid id, [FromBody] CreateTenantUserDto dto)
     {
         if (ForbidIfNotSuperAdmin() is { } err) return err;
 
-        var tenantExists = await _db.Tenants.AnyAsync(t => t.Id == id);
-        if (!tenantExists) return NotFound();
+        var tenant = await _db.Tenants.FirstOrDefaultAsync(t => t.Id == id);
+        if (tenant == null) return NotFound();
 
         if (await _db.PlatformUsers.AnyAsync(u => u.Email == dto.Email.ToLowerInvariant()))
             return Conflict(new { message = "Email already in use." });
+
+        // Auto-generate password if not provided
+        var plainPassword = !string.IsNullOrWhiteSpace(dto.Password)
+            ? dto.Password
+            : GeneratePassword();
 
         var user = new PlatformUser
         {
             TenantId = id,
             Email = dto.Email.ToLowerInvariant(),
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password, workFactor: 12),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(plainPassword, workFactor: 12),
             FirstName = dto.FirstName,
             LastName = dto.LastName,
             Role = PlatformRole.TenantAdmin,
@@ -275,7 +292,20 @@ public class SuperAdminController : ControllerBase
         _db.PlatformUsers.Add(user);
         await _db.SaveChangesAsync();
 
-        return Ok(new { user.Id, user.Email, user.FirstName, user.LastName });
+        // Send welcome email with credentials (fire-and-forget; failure is logged, not thrown)
+        if (dto.SendWelcomeEmail != false)
+        {
+            _ = _emailService.SendWelcomeEmailAsync(user.Email, user.FirstName, tenant.Slug, plainPassword);
+        }
+
+        return Ok(new { user.Id, user.Email, user.FirstName, user.LastName, passwordGenerated = string.IsNullOrWhiteSpace(dto.Password) });
+    }
+
+    private static string GeneratePassword()
+    {
+        const string chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+        var rng = new Random();
+        return new string(Enumerable.Range(0, 10).Select(_ => chars[rng.Next(chars.Length)]).ToArray());
     }
 
     // ── Trial / Subscription ─────────────────────────────────────────────
@@ -330,7 +360,8 @@ public record CreateTenantDto(
     string? AdminEmail,
     string? AdminPassword,
     string? AdminFirstName,
-    string? AdminLastName
+    string? AdminLastName,
+    bool? SendWelcomeEmail = true
 );
 
 public record UpdateTenantDto(
@@ -356,5 +387,5 @@ public record UpdateTenantSettingsDto(
     int? MaxAdvanceBookingDays
 );
 
-public record CreateTenantUserDto(string Email, string Password, string FirstName, string LastName);
+public record CreateTenantUserDto(string Email, string? Password, string FirstName, string LastName, bool? SendWelcomeEmail = true);
 public record ExtendTrialDto(int Days);

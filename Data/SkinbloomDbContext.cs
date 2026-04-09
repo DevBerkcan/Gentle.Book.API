@@ -33,6 +33,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<EmailLog> EmailLogs { get; set; }
     public DbSet<PageView> PageViews { get; set; }
     public DbSet<LinkClick> LinkClicks { get; set; }
+    public DbSet<TenantLink> TenantLinks { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -53,6 +54,7 @@ public class GentleBookDbContext : DbContext
             modelBuilder.Entity<BusinessHours>().HasQueryFilter(bh => bh.TenantId == tenantId.Value);
             modelBuilder.Entity<BlockedTimeSlot>().HasQueryFilter(bt => bt.TenantId == tenantId.Value);
             modelBuilder.Entity<EmailLog>().HasQueryFilter(el => el.TenantId == tenantId.Value);
+            modelBuilder.Entity<TenantLink>().HasQueryFilter(tl => tl.TenantId == tenantId.Value);
         }
 
         // ── Tenant ────────────────────────────────────────────
@@ -270,6 +272,20 @@ public class GentleBookDbContext : DbContext
             entity.Property(e => e.SessionId).HasMaxLength(100);
             entity.Property(e => e.ReferrerUrl).HasMaxLength(500);
             entity.HasIndex(e => e.ClickedAt);
+        });
+
+        // ── TenantLink ────────────────────────────────────────
+        modelBuilder.Entity<TenantLink>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Url).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.IconType).HasConversion<string>().HasMaxLength(50);
+            entity.HasOne(e => e.Tenant)
+                  .WithMany(t => t.Links)
+                  .HasForeignKey(e => e.TenantId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.TenantId, e.DisplayOrder });
         });
     }
 }

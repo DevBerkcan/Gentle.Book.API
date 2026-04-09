@@ -1,0 +1,65 @@
+// Controllers/PublicController.cs
+// Public endpoints for the booking widget (no auth required).
+using GentleBook.Api.Data;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+
+namespace GentleBook.Api.Controllers;
+
+[ApiController]
+[Route("api/booking")]
+[AllowAnonymous]
+public class PublicController : ControllerBase
+{
+    private readonly GentleBookDbContext _db;
+
+    public PublicController(GentleBookDbContext db)
+    {
+        _db = db;
+    }
+
+    /// <summary>Returns public branding info for the booking widget.</summary>
+    [HttpGet("{slug}/info")]
+    public async Task<IActionResult> GetTenantInfo(string slug)
+    {
+        var tenant = await _db.Tenants
+            .Include(t => t.Settings)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Slug == slug && t.IsActive);
+
+        if (tenant == null) return NotFound();
+
+        return Ok(new
+        {
+            tenant.Name,
+            CompanyName = tenant.Settings?.CompanyName ?? tenant.Name,
+            tenant.Slug,
+            PrimaryColor = tenant.Settings?.PrimaryColor,
+            Tagline = tenant.Settings?.Tagline,
+            WelcomeMessage = tenant.Settings?.WelcomeMessage,
+            tenant.IndustryType,
+        });
+    }
+
+    /// <summary>Returns active profile links for the Linktree page.</summary>
+    [HttpGet("{slug}/links")]
+    public async Task<IActionResult> GetTenantLinks(string slug)
+    {
+        var tenant = await _db.Tenants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Slug == slug && t.IsActive);
+
+        if (tenant == null) return NotFound();
+
+        var links = await _db.TenantLinks
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .Where(l => l.TenantId == tenant.Id && l.IsActive)
+            .OrderBy(l => l.DisplayOrder)
+            .Select(l => new { l.Id, l.Title, l.Url, l.IconType, l.DisplayOrder })
+            .ToListAsync();
+
+        return Ok(links);
+    }
+}
