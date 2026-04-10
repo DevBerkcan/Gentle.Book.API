@@ -29,6 +29,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<Booking> Bookings { get; set; }
     public DbSet<Customer> Customers { get; set; }
     public DbSet<BusinessHours> BusinessHours { get; set; }
+    public DbSet<EmployeeSchedule> EmployeeSchedules { get; set; }
     public DbSet<BlockedTimeSlot> BlockedTimeSlots { get; set; }
     public DbSet<EmailLog> EmailLogs { get; set; }
     public DbSet<PageView> PageViews { get; set; }
@@ -55,6 +56,7 @@ public class GentleBookDbContext : DbContext
             modelBuilder.Entity<BlockedTimeSlot>().HasQueryFilter(bt => bt.TenantId == tenantId.Value);
             modelBuilder.Entity<EmailLog>().HasQueryFilter(el => el.TenantId == tenantId.Value);
             modelBuilder.Entity<TenantLink>().HasQueryFilter(tl => tl.TenantId == tenantId.Value);
+            modelBuilder.Entity<EmployeeSchedule>().HasQueryFilter(es => es.TenantId == tenantId.Value);
         }
 
         // ── Tenant ────────────────────────────────────────────
@@ -221,6 +223,22 @@ public class GentleBookDbContext : DbContext
                   .OnDelete(DeleteBehavior.Cascade);
             // Unique DayOfWeek per tenant
             entity.HasIndex(e => new { e.TenantId, e.DayOfWeek }).IsUnique();
+            entity.Ignore(e => e.DayName);
+        });
+
+        // ── EmployeeSchedule ──────────────────────────────────
+        modelBuilder.Entity<EmployeeSchedule>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Employee)
+                  .WithMany(emp => emp.Schedules)
+                  .HasForeignKey(e => e.EmployeeId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Tenant)
+                  .WithMany()
+                  .HasForeignKey(e => e.TenantId)
+                  .OnDelete(DeleteBehavior.NoAction);
+            entity.HasIndex(e => new { e.EmployeeId, e.DayOfWeek }).IsUnique();
             entity.Ignore(e => e.DayName);
         });
 

@@ -56,7 +56,8 @@ public class EmailService
 
             var builder = new BodyBuilder();
             var cancellationToken = GenerateCancellationToken(bookingId);
-            var cancellationUrl = $"{_emailOptions.BaseUrl}/api/bookings/cancel/{cancellationToken}";
+            var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
+            var cancellationUrl = $"{frontendBase}/booking/cancel/{cancellationToken}";
 
             builder.HtmlBody = GetConfirmationEmailHtml(booking, cancellationUrl);
             builder.TextBody = GetConfirmationEmailText(booking, cancellationUrl);
@@ -115,7 +116,8 @@ public class EmailService
 
             var builder = new BodyBuilder();
             var cancellationToken = GenerateCancellationToken(booking.Id);
-            var cancellationUrl = $"{_emailOptions.BaseUrl}/api/bookings/cancel/{cancellationToken}";
+            var frontendBase2 = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
+            var cancellationUrl = $"{frontendBase2}/booking/cancel/{cancellationToken}";
 
             builder.HtmlBody = GetConfirmationReceiptHtml(booking, customer, service, cancellationUrl);
             builder.TextBody = GetConfirmationReceiptText(booking, customer, service, cancellationUrl);
@@ -237,7 +239,8 @@ public class EmailService
 
             var builder = new BodyBuilder();
             var cancellationToken = GenerateCancellationToken(bookingId);
-            var cancellationUrl = $"{_emailOptions.BaseUrl}/api/bookings/cancel/{cancellationToken}";
+            var frontendBase3 = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
+            var cancellationUrl = $"{frontendBase3}/booking/cancel/{cancellationToken}";
 
             builder.HtmlBody = GetReminderEmailHtml(booking, cancellationUrl);
             builder.TextBody = GetReminderEmailText(booking, cancellationUrl);
@@ -1260,7 +1263,9 @@ Tel: +41 61 123 45 67";
     {
         try
         {
-            var frontendBase = _emailOptions.BaseUrl?.Replace("/api", "") ?? "https://gentle-book-ui.vercel.app";
+            var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl)
+                ? _emailOptions.BaseUrl?.Replace("/api", "") ?? "https://gentle-book-ui.vercel.app"
+                : _emailOptions.FrontendUrl;
             var loginUrl = $"{frontendBase}/admin/login";
             var profileUrl = $"{frontendBase}/booking/{tenantSlug}";
 

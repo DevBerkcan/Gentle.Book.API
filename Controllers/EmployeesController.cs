@@ -1,8 +1,10 @@
 ﻿using GentleBook.Api.Data;
+using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
 using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace GentleBook.Api.Controllers;
 
@@ -12,11 +14,13 @@ namespace GentleBook.Api.Controllers;
 public class EmployeesController : ControllerBase
 {
     private readonly EmployeeService _employeeService;
+    private readonly GentleBookDbContext _db;
     private readonly IConfiguration _config;
 
-    public EmployeesController(EmployeeService employeeService, IConfiguration config)
+    public EmployeesController(EmployeeService employeeService, GentleBookDbContext db, IConfiguration config)
     {
         _employeeService = employeeService;
+        _db = db;
         _config = config;
     }
 
@@ -139,4 +143,63 @@ public class EmployeesController : ControllerBase
 
         return NoContent();
     }
+
+    // ── GET /api/employees/{id}/schedule ─────────────────────────
+    [HttpGet("{id:guid}/schedule")]
+    public async Task<IActionResult> GetSchedule(Guid id)
+    {
+        var employee = await _db.Employees.FindAsync(id);
+        if (employee == null) return NotFound();
+
+        var schedules = await _db.EmployeeSchedules
+            .Where(s => s.EmployeeId == id)
+            .OrderBy(s => s.DayOfWeek)
+            .ToListAsync();
+
+        var result = schedules.Select(s => new
+        {
+            s.Id,
+            DayOfWeek = (int)s.DayOfWeek,
+            s.DayName,
+            s.IsWorkingDay,
+            StartTime = s.StartTime.ToString("HH:mm"),
+            EndTime = s.EndTime.ToString("HH:mm"),
+        });
+
+        return Ok(new { data = result });
+    }
+
+    // ── PUT /api/employees/{id}/schedule ─────────────────────────
+    [HttpPut("{id:guid}/schedule")]
+    public async Task<IActionResult> UpdateSchedule(Guid id, [FromBody] List<UpdateEmployeeScheduleItemDto> dto)
+    {
+        var employee = await _db.Employees.FindAsync(id);
+        if (employee == null) return NotFound();
+
+        foreach (var item in dto)
+        {
+            var existing = await _db.EmployeeSchedules
+                .FirstOrDefaultAsync(s => s.EmployeeId == id && s.DayOfWeek == (DayOfWeek)item.DayOfWeek);
+
+            if (existing == null)
+            {
+                existing = new EmployeeSchedule
+                {
+                    TenantId = employee.TenantId,
+                    EmployeeId = id,
+                    DayOfWeek = (DayOfWeek)item.DayOfWeek
+                };
+                _db.EmployeeSchedules.Add(existing);
+            }
+
+            existing.IsWorkingDay = item.IsWorkingDay;
+            existing.StartTime = TimeOnly.Parse(item.StartTime ?? "09:00");
+            existing.EndTime = TimeOnly.Parse(item.EndTime ?? "18:00");
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Arbeitszeiten gespeichert" });
+    }
 }
+
+public record UpdateEmployeeScheduleItemDto(int DayOfWeek, bool IsWorkingDay, string? StartTime, string? EndTime);

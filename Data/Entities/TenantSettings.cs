@@ -30,6 +30,10 @@ public class TenantSettings
     public string? WelcomeMessage { get; set; }
     public string? CancellationPolicy { get; set; }
 
+    // ── Linktree Customization ────────────────────────────────
+    public string LinktreeStyle { get; set; } = "gradient";
+    public string? LinktreeConfig { get; set; } // JSON blob for fine-grained design
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

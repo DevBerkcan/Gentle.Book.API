@@ -1,5 +1,6 @@
 ﻿using GentleBook.Api.Data;
 using GentleBook.Api.DTOs;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using GentleBook.Api.Services;
 
@@ -34,6 +35,7 @@ public class TrackingController : ControllerBase
     /// If no date filters are provided, returns ALL TIME statistics
     /// </summary>
     [HttpGet]
+    [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<SimplifiedTrackingStatisticsDto>> GetTrackingStatistics(
         [FromQuery] DateTime? fromDate,
@@ -47,6 +49,7 @@ public class TrackingController : ControllerBase
     /// Get revenue statistics for different time periods
     /// </summary>
     [HttpGet("revenue")]
+    [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<RevenueStatisticsDto>> GetRevenueStatistics()
     {

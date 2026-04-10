@@ -38,7 +38,10 @@ public class PublicController : ControllerBase
             PrimaryColor = tenant.Settings?.PrimaryColor,
             Tagline = tenant.Settings?.Tagline,
             WelcomeMessage = tenant.Settings?.WelcomeMessage,
-            tenant.IndustryType,
+            IndustryType = tenant.IndustryType.ToString(),
+            LogoUrl = tenant.Settings?.LogoUrl,
+            LinktreeStyle = tenant.Settings?.LinktreeStyle ?? "gradient",
+            LinktreeConfig = tenant.Settings?.LinktreeConfig,
         });
     }
 

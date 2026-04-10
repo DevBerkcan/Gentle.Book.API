@@ -260,6 +260,51 @@ public class SuperAdminController : ControllerBase
         return NoContent();
     }
 
+    // ── Logo Upload ───────────────────────────────────────────────────────
+
+    /// <summary>Upload logo for a tenant (SuperAdmin).</summary>
+    [HttpPost("tenants/{id:guid}/logo")]
+    public async Task<IActionResult> UploadLogo(Guid id, IFormFile logo)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var tenant = await _db.Tenants.Include(t => t.Settings).FirstOrDefaultAsync(t => t.Id == id);
+        if (tenant == null) return NotFound();
+
+        if (logo == null || logo.Length == 0)
+            return BadRequest(new { message = "Keine Datei hochgeladen." });
+
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp", "image/gif" };
+        if (!allowedTypes.Contains(logo.ContentType.ToLower()))
+            return BadRequest(new { message = "Nur JPG, PNG, WebP und GIF sind erlaubt." });
+
+        if (logo.Length > 5 * 1024 * 1024)
+            return BadRequest(new { message = "Die Datei darf maximal 5 MB groß sein." });
+
+        var ext = Path.GetExtension(logo.FileName).ToLower();
+        var fileName = $"{id}{ext}";
+        var uploadDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "logos");
+        if (!Directory.Exists(uploadDir)) Directory.CreateDirectory(uploadDir);
+
+        var filePath = Path.Combine(uploadDir, fileName);
+        using (var stream = new FileStream(filePath, FileMode.Create))
+            await logo.CopyToAsync(stream);
+
+        var logoUrl = $"/uploads/logos/{fileName}";
+
+        var settings = tenant.Settings;
+        if (settings == null)
+        {
+            settings = new TenantSettings { TenantId = id, CreatedAt = DateTime.UtcNow };
+            _db.TenantSettings.Add(settings);
+        }
+        settings.LogoUrl = logoUrl;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new { logoUrl });
+    }
+
     // ── Users ─────────────────────────────────────────────────────────────
 
     /// <summary>Add a TenantAdmin user to a tenant. Auto-generates password if none provided, sends welcome email.</summary>

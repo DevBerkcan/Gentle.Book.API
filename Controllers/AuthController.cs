@@ -87,6 +87,33 @@ public class AuthController : ControllerBase
             role = JwtService.GetRole(User),
         });
     }
+
+    /// <summary>Change password for the currently authenticated TenantAdmin.</summary>
+    [HttpPut("change-password")]
+    [Authorize]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
+    {
+        var userId = JwtService.GetUserId(User);
+        if (userId == null) return Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(dto.CurrentPassword) || string.IsNullOrWhiteSpace(dto.NewPassword))
+            return BadRequest(new { message = "Aktuelles und neues Passwort sind erforderlich." });
+
+        if (dto.NewPassword.Length < 6)
+            return BadRequest(new { message = "Das neue Passwort muss mindestens 6 Zeichen lang sein." });
+
+        var user = await _db.PlatformUsers.FindAsync(userId.Value);
+        if (user == null) return NotFound();
+
+        if (!BCrypt.Net.BCrypt.Verify(dto.CurrentPassword, user.PasswordHash))
+            return BadRequest(new { message = "Das aktuelle Passwort ist falsch." });
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword, workFactor: 12);
+        await _db.SaveChangesAsync();
+
+        return Ok(new { message = "Passwort erfolgreich geändert." });
+    }
 }
 
 public record TenantAdminLoginDto(string TenantSlug, string Email, string Password);
+public record ChangePasswordDto(string CurrentPassword, string NewPassword);

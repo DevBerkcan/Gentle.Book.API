@@ -131,6 +131,7 @@ builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<TrackingService>();
 builder.Services.AddScoped<ServiceService>();
 builder.Services.AddScoped<EmployeeAuthService>();
+builder.Services.AddSingleton<SubscriptionService>();
 
 // ── Hangfire ──────────────────────────────────────────────────────────────────
 builder.Services.AddHangfire(configuration => configuration
@@ -175,6 +176,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("GentleBookCors");
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -199,11 +201,11 @@ using (var scope = app.Services.CreateScope())
         service => service.SendDailyRemindersAsync(),
         Cron.Daily(8, 0));
 
-    // TODO (Phase 5): Add TrialExpirationJob here
-    // recurringJobManager.AddOrUpdate<SubscriptionService>(
-    //     "trial-expiration-check",
-    //     service => service.ProcessExpiredTrialsAsync(),
-    //     Cron.Daily(1, 0));
+    // Trial expiration: daily at 1:00 AM UTC
+    recurringJobManager.AddOrUpdate<SubscriptionService>(
+        "trial-expiration-check",
+        service => service.ProcessExpiredTrialsAsync(),
+        Cron.Daily(1, 0));
 }
 
 app.MapControllers();

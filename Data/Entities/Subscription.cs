@@ -30,7 +30,9 @@ public class Subscription
     public int TrialDaysRemaining => IsInTrial
         ? Math.Max(0, (int)(TrialEndsAt - DateTime.UtcNow).TotalDays)
         : 0;
-    public bool IsAccessAllowed => Status is SubscriptionStatus.Trial or SubscriptionStatus.Active;
+    public bool IsAccessAllowed =>
+        (Status == SubscriptionStatus.Trial && TrialEndsAt > DateTime.UtcNow) ||
+        Status == SubscriptionStatus.Active;
 
     // Navigation
     public Tenant Tenant { get; set; } = null!;

@@ -304,6 +304,21 @@ public class AvailabilityService
     {
         var availableSlots = new List<TimeSlotDto>();
 
+        // Check employee's personal schedule for this day
+        var dayOfWeek = date.DayOfWeek;
+        var employeeSchedule = await _context.EmployeeSchedules
+            .FirstOrDefaultAsync(s => s.EmployeeId == employeeId && s.DayOfWeek == dayOfWeek);
+
+        // If schedule exists and employee is not working → all slots unavailable
+        if (employeeSchedule != null && !employeeSchedule.IsWorkingDay)
+        {
+            return timeSlots.Select(slot => new TimeSlotDto(
+                slot.Start.ToString("HH:mm"),
+                slot.End.ToString("HH:mm"),
+                false
+            )).ToList();
+        }
+
         // Get all bookings for this employee on this date
         var employeeBookings = await _context.Bookings
             .Where(b => b.BookingDate == date &&
@@ -321,6 +336,12 @@ public class AvailabilityService
 
         foreach (var slot in timeSlots)
         {
+            // Check if slot falls within employee's personal working hours
+            var outsideSchedule = employeeSchedule != null && (
+                slot.Start < employeeSchedule.StartTime ||
+                slot.End > employeeSchedule.EndTime
+            );
+
             // Check if slot is booked
             var isBooked = employeeBookings.Any(b =>
                 b.StartTime < slot.End && b.EndTime > slot.Start);
@@ -332,7 +353,7 @@ public class AvailabilityService
             availableSlots.Add(new TimeSlotDto(
                 slot.Start.ToString("HH:mm"),
                 slot.End.ToString("HH:mm"),
-                !isBooked && !isBlocked
+                !outsideSchedule && !isBooked && !isBlocked
             ));
         }
 

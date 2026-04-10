@@ -277,6 +277,41 @@ public class BookingsController : ControllerBase
         }
     }
 
+    /// <summary>Preview booking details by cancel token (no cancellation performed).</summary>
+    [HttpGet("cancel/preview/{token}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> PreviewCancelBooking(string token)
+    {
+        try
+        {
+            var (bookingId, action) = _emailService.DecodeToken(token);
+            if (bookingId == Guid.Empty || action != "cancel")
+                return BadRequest(new { message = "Ungültiger Stornierungslink." });
+
+            var booking = await _bookingService.GetBookingByIdAsync(bookingId);
+            if (booking == null)
+                return NotFound(new { message = "Buchung nicht gefunden." });
+
+            if (booking.Status == "Cancelled")
+                return Ok(new { alreadyCancelled = true, message = "Diese Buchung wurde bereits storniert." });
+
+            return Ok(new
+            {
+                alreadyCancelled = false,
+                bookingNumber = booking.BookingNumber,
+                serviceName = booking.Booking.ServiceName,
+                bookingDate = booking.Booking.BookingDate,
+                startTime = booking.Booking.StartTime,
+                endTime = booking.Booking.EndTime,
+                customerName = booking.Customer != null ? $"{booking.Customer.FirstName} {booking.Customer.LastName}" : null,
+            });
+        }
+        catch
+        {
+            return BadRequest(new { message = "Ungültiger Stornierungslink." });
+        }
+    }
+
     [HttpGet("cancel/{token}")]
     [AllowAnonymous]
     public async Task<IActionResult> CancelBookingByToken(string token)

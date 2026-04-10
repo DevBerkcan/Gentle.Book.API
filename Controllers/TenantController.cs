@@ -66,6 +66,8 @@ public class TenantController : ControllerBase
                 settings.DefaultCurrency,
                 settings.WelcomeMessage,
                 settings.CancellationPolicy,
+                settings.LinktreeStyle,
+                settings.LinktreeConfig,
             }
         });
     }
@@ -119,11 +121,119 @@ public class TenantController : ControllerBase
         if (!string.IsNullOrWhiteSpace(dto.DefaultCurrency))
             settings.DefaultCurrency = dto.DefaultCurrency.Trim().ToUpper();
 
+        var validStyles = new[] { "gradient", "dark", "minimal", "bold", "glass" };
+        if (!string.IsNullOrWhiteSpace(dto.LinktreeStyle) && validStyles.Contains(dto.LinktreeStyle))
+            settings.LinktreeStyle = dto.LinktreeStyle;
+
+        if (dto.LinktreeConfig != null)
+            settings.LinktreeConfig = dto.LinktreeConfig;
+
         settings.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
 
         return Ok(new { message = "Einstellungen gespeichert" });
+    }
+
+    // POST /api/tenant/logo
+    [HttpPost("logo")]
+    public async Task<IActionResult> UploadLogo(IFormFile logo)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        if (logo == null || logo.Length == 0)
+            return BadRequest(new { message = "Keine Datei hochgeladen." });
+
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/webp", "image/gif" };
+        if (!allowedTypes.Contains(logo.ContentType.ToLower()))
+            return BadRequest(new { message = "Nur JPG, PNG, WebP und GIF sind erlaubt." });
+
+        if (logo.Length > 5 * 1024 * 1024)
+            return BadRequest(new { message = "Die Datei darf maximal 5 MB groß sein." });
+
+        var ext = Path.GetExtension(logo.FileName).ToLower();
+        var tenantId = _tenantContext.TenantId!.Value;
+        var fileName = $"{tenantId}{ext}";
+        var uploadDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "logos");
+
+        if (!Directory.Exists(uploadDir))
+            Directory.CreateDirectory(uploadDir);
+
+        var filePath = Path.Combine(uploadDir, fileName);
+        using (var stream = new FileStream(filePath, FileMode.Create))
+            await logo.CopyToAsync(stream);
+
+        var logoUrl = $"/uploads/logos/{fileName}";
+
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (settings == null)
+        {
+            settings = new TenantSettings { TenantId = tenantId, CreatedAt = DateTime.UtcNow };
+            _db.TenantSettings.Add(settings);
+        }
+        settings.LogoUrl = logoUrl;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new { logoUrl });
+    }
+
+    // GET /api/tenant/business-hours
+    [HttpGet("business-hours")]
+    public async Task<IActionResult> GetBusinessHours()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var hours = await _db.BusinessHours
+            .OrderBy(bh => bh.DayOfWeek)
+            .ToListAsync();
+
+        var result = hours.Select(bh => new
+        {
+            bh.Id,
+            DayOfWeek = (int)bh.DayOfWeek,
+            bh.DayName,
+            bh.IsOpen,
+            OpenTime = bh.OpenTime.ToString("HH:mm"),
+            CloseTime = bh.CloseTime.ToString("HH:mm"),
+            BreakStartTime = bh.BreakStartTime?.ToString("HH:mm"),
+            BreakEndTime = bh.BreakEndTime?.ToString("HH:mm"),
+        });
+
+        return Ok(new { data = result });
+    }
+
+    // PUT /api/tenant/business-hours
+    [HttpPut("business-hours")]
+    public async Task<IActionResult> UpdateBusinessHours([FromBody] List<UpdateBusinessHoursItemDto> dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+
+        foreach (var item in dto)
+        {
+            var existing = await _db.BusinessHours
+                .FirstOrDefaultAsync(bh => bh.DayOfWeek == (DayOfWeek)item.DayOfWeek);
+
+            if (existing == null)
+            {
+                existing = new BusinessHours { TenantId = tenantId, DayOfWeek = (DayOfWeek)item.DayOfWeek };
+                _db.BusinessHours.Add(existing);
+            }
+
+            existing.IsOpen = item.IsOpen;
+            existing.OpenTime = TimeOnly.Parse(item.OpenTime ?? "09:00");
+            existing.CloseTime = TimeOnly.Parse(item.CloseTime ?? "18:00");
+            existing.BreakStartTime = string.IsNullOrEmpty(item.BreakStartTime) ? null : TimeOnly.Parse(item.BreakStartTime);
+            existing.BreakEndTime = string.IsNullOrEmpty(item.BreakEndTime) ? null : TimeOnly.Parse(item.BreakEndTime);
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Öffnungszeiten gespeichert" });
     }
 
     // GET /api/tenant/subscription
@@ -158,6 +268,8 @@ public class TenantController : ControllerBase
     }
 }
 
+public record UpdateBusinessHoursItemDto(int DayOfWeek, bool IsOpen, string? OpenTime, string? CloseTime, string? BreakStartTime, string? BreakEndTime);
+
 public record UpdateTenantSettingsRequest(
     string? CompanyName,
     string? Tagline,
@@ -173,5 +285,7 @@ public record UpdateTenantSettingsRequest(
     int? BookingIntervalMinutes,
     int? MaxAdvanceBookingDays,
     string? TimeZone,
-    string? DefaultCurrency
+    string? DefaultCurrency,
+    string? LinktreeStyle,
+    string? LinktreeConfig
 );
