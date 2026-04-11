@@ -66,7 +66,7 @@ public class EmailService
 
             using var smtp = new SmtpClient();
             await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort,
-                SecureSocketOptions.StartTls);
+                SecureSocketOptions.Auto);
             await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
             await smtp.SendAsync(message);
             await smtp.DisconnectAsync(true);
@@ -126,7 +126,7 @@ public class EmailService
 
             using var smtp = new SmtpClient();
             await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort,
-                SecureSocketOptions.StartTls);
+                SecureSocketOptions.Auto);
             await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
             await smtp.SendAsync(message);
             await smtp.DisconnectAsync(true);
@@ -182,7 +182,7 @@ public class EmailService
 
             using var smtp = new SmtpClient();
             await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort,
-                SecureSocketOptions.StartTls);
+                SecureSocketOptions.Auto);
             await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
             await smtp.SendAsync(message);
             await smtp.DisconnectAsync(true);
@@ -249,7 +249,7 @@ public class EmailService
 
             using var smtp = new SmtpClient();
             await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort,
-                SecureSocketOptions.StartTls);
+                SecureSocketOptions.Auto);
             await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
             await smtp.SendAsync(message);
             await smtp.DisconnectAsync(true);
@@ -291,7 +291,7 @@ public class EmailService
             message.Body = builder.ToMessageBody();
 
             using var smtp = new SmtpClient();
-            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.StartTls);
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
             await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
             await smtp.SendAsync(message);
             await smtp.DisconnectAsync(true);
@@ -1266,51 +1266,260 @@ Tel: +41 61 123 45 67";
             var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl)
                 ? _emailOptions.BaseUrl?.Replace("/api", "") ?? "https://gentle-book-ui.vercel.app"
                 : _emailOptions.FrontendUrl;
-            var loginUrl = $"{frontendBase}/admin/login";
-            var profileUrl = $"{frontendBase}/booking/{tenantSlug}";
+            var loginUrl    = $"{frontendBase}/admin/login";
+            var profileUrl  = $"{frontendBase}/booking/{tenantSlug}";
+            var settingsUrl = $"{frontendBase}/admin/settings";
+            var linksUrl    = $"{frontendBase}/admin/links";
 
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress(_emailOptions.SenderName ?? "GentleBook", _emailOptions.SenderEmail));
+            // Always send from noreply@gentlegroup.de
+            message.From.Add(new MailboxAddress("GentleGroup", "noreply@gentlegroup.de"));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
-            message.Subject = "Willkommen bei GentleBook – Ihre Zugangsdaten";
+            message.Subject = $"Willkommen bei GentleBook, {firstName}! 🎉 Ihre Zugangsdaten";
 
             var builder = new BodyBuilder();
+
             builder.HtmlBody = $"""
                 <!DOCTYPE html>
-                <html>
-                <head><meta charset="utf-8"></head>
-                <body style="font-family:Arial,sans-serif;background:#f5edeb;margin:0;padding:20px;">
-                  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
-                    <div style="background:linear-gradient(135deg,#E8C7C3,#D8B0AC);padding:32px;text-align:center;">
-                      <h1 style="color:#fff;margin:0;font-size:28px;">Willkommen!</h1>
-                      <p style="color:rgba(255,255,255,.9);margin:8px 0 0;">Ihr GentleBook-Konto ist bereit</p>
-                    </div>
-                    <div style="padding:32px;">
-                      <p style="color:#1E1E1E;font-size:16px;">Hallo {firstName},</p>
-                      <p style="color:#555;">Ihr Buchungssystem wurde erfolgreich eingerichtet. Hier sind Ihre Zugangsdaten:</p>
-                      <div style="background:#f5edeb;border-radius:12px;padding:20px;margin:24px 0;">
-                        <p style="margin:0 0 8px;color:#8A8A8A;font-size:12px;text-transform:uppercase;letter-spacing:.5px;">Ihre Login-Daten</p>
-                        <p style="margin:4px 0;color:#1E1E1E;"><strong>E-Mail:</strong> {recipientEmail}</p>
-                        <p style="margin:4px 0;color:#1E1E1E;"><strong>Passwort:</strong> <code style="background:#fff;padding:2px 8px;border-radius:6px;font-size:15px;">{password}</code></p>
-                        <p style="margin:4px 0;color:#1E1E1E;"><strong>Ihr Link:</strong> <a href="{profileUrl}" style="color:#E8C7C3;">{profileUrl}</a></p>
-                      </div>
-                      <div style="text-align:center;margin:24px 0;">
-                        <a href="{loginUrl}" style="display:inline-block;background:linear-gradient(135deg,#E8C7C3,#D8B0AC);color:#fff;text-decoration:none;padding:14px 32px;border-radius:12px;font-weight:bold;font-size:16px;">
-                          Jetzt einloggen →
-                        </a>
-                      </div>
-                      <p style="color:#8A8A8A;font-size:13px;">Bitte ändern Sie Ihr Passwort nach dem ersten Login. Bei Fragen stehen wir Ihnen jederzeit zur Verfügung.</p>
-                    </div>
-                    <div style="background:#f5edeb;padding:16px;text-align:center;">
-                      <p style="color:#8A8A8A;font-size:12px;margin:0;">Powered by GentleBook · <a href="{profileUrl}" style="color:#E8C7C3;">Ihr Profil ansehen</a></p>
-                    </div>
-                  </div>
+                <html lang="de">
+                <head>
+                  <meta charset="utf-8">
+                  <meta name="viewport" content="width=device-width,initial-scale=1">
+                  <title>Willkommen bei GentleBook</title>
+                </head>
+                <body style="margin:0;padding:0;background:#F5EDEB;font-family:'Helvetica Neue',Arial,sans-serif;">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F5EDEB;padding:32px 16px;">
+                    <tr><td align="center">
+                      <table width="100%" style="max-width:580px;" cellpadding="0" cellspacing="0">
+
+                        <!-- HEADER -->
+                        <tr>
+                          <td style="background:linear-gradient(135deg,#E8C7C3 0%,#C9A8A4 100%);border-radius:20px 20px 0 0;padding:40px 32px 36px;text-align:center;">
+                            <div style="display:inline-block;width:64px;height:64px;background:rgba(255,255,255,0.25);border-radius:50%;line-height:64px;font-size:30px;margin-bottom:16px;">🎉</div>
+                            <h1 style="margin:0;color:#fff;font-size:28px;font-weight:700;letter-spacing:-0.5px;">Herzlich willkommen!</h1>
+                            <p style="margin:10px 0 0;color:rgba(255,255,255,0.88);font-size:15px;">Ihr GentleBook-Buchungssystem ist einsatzbereit</p>
+                          </td>
+                        </tr>
+
+                        <!-- GREETING -->
+                        <tr>
+                          <td style="background:#ffffff;padding:32px 32px 24px;">
+                            <p style="margin:0 0 12px;color:#1E1E1E;font-size:16px;">Hallo <strong>{firstName}</strong>,</p>
+                            <p style="margin:0;color:#555;font-size:15px;line-height:1.6;">
+                              wir freuen uns sehr, Sie als neuen Kunden bei GentleBook begrüßen zu dürfen!
+                              Ihr persönliches Online-Buchungssystem wurde erfolgreich für Sie eingerichtet und ist ab sofort aktiv.
+                            </p>
+                          </td>
+                        </tr>
+
+                        <!-- LOGIN CREDENTIALS -->
+                        <tr>
+                          <td style="background:#ffffff;padding:0 32px 28px;">
+                            <div style="background:#F5EDEB;border-radius:14px;padding:22px 24px;border-left:4px solid #E8C7C3;">
+                              <p style="margin:0 0 14px;color:#8A8A8A;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">🔐 Ihre Zugangsdaten</p>
+                              <table cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                  <td style="padding:5px 0;color:#8A8A8A;font-size:14px;width:90px;">E-Mail</td>
+                                  <td style="padding:5px 0;color:#1E1E1E;font-size:14px;font-weight:600;">{recipientEmail}</td>
+                                </tr>
+                                <tr>
+                                  <td style="padding:5px 0;color:#8A8A8A;font-size:14px;">Passwort</td>
+                                  <td style="padding:5px 0;">
+                                    <code style="background:#fff;color:#D8706A;padding:4px 12px;border-radius:8px;font-size:15px;font-family:monospace;border:1px solid #f0e0de;letter-spacing:1px;">{password}</code>
+                                  </td>
+                                </tr>
+                                <tr>
+                                  <td style="padding:5px 0;color:#8A8A8A;font-size:14px;">Ihr Profil</td>
+                                  <td style="padding:5px 0;">
+                                    <a href="{profileUrl}" style="color:#E8C7C3;font-size:14px;text-decoration:none;font-weight:500;">{profileUrl}</a>
+                                  </td>
+                                </tr>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+
+                        <!-- CTA BUTTON -->
+                        <tr>
+                          <td style="background:#ffffff;padding:0 32px 32px;text-align:center;">
+                            <a href="{loginUrl}"
+                               style="display:inline-block;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);color:#fff;text-decoration:none;padding:16px 40px;border-radius:14px;font-weight:700;font-size:16px;letter-spacing:0.3px;box-shadow:0 4px 16px rgba(232,199,195,0.45);">
+                              Jetzt einloggen &rarr;
+                            </a>
+                            <p style="margin:12px 0 0;color:#AAAAAA;font-size:12px;">
+                              Bitte ändern Sie Ihr Passwort nach dem ersten Login.
+                            </p>
+                          </td>
+                        </tr>
+
+                        <!-- DIVIDER -->
+                        <tr>
+                          <td style="background:#ffffff;padding:0 32px;">
+                            <div style="border-top:1px solid #F0E8E7;"></div>
+                          </td>
+                        </tr>
+
+                        <!-- NEXT STEPS -->
+                        <tr>
+                          <td style="background:#ffffff;padding:28px 32px;">
+                            <p style="margin:0 0 18px;color:#1E1E1E;font-size:15px;font-weight:700;">✅ Ihre nächsten Schritte</p>
+                            <table cellpadding="0" cellspacing="0" width="100%">
+
+                              <tr>
+                                <td valign="top" style="width:36px;padding:0 0 16px;">
+                                  <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">1</div>
+                                </td>
+                                <td style="padding:0 0 16px 8px;">
+                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Einloggen &amp; Passwort ändern</p>
+                                  <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
+                                    Melden Sie sich unter <a href="{loginUrl}" style="color:#E8C7C3;text-decoration:none;">{loginUrl}</a> an und ändern Sie sofort Ihr Passwort unter Einstellungen.
+                                  </p>
+                                </td>
+                              </tr>
+
+                              <tr>
+                                <td valign="top" style="width:36px;padding:0 0 16px;">
+                                  <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">2</div>
+                                </td>
+                                <td style="padding:0 0 16px 8px;">
+                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Profil &amp; Branding einrichten</p>
+                                  <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
+                                    Laden Sie Ihr Logo hoch, wählen Sie Ihre Branchenfarbe und passen Sie Ihren Profiltext unter
+                                    <a href="{settingsUrl}" style="color:#E8C7C3;text-decoration:none;">Einstellungen</a> an.
+                                  </p>
+                                </td>
+                              </tr>
+
+                              <tr>
+                                <td valign="top" style="width:36px;padding:0 0 16px;">
+                                  <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">3</div>
+                                </td>
+                                <td style="padding:0 0 16px 8px;">
+                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Links &amp; Design gestalten</p>
+                                  <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
+                                    Fügen Sie unter <a href="{linksUrl}" style="color:#E8C7C3;text-decoration:none;">Meine Links</a> Instagram, WhatsApp oder andere Links hinzu
+                                    und wählen Sie eine Branchenvorlage für Ihr Design.
+                                  </p>
+                                </td>
+                              </tr>
+
+                              <tr>
+                                <td valign="top" style="width:36px;padding:0 0 16px;">
+                                  <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">4</div>
+                                </td>
+                                <td style="padding:0 0 16px 8px;">
+                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Buchungslink teilen</p>
+                                  <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
+                                    Teilen Sie Ihren persönlichen Link <a href="{profileUrl}" style="color:#E8C7C3;text-decoration:none;">{profileUrl}</a>
+                                    mit Ihren Kunden — per WhatsApp, Instagram Bio oder QR-Code (im Admin unter „Meine Links" → „QR-Code").
+                                  </p>
+                                </td>
+                              </tr>
+
+                              <tr>
+                                <td valign="top" style="width:36px;">
+                                  <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">5</div>
+                                </td>
+                                <td style="padding:0 0 0 8px;">
+                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Leistungen &amp; Mitarbeiter anlegen</p>
+                                  <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
+                                    Legen Sie Ihre Dienstleistungen (Preise, Dauer) und Mitarbeiter im Admin-Bereich an,
+                                    damit Kunden direkt online buchen können.
+                                  </p>
+                                </td>
+                              </tr>
+
+                            </table>
+                          </td>
+                        </tr>
+
+                        <!-- DIVIDER -->
+                        <tr>
+                          <td style="background:#ffffff;padding:0 32px;">
+                            <div style="border-top:1px solid #F0E8E7;"></div>
+                          </td>
+                        </tr>
+
+                        <!-- SUPPORT -->
+                        <tr>
+                          <td style="background:#ffffff;padding:24px 32px 32px;">
+                            <table cellpadding="0" cellspacing="0" width="100%" style="background:#F5EDEB;border-radius:12px;padding:20px 24px;">
+                              <tr>
+                                <td>
+                                  <p style="margin:0 0 6px;color:#1E1E1E;font-size:14px;font-weight:700;">💬 Fragen? Wir sind für Sie da!</p>
+                                  <p style="margin:0;color:#888;font-size:13px;line-height:1.6;">
+                                    Bei Fragen oder Problemen stehen wir Ihnen jederzeit zur Verfügung.<br>
+                                    Schreiben Sie uns einfach an:
+                                    <a href="mailto:support@gentlegroup.de" style="color:#E8C7C3;font-weight:600;text-decoration:none;">support@gentlegroup.de</a>
+                                  </p>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+
+                        <!-- FOOTER -->
+                        <tr>
+                          <td style="background:#EEE4E2;border-radius:0 0 20px 20px;padding:20px 32px;text-align:center;">
+                            <p style="margin:0 0 4px;color:#AAA;font-size:12px;">
+                              Diese E-Mail wurde automatisch von GentleBook versandt.
+                            </p>
+                            <p style="margin:0;color:#AAA;font-size:12px;">
+                              &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
+                              <a href="mailto:support@gentlegroup.de" style="color:#C9A8A4;text-decoration:none;">support@gentlegroup.de</a>
+                              &middot; <a href="{profileUrl}" style="color:#C9A8A4;text-decoration:none;">Ihr Profil</a>
+                            </p>
+                          </td>
+                        </tr>
+
+                      </table>
+                    </td></tr>
+                  </table>
                 </body>
                 </html>
                 """;
 
+            builder.TextBody = $"""
+                Willkommen bei GentleBook, {firstName}!
+
+                Ihr Buchungssystem ist einsatzbereit. Hier sind Ihre Zugangsdaten:
+
+                E-Mail:   {recipientEmail}
+                Passwort: {password}
+                Profil:   {profileUrl}
+
+                LOGIN: {loginUrl}
+
+                IHRE NÄCHSTEN SCHRITTE:
+
+                1. Einloggen & Passwort ändern
+                   Melden Sie sich an und ändern Sie sofort Ihr Passwort unter Einstellungen.
+
+                2. Profil & Branding einrichten
+                   Laden Sie Ihr Logo hoch und wählen Sie Ihre Branchenfarbe.
+                   -> {settingsUrl}
+
+                3. Links & Design gestalten
+                   Fügen Sie Instagram, WhatsApp oder andere Links hinzu und wählen Sie eine Branchenvorlage.
+                   -> {linksUrl}
+
+                4. Buchungslink teilen
+                   Teilen Sie {profileUrl} mit Ihren Kunden per WhatsApp, Instagram Bio oder QR-Code.
+
+                5. Leistungen & Mitarbeiter anlegen
+                   Legen Sie Ihre Dienstleistungen (Preise, Dauer) und Mitarbeiter an.
+
+                ---
+                Fragen? Wir sind für Sie da!
+                support@gentlegroup.de
+
+                © {DateTime.UtcNow.Year} GentleGroup
+                """;
+
+            message.Body = builder.ToMessageBody();
+
             using var smtp = new SmtpClient();
-            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.StartTls);
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
             await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
             await smtp.SendAsync(message);
             await smtp.DisconnectAsync(true);
