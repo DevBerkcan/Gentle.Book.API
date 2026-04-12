@@ -64,6 +64,7 @@ public class AuthController : ControllerBase
         return Ok(new
         {
             token,
+            mustChangePassword = user.MustChangePassword,
             user = new
             {
                 id = user.Id,
@@ -113,6 +114,7 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Das aktuelle Passwort ist falsch." });
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword, workFactor: 12);
+        user.MustChangePassword = false;
         await _db.SaveChangesAsync();
 
         return Ok(new { message = "Passwort erfolgreich geändert." });

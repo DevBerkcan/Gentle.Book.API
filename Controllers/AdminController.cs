@@ -50,6 +50,43 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>
+    /// Returns onboarding checklist status for the current tenant.
+    /// Used to show a setup guide for new tenant admins.
+    /// </summary>
+    [HttpGet("onboarding")]
+    public async Task<IActionResult> GetOnboardingStatus()
+    {
+        var tenantId = JwtService.GetTenantId(User);
+        if (tenantId == null) return Unauthorized();
+
+        var settings = await _db.TenantSettings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
+
+        var hasLogo       = !string.IsNullOrEmpty(settings?.LogoUrl);
+        var hasCompany    = !string.IsNullOrEmpty(settings?.CompanyName);
+        var hasServices   = await _db.Services.AnyAsync();
+        var hasEmployees  = await _db.Employees.AnyAsync();
+        var hasHours      = await _db.BusinessHours.AnyAsync();
+        var hasBooking    = await _db.Bookings.AnyAsync();
+
+        var completed = new[] { hasLogo, hasCompany, hasServices, hasEmployees, hasHours }.Count(x => x);
+        var isComplete = completed >= 5;
+
+        return Ok(new {
+            HasLogo      = hasLogo,
+            HasCompany   = hasCompany,
+            HasServices  = hasServices,
+            HasEmployees = hasEmployees,
+            HasHours     = hasHours,
+            HasBooking   = hasBooking,
+            IsComplete   = isComplete,
+            CompletedSteps = completed,
+            TotalSteps   = 5,
+        });
+    }
+
+    /// <summary>
     /// Get dashboard statistics
     /// </summary>
     [HttpGet("statistics")]

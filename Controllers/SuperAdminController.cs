@@ -140,7 +140,8 @@ public class SuperAdminController : ControllerBase
         string? adminFirstName = null;
         if (!string.IsNullOrWhiteSpace(dto.AdminEmail))
         {
-            plainPassword = !string.IsNullOrWhiteSpace(dto.AdminPassword) ? dto.AdminPassword : GeneratePassword();
+            var passwordWasGenerated = string.IsNullOrWhiteSpace(dto.AdminPassword);
+            plainPassword = passwordWasGenerated ? GeneratePassword() : dto.AdminPassword!;
             adminFirstName = dto.AdminFirstName ?? "Admin";
             var adminUser = new PlatformUser
             {
@@ -150,6 +151,7 @@ public class SuperAdminController : ControllerBase
                 FirstName = adminFirstName,
                 LastName = dto.AdminLastName ?? tenant.Name,
                 Role = PlatformRole.TenantAdmin,
+                MustChangePassword = passwordWasGenerated, // force change if password was auto-generated
             };
             _db.PlatformUsers.Add(adminUser);
         }
@@ -391,6 +393,343 @@ public class SuperAdminController : ControllerBase
         };
 
         return Ok(stats);
+    }
+
+    /// <summary>Platform-wide overview data: monthly charts, email health, top tenants.</summary>
+    [HttpGet("overview")]
+    public async Task<IActionResult> GetOverview()
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var now = DateTime.UtcNow;
+        var sixMonthsAgo = now.AddMonths(-5).Date;
+
+        // Monthly bookings across all tenants (last 6 months)
+        var bookingsByMonth = await _db.Bookings
+            .IgnoreQueryFilters()
+            .Where(b => b.CreatedAt >= sixMonthsAgo)
+            .GroupBy(b => new { b.CreatedAt.Year, b.CreatedAt.Month })
+            .Select(g => new {
+                g.Key.Year, g.Key.Month,
+                Total     = g.Count(),
+                Confirmed = g.Count(b => b.Status == BookingStatus.Confirmed),
+                Cancelled = g.Count(b => b.Status == BookingStatus.Cancelled),
+                Completed = g.Count(b => b.Status == BookingStatus.Completed),
+            })
+            .ToListAsync();
+
+        // Monthly new tenants (last 6 months)
+        var tenantsByMonth = await _db.Tenants
+            .Where(t => t.CreatedAt >= sixMonthsAgo)
+            .GroupBy(t => new { t.CreatedAt.Year, t.CreatedAt.Month })
+            .Select(g => new { g.Key.Year, g.Key.Month, NewTenants = g.Count() })
+            .ToListAsync();
+
+        // Email stats (all-time)
+        var emailStats = await _db.EmailLogs
+            .IgnoreQueryFilters()
+            .GroupBy(e => e.Status)
+            .Select(g => new { Status = g.Key.ToString(), Count = g.Count() })
+            .ToListAsync();
+
+        // Top 5 tenants by booking count
+        var topTenantGroups = await _db.Bookings
+            .IgnoreQueryFilters()
+            .GroupBy(b => b.TenantId)
+            .Select(g => new { TenantId = g.Key, BookingCount = g.Count() })
+            .OrderByDescending(x => x.BookingCount)
+            .Take(5)
+            .ToListAsync();
+
+        var topTenantIds = topTenantGroups.Select(t => t.TenantId).ToList();
+        var topTenantDetails = await _db.Tenants
+            .Include(t => t.Settings)
+            .Where(t => topTenantIds.Contains(t.Id))
+            .ToListAsync();
+
+        // Fill all 6 months (including empty ones)
+        var culture = new System.Globalization.CultureInfo("de-DE");
+        var months = Enumerable.Range(0, 6)
+            .Select(i => now.AddMonths(-5 + i))
+            .Select(d => new {
+                d.Year, d.Month,
+                Label      = d.ToString("MMM yy", culture),
+                Bookings   = bookingsByMonth.FirstOrDefault(b => b.Year == d.Year && b.Month == d.Month)?.Total ?? 0,
+                Confirmed  = bookingsByMonth.FirstOrDefault(b => b.Year == d.Year && b.Month == d.Month)?.Confirmed ?? 0,
+                Cancelled  = bookingsByMonth.FirstOrDefault(b => b.Year == d.Year && b.Month == d.Month)?.Cancelled ?? 0,
+                NewTenants = tenantsByMonth.FirstOrDefault(t => t.Year == d.Year && t.Month == d.Month)?.NewTenants ?? 0,
+            })
+            .ToList();
+
+        return Ok(new {
+            MonthlyData = months,
+            EmailStats = new {
+                Sent    = emailStats.FirstOrDefault(e => e.Status == "Sent")?.Count    ?? 0,
+                Failed  = emailStats.FirstOrDefault(e => e.Status == "Failed")?.Count  ?? 0,
+                Pending = emailStats.FirstOrDefault(e => e.Status == "Pending")?.Count ?? 0,
+            },
+            TopTenants = topTenantGroups.Select(tt => {
+                var t = topTenantDetails.FirstOrDefault(x => x.Id == tt.TenantId);
+                return new {
+                    TenantId    = tt.TenantId,
+                    CompanyName = t?.Settings?.CompanyName ?? t?.Name ?? "Unbekannt",
+                    Slug        = t?.Slug ?? "",
+                    BookingCount = tt.BookingCount,
+                };
+            }),
+        });
+    }
+
+    // ── Email Logs ────────────────────────────────────────────────────────
+
+    /// <summary>Platform-wide email logs with optional filters.</summary>
+    [HttpGet("email-logs")]
+    public async Task<IActionResult> GetEmailLogs(
+        [FromQuery] Guid? tenantId,
+        [FromQuery] string? status,
+        [FromQuery] string? emailType,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var query = _db.EmailLogs
+            .IgnoreQueryFilters()
+            .Include(e => e.Tenant).ThenInclude(t => t.Settings)
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (tenantId.HasValue)
+            query = query.Where(e => e.TenantId == tenantId.Value);
+
+        if (!string.IsNullOrEmpty(status) && Enum.TryParse<EmailStatus>(status, out var parsedStatus))
+            query = query.Where(e => e.Status == parsedStatus);
+
+        if (!string.IsNullOrEmpty(emailType) && Enum.TryParse<EmailType>(emailType, out var parsedType))
+            query = query.Where(e => e.EmailType == parsedType);
+
+        var total = await query.CountAsync();
+        var items = await query
+            .OrderByDescending(e => e.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(e => new
+            {
+                e.Id,
+                e.TenantId,
+                CompanyName = e.Tenant.Settings != null ? e.Tenant.Settings.CompanyName : e.Tenant.Name,
+                TenantSlug = e.Tenant.Slug,
+                e.RecipientEmail,
+                e.Subject,
+                EmailType = e.EmailType.ToString(),
+                Status = e.Status.ToString(),
+                e.SentAt,
+                e.ErrorMessage,
+                e.CreatedAt,
+            })
+            .ToListAsync();
+
+        var sentCount   = await _db.EmailLogs.IgnoreQueryFilters().CountAsync(e => e.Status == EmailStatus.Sent);
+        var failedCount = await _db.EmailLogs.IgnoreQueryFilters().CountAsync(e => e.Status == EmailStatus.Failed);
+
+        return Ok(new { items, totalCount = total, page, pageSize, sentCount, failedCount });
+    }
+
+    // ── Tenant Stats ──────────────────────────────────────────────────────
+
+    /// <summary>Detailed booking + revenue stats for a single tenant (last 6 months).</summary>
+    [HttpGet("tenants/{id:guid}/stats")]
+    public async Task<IActionResult> GetTenantStats(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var tenant = await _db.Tenants.FindAsync(id);
+        if (tenant == null) return NotFound();
+
+        var since = DateTime.UtcNow.AddMonths(-6);
+        var sinceDate = DateOnly.FromDateTime(since);
+
+        var bookings = await _db.Bookings
+            .IgnoreQueryFilters()
+            .Include(b => b.Service)
+            .Where(b => b.TenantId == id && b.BookingDate >= sinceDate)
+            .AsNoTracking()
+            .ToListAsync();
+
+        // Group by month
+        var byMonth = bookings
+            .GroupBy(b => new { b.BookingDate.Year, b.BookingDate.Month })
+            .Select(g => new
+            {
+                Year  = g.Key.Year,
+                Month = g.Key.Month,
+                Label = new DateTime(g.Key.Year, g.Key.Month, 1).ToString("MMM yyyy"),
+                Bookings = g.Count(),
+                Revenue  = g.Where(b => b.Status != BookingStatus.Cancelled)
+                            .Sum(b => b.Service?.Price ?? 0),
+            })
+            .OrderBy(x => x.Year).ThenBy(x => x.Month)
+            .ToList();
+
+        // Fill missing months so chart is always 6 bars
+        var months = Enumerable.Range(0, 6)
+            .Select(i => DateTime.UtcNow.AddMonths(-5 + i))
+            .Select(d => new
+            {
+                Year  = d.Year,
+                Month = d.Month,
+                Label = d.ToString("MMM yyyy"),
+                Bookings = byMonth.FirstOrDefault(m => m.Year == d.Year && m.Month == d.Month)?.Bookings ?? 0,
+                Revenue  = byMonth.FirstOrDefault(m => m.Year == d.Year && m.Month == d.Month)?.Revenue ?? 0m,
+            })
+            .ToList();
+
+        var allBookings = await _db.Bookings.IgnoreQueryFilters().Where(b => b.TenantId == id).AsNoTracking().ToListAsync();
+        var customers   = await _db.Customers.IgnoreQueryFilters().CountAsync(c => c.TenantId == id);
+        var employees   = await _db.Employees.IgnoreQueryFilters().CountAsync(e => e.TenantId == id);
+
+        return Ok(new
+        {
+            MonthlyStats   = months,
+            TotalBookings  = allBookings.Count,
+            TotalRevenue   = allBookings.Where(b => b.Status != BookingStatus.Cancelled)
+                                        .Sum(b => _db.Services.IgnoreQueryFilters().Where(s => s.Id == b.ServiceId).Select(s => s.Price).FirstOrDefault()),
+            TotalCustomers = customers,
+            TotalEmployees = employees,
+            ConfirmedCount = allBookings.Count(b => b.Status == BookingStatus.Confirmed),
+            CancelledCount = allBookings.Count(b => b.Status == BookingStatus.Cancelled),
+            CompletedCount = allBookings.Count(b => b.Status == BookingStatus.Completed),
+        });
+    }
+
+    // ── Activity Feed ─────────────────────────────────────────────────────
+
+    /// <summary>Platform-wide activity feed derived from recent tenant + booking events.</summary>
+    [HttpGet("activity")]
+    public async Task<IActionResult> GetActivity([FromQuery] int limit = 30)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var activities = new List<object>();
+
+        // Recent tenant registrations
+        var recentTenants = await _db.Tenants
+            .Include(t => t.Settings)
+            .AsNoTracking()
+            .OrderByDescending(t => t.CreatedAt)
+            .Take(10)
+            .ToListAsync();
+
+        foreach (var t in recentTenants)
+        {
+            activities.Add(new
+            {
+                Type      = "TenantCreated",
+                Icon      = "building",
+                Title     = $"Neues System angelegt: {(t.Settings?.CompanyName ?? t.Name)}",
+                Detail    = $"/{t.Slug}",
+                TenantId  = t.Id,
+                Timestamp = t.CreatedAt,
+            });
+        }
+
+        // Recently deactivated/reactivated tenants
+        var recentUpdated = await _db.Tenants
+            .Include(t => t.Settings)
+            .AsNoTracking()
+            .Where(t => t.UpdatedAt > t.CreatedAt.AddMinutes(5))
+            .OrderByDescending(t => t.UpdatedAt)
+            .Take(10)
+            .ToListAsync();
+
+        foreach (var t in recentUpdated)
+        {
+            activities.Add(new
+            {
+                Type      = t.IsActive ? "TenantActivated" : "TenantDeactivated",
+                Icon      = t.IsActive ? "check" : "ban",
+                Title     = t.IsActive
+                    ? $"System aktiviert: {(t.Settings?.CompanyName ?? t.Name)}"
+                    : $"System deaktiviert: {(t.Settings?.CompanyName ?? t.Name)}",
+                Detail    = $"/{t.Slug}",
+                TenantId  = t.Id,
+                Timestamp = t.UpdatedAt,
+            });
+        }
+
+        // Recent trial extensions
+        var recentSubs = await _db.Subscriptions
+            .Include(s => s.Tenant).ThenInclude(t => t.Settings)
+            .AsNoTracking()
+            .Where(s => s.UpdatedAt > s.CreatedAt.AddMinutes(5))
+            .OrderByDescending(s => s.UpdatedAt)
+            .Take(10)
+            .ToListAsync();
+
+        foreach (var s in recentSubs)
+        {
+            activities.Add(new
+            {
+                Type      = "TrialExtended",
+                Icon      = "zap",
+                Title     = $"Trial verlängert: {(s.Tenant?.Settings?.CompanyName ?? s.Tenant?.Name ?? "–")}",
+                Detail    = $"Läuft bis {s.TrialEndsAt:dd.MM.yyyy}",
+                TenantId  = s.TenantId,
+                Timestamp = s.UpdatedAt,
+            });
+        }
+
+        // Recent bookings (platform-wide)
+        var recentBookings = await _db.Bookings
+            .IgnoreQueryFilters()
+            .Include(b => b.Tenant).ThenInclude(t => t.Settings)
+            .Include(b => b.Customer)
+            .AsNoTracking()
+            .OrderByDescending(b => b.CreatedAt)
+            .Take(15)
+            .ToListAsync();
+
+        foreach (var b in recentBookings)
+        {
+            activities.Add(new
+            {
+                Type      = "BookingCreated",
+                Icon      = "calendar",
+                Title     = $"Neue Buchung: {b.Customer?.FullName ?? "–"}",
+                Detail    = $"{(b.Tenant?.Settings?.CompanyName ?? b.Tenant?.Name ?? "–")} · {b.BookingDate:dd.MM.yyyy}",
+                TenantId  = b.TenantId,
+                Timestamp = b.CreatedAt,
+            });
+        }
+
+        // Recent new platform users (TenantAdmins)
+        var recentUsers = await _db.PlatformUsers
+            .Include(u => u.Tenant).ThenInclude(t => t!.Settings)
+            .AsNoTracking()
+            .Where(u => u.Role == PlatformRole.TenantAdmin)
+            .OrderByDescending(u => u.CreatedAt)
+            .Take(10)
+            .ToListAsync();
+
+        foreach (var u in recentUsers)
+        {
+            activities.Add(new
+            {
+                Type      = "UserCreated",
+                Icon      = "user",
+                Title     = $"Admin-User erstellt: {u.FirstName} {u.LastName}",
+                Detail    = $"{u.Email} · {(u.Tenant?.Settings?.CompanyName ?? u.Tenant?.Name ?? "–")}",
+                TenantId  = u.TenantId,
+                Timestamp = u.CreatedAt,
+            });
+        }
+
+        var sorted = activities
+            .OrderByDescending(a => (DateTime)a.GetType().GetProperty("Timestamp")!.GetValue(a)!)
+            .Take(limit)
+            .ToList();
+
+        return Ok(sorted);
     }
 }
 

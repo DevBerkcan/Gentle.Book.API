@@ -33,6 +33,7 @@ public class ReminderService
 
         // Get all confirmed bookings for tomorrow
         var bookingsToRemind = await _context.Bookings
+            .IgnoreQueryFilters()
             .Include(b => b.Customer)
             .Include(b => b.Service)
             .Where(b =>
@@ -81,6 +82,7 @@ public class ReminderService
                 _context.EmailLogs.Add(new EmailLog
                 {
                     Id = Guid.NewGuid(),
+                    TenantId = booking.TenantId,
                     BookingId = booking.Id,
                     RecipientEmail = booking.Customer.Email,
                     EmailType = EmailType.Reminder,
@@ -110,6 +112,7 @@ public class ReminderService
                 _context.EmailLogs.Add(new EmailLog
                 {
                     Id = Guid.NewGuid(),
+                    TenantId = booking.TenantId,
                     BookingId = booking.Id,
                     RecipientEmail = booking.Customer?.Email ?? "unknown",
                     EmailType = EmailType.Reminder,

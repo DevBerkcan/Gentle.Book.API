@@ -18,6 +18,8 @@ public class PlatformUser
     public PlatformRole Role { get; set; } = PlatformRole.TenantAdmin;
 
     public bool IsActive { get; set; } = true;
+    /// <summary>True when an admin-generated password was set — user must change it on first login.</summary>
+    public bool MustChangePassword { get; set; } = false;
     public DateTime? LastLoginAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

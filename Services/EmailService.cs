@@ -32,8 +32,10 @@ public class EmailService
     public async Task SendBookingConfirmationAsync(Guid bookingId)
     {
         var booking = await _context.Bookings
+            .IgnoreQueryFilters()
             .Include(b => b.Customer)
             .Include(b => b.Service)
+            .Include(b => b.Tenant).ThenInclude(t => t.Settings)
             .FirstOrDefaultAsync(b => b.Id == bookingId);
 
         if (booking == null)
@@ -63,7 +65,10 @@ public class EmailService
             var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
             var cancellationUrl = $"{frontendBase}/booking/cancel/{cancellationToken}";
 
-            builder.HtmlBody = GetConfirmationEmailHtml(booking, cancellationUrl);
+            var tenantName1 = booking.Tenant?.Settings?.CompanyName ?? booking.Tenant?.Name ?? "GentleBook";
+            var tenantLogo1 = booking.Tenant?.Settings?.LogoUrl;
+            var currency1 = booking.Tenant?.Settings?.DefaultCurrency ?? "EUR";
+            builder.HtmlBody = GetConfirmationEmailHtml(booking, cancellationUrl, tenantName1, tenantLogo1, currency1);
             builder.TextBody = GetConfirmationEmailText(booking, cancellationUrl);
 
             message.Body = builder.ToMessageBody();
@@ -81,10 +86,12 @@ public class EmailService
 
             _logger.LogInformation("Confirmation email sent to {Email}", booking.Customer.Email);
 
+            var (adminEmail1, adminName1) = await GetTenantAdminEmailAsync(booking.TenantId);
             await SendInternalNotificationAsync(
                 $"Neue Buchung: {booking.Customer.FullName} – {booking.Service.Name} am {booking.BookingDate:dd.MM.yyyy}",
                 GetInternalBookingNotificationHtml(booking, booking.Customer, booking.Service),
-                GetInternalBookingNotificationText(booking, booking.Customer, booking.Service)
+                GetInternalBookingNotificationText(booking, booking.Customer, booking.Service),
+                adminEmail1, adminName1
             );
         }
         catch (Exception ex)
@@ -123,7 +130,11 @@ public class EmailService
             var frontendBase2 = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
             var cancellationUrl = $"{frontendBase2}/booking/cancel/{cancellationToken}";
 
-            builder.HtmlBody = GetConfirmationReceiptHtml(booking, customer, service, cancellationUrl);
+            var tenantSettings2 = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
+            var tenantName2 = tenantSettings2?.CompanyName ?? "GentleBook";
+            var tenantLogo2 = tenantSettings2?.LogoUrl;
+            var currency2 = tenantSettings2?.DefaultCurrency ?? "EUR";
+            builder.HtmlBody = GetConfirmationReceiptHtml(booking, customer, service, cancellationUrl, tenantName2, tenantLogo2, currency2);
             builder.TextBody = GetConfirmationReceiptText(booking, customer, service, cancellationUrl);
 
             message.Body = builder.ToMessageBody();
@@ -140,10 +151,12 @@ public class EmailService
 
             _logger.LogInformation("Confirmation receipt sent to {Email}", customer.Email);
 
+            var (adminEmail2, adminName2) = await GetTenantAdminEmailAsync(booking.TenantId);
             await SendInternalNotificationAsync(
                 $"Buchung bestätigt: {customer.FullName} – {service.Name} am {booking.BookingDate:dd.MM.yyyy}",
                 GetInternalBookingNotificationHtml(booking, customer, service),
-                GetInternalBookingNotificationText(booking, customer, service)
+                GetInternalBookingNotificationText(booking, customer, service),
+                adminEmail2, adminName2
             );
         }
         catch (Exception ex)
@@ -179,7 +192,10 @@ public class EmailService
 
             var builder = new BodyBuilder();
 
-            builder.HtmlBody = GetCancellationEmailHtml(booking, customer, service);
+            var tenantSettings3 = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
+            var tenantName3 = tenantSettings3?.CompanyName ?? "GentleBook";
+            var tenantLogo3 = tenantSettings3?.LogoUrl;
+            builder.HtmlBody = GetCancellationEmailHtml(booking, customer, service, tenantName3, tenantLogo3);
             builder.TextBody = GetCancellationEmailText(booking, customer, service);
 
             message.Body = builder.ToMessageBody();
@@ -196,10 +212,12 @@ public class EmailService
 
             _logger.LogInformation("Cancellation confirmation sent to {Email}", customer.Email);
 
+            var (adminEmail3, adminName3) = await GetTenantAdminEmailAsync(booking.TenantId);
             await SendInternalNotificationAsync(
                 $"Stornierung: {customer.FullName} – {service.Name} am {booking.BookingDate:dd.MM.yyyy}",
                 GetInternalCancellationNotificationHtml(booking, customer, service),
-                GetInternalCancellationNotificationText(booking, customer, service)
+                GetInternalCancellationNotificationText(booking, customer, service),
+                adminEmail3, adminName3
             );
         }
         catch (Exception ex)
@@ -217,8 +235,10 @@ public class EmailService
     public async Task SendBookingReminderAsync(Guid bookingId)
     {
         var booking = await _context.Bookings
+            .IgnoreQueryFilters()
             .Include(b => b.Customer)
             .Include(b => b.Service)
+            .Include(b => b.Tenant).ThenInclude(t => t.Settings)
             .FirstOrDefaultAsync(b => b.Id == bookingId);
 
         if (booking == null || booking.Status != BookingStatus.Confirmed)
@@ -246,7 +266,9 @@ public class EmailService
             var frontendBase3 = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
             var cancellationUrl = $"{frontendBase3}/booking/cancel/{cancellationToken}";
 
-            builder.HtmlBody = GetReminderEmailHtml(booking, cancellationUrl);
+            var tenantName4 = booking.Tenant?.Settings?.CompanyName ?? booking.Tenant?.Name ?? "GentleBook";
+            var tenantLogo4 = booking.Tenant?.Settings?.LogoUrl;
+            builder.HtmlBody = GetReminderEmailHtml(booking, cancellationUrl, tenantName4, tenantLogo4);
             builder.TextBody = GetReminderEmailText(booking, cancellationUrl);
 
             message.Body = builder.ToMessageBody();
@@ -278,13 +300,38 @@ public class EmailService
 
     #region Internal Notifications
 
-    private async Task SendInternalNotificationAsync(string subject, string htmlBody, string textBody)
+    private async Task<(string email, string name)> GetTenantAdminEmailAsync(Guid tenantId)
+    {
+        // 1. Try active TenantAdmin PlatformUser
+        var adminUser = await _context.PlatformUsers
+            .Where(u => u.TenantId == tenantId && u.Role == PlatformRole.TenantAdmin && u.IsActive)
+            .Select(u => new { u.Email, u.FirstName, u.LastName })
+            .FirstOrDefaultAsync();
+
+        if (adminUser != null)
+            return (adminUser.Email, $"{adminUser.FirstName} {adminUser.LastName}".Trim());
+
+        // 2. Fallback: TenantSettings contact email
+        var settings = await _context.TenantSettings
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => new { s.Email, s.CompanyName })
+            .FirstOrDefaultAsync();
+
+        if (!string.IsNullOrEmpty(settings?.Email))
+            return (settings.Email, settings.CompanyName ?? "Admin");
+
+        // 3. Last resort: platform sender
+        return (_emailOptions.SenderEmail, "GentleBook");
+    }
+
+    private async Task SendInternalNotificationAsync(string subject, string htmlBody, string textBody,
+        string toEmail, string toName)
     {
         try
         {
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress("GentleBook Buchungssystem", _emailOptions.SenderEmail));
-            message.To.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(toName, toEmail));
             message.Subject = $"[Buchungssystem] {subject}";
 
             var builder = new BodyBuilder
@@ -598,8 +645,13 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 
     #region Email Templates
 
-    private string GetBaseEmailTemplate(string title, string content)
+    private string GetBaseEmailTemplate(string title, string content, string tenantName = "GentleBook", string? tenantLogoUrl = null)
     {
+        var headerContent = tenantLogoUrl != null
+            ? $@"<img src='{tenantLogoUrl}' alt='{tenantName}' style='max-height:60px; max-width:200px; object-fit:contain; margin-bottom:12px;' /><br/><p style='color: #C09995; font-size: 14px; margin: 0; letter-spacing: 1px; text-transform: uppercase; opacity: 0.9;'>{tenantName}</p>"
+            : $@"<div style='color: #C09995; font-size: 44px; font-weight: 300; margin-bottom: 16px; line-height: 1;'>✧</div>
+            <p style='color: #C09995; font-size: 26px; font-weight: 600; margin: 0 0 8px 0; letter-spacing: 0.5px; font-family: Arial, sans-serif;'>{tenantName}</p>
+            <p style='color: #C09995; font-size: 14px; margin: 0; letter-spacing: 1px; text-transform: uppercase; opacity: 0.9;'>Ihre Premium Beauty-Experience</p>";
         return $@"<!DOCTYPE html>
 <html lang='de'>
 <head>
@@ -936,9 +988,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 <body>
     <div class='container'>
         <div style='background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); padding: 40px 30px; text-align: center; border-bottom: 3px solid #C09995;'>
-            <div style='color: #C09995; font-size: 44px; font-weight: 300; margin-bottom: 16px; line-height: 1;'>✧</div>
-            <p style='color: #C09995; font-size: 26px; font-weight: 600; margin: 0 0 8px 0; letter-spacing: 0.5px; font-family: Arial, sans-serif;'>GentleBook</p>
-            <p style='color: #C09995; font-size: 14px; margin: 0; letter-spacing: 1px; text-transform: uppercase; opacity: 0.9;'>Ihre Premium Beauty-Experience</p>
+            {headerContent}
         </div>
         
         <div class='content'>
@@ -947,24 +997,14 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
         
         <div class='footer'>
             <div style='color: #C09995; font-size: 22px; margin-bottom: 12px;'>✧</div>
-            <div class='footer-brand'>GentleBook</div>
-            <div class='footer-address'>
-                Elisabethenstrasse 41<br>
-                4051 Basel, Schweiz
-            </div>
-            <div class='footer-contact'>
-                Tel: +41 61 123 45 67<br>
-                info@gentlebook.app
-            </div>
+            <div class='footer-brand'>{tenantName}</div>
             <div class='footer-links'>
                 <a href='{_emailOptions.BaseUrl}/datenschutz'>Datenschutz</a>
                 <span class='footer-divider'>|</span>
                 <a href='{_emailOptions.BaseUrl}/impressum'>Impressum</a>
-                <span class='footer-divider'>|</span>
-                <a href='{_emailOptions.BaseUrl}/agb'>AGB</a>
             </div>
             <div class='footer-copy'>
-                © {DateTime.UtcNow.Year} GentleBook. Alle Rechte vorbehalten.
+                © {DateTime.UtcNow.Year} {tenantName}. Buchungssystem powered by GentleBook.
             </div>
         </div>
     </div>
@@ -972,15 +1012,15 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 </html>";
     }
 
-    private string GetConfirmationEmailHtml(Booking booking, string cancellationUrl)
+    private string GetConfirmationEmailHtml(Booking booking, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null, string currency = "EUR")
     {
         var content = $@"
             <div class='greeting'>
                 Hallo {booking.Customer.FirstName},
             </div>
-            
+
             <p style='color: var(--text-secondary); margin-bottom: 30px;'>
-                Vielen Dank für Ihre Buchung bei GentleBook. Ihr Termin wurde erfolgreich bestätigt.
+                Vielen Dank für Ihre Buchung bei {tenantName}. Ihr Termin wurde erfolgreich bestätigt.
             </p>
             
             <div class='booking-card'>
@@ -1007,7 +1047,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 </div>
                 <div class='detail-row'>
                     <span class='detail-label'>Preis</span>
-                    <span class='detail-value'><span class='price'>{booking.Service.Price:0.00} CHF</span></span>
+                    <span class='detail-value'><span class='price'>{booking.Service.Price:0.00} {currency}</span></span>
                 </div>
             </div>
             
@@ -1023,10 +1063,10 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 </p>
             </div>";
 
-        return GetBaseEmailTemplate("Ihre Buchungsbestätigung", content);
+        return GetBaseEmailTemplate("Ihre Buchungsbestätigung", content, tenantName, tenantLogoUrl);
     }
 
-    private string GetConfirmationReceiptHtml(Booking booking, Customer customer, Service service, string cancellationUrl)
+    private string GetConfirmationReceiptHtml(Booking booking, Customer customer, Service service, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null, string currency = "EUR")
     {
         var content = $@"
             <div class='greeting'>
@@ -1061,7 +1101,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 </div>
                 <div class='detail-row'>
                     <span class='detail-label'>Preis</span>
-                    <span class='detail-value'><span class='price'>{service.Price:0.00} CHF</span></span>
+                    <span class='detail-value'><span class='price'>{service.Price:0.00} {currency}</span></span>
                 </div>
             </div>
             
@@ -1083,10 +1123,10 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 <!--<![endif]-->
             </div>";
 
-        return GetBaseEmailTemplate("Buchung bestätigt", content);
+        return GetBaseEmailTemplate("Buchung bestätigt", content, tenantName, tenantLogoUrl);
     }
 
-    private string GetCancellationEmailHtml(Booking booking, Customer customer, Service service)
+    private string GetCancellationEmailHtml(Booking booking, Customer customer, Service service, string tenantName = "GentleBook", string? tenantLogoUrl = null)
     {
         var content = $@"
             <div class='greeting'>
@@ -1094,7 +1134,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
             </div>
             
             <p style='color: var(--text-secondary); margin-bottom: 30px;'>
-                Ihre Buchung bei GentleBook wurde erfolgreich storniert.
+                Ihre Buchung bei {tenantName} wurde erfolgreich storniert.
             </p>
             
             <div class='booking-card'>
@@ -1135,10 +1175,10 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 </a>
             </div>";
 
-        return GetBaseEmailTemplate("Termin storniert", content);
+        return GetBaseEmailTemplate("Termin storniert", content, tenantName, tenantLogoUrl);
     }
 
-    private string GetReminderEmailHtml(Booking booking, string cancellationUrl)
+    private string GetReminderEmailHtml(Booking booking, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null)
     {
         var content = $@"
             <div class='greeting'>
@@ -1146,7 +1186,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
             </div>
             
             <p style='color: var(--text-secondary); margin-bottom: 30px;'>
-                dies ist eine freundliche Erinnerung an Ihren morgigen Termin bei GentleBook.
+                dies ist eine freundliche Erinnerung an Ihren morgigen Termin bei {tenantName}.
             </p>
             
             <div class='booking-card'>
@@ -1199,7 +1239,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 <!--<![endif]-->
             </div>";
 
-        return GetBaseEmailTemplate("Terminerinnerung", content);
+        return GetBaseEmailTemplate("Terminerinnerung", content, tenantName, tenantLogoUrl);
     }
 
     #endregion
