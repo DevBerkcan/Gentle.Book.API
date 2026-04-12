@@ -440,6 +440,38 @@ namespace GentleBook.Api.Migrations
                     b.ToTable("PageViews");
                 });
 
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.PasswordResetToken", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsUsed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash");
+
+                    b.HasIndex("UserId", "IsUsed");
+
+                    b.ToTable("PasswordResetTokens");
+                });
+
             modelBuilder.Entity("GentleBook.Api.Data.Entities.PlatformUser", b =>
                 {
                     b.Property<Guid>("Id")
@@ -778,6 +810,13 @@ namespace GentleBook.Api.Migrations
                     b.Property<string>("Email")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("LinktreeConfig")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("LinktreeStyle")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("LogoUrl")
                         .HasColumnType("nvarchar(max)");
 
@@ -951,6 +990,17 @@ namespace GentleBook.Api.Migrations
                     b.Navigation("Employee");
 
                     b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.PasswordResetToken", b =>
+                {
+                    b.HasOne("GentleBook.Api.Data.Entities.PlatformUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("GentleBook.Api.Data.Entities.PlatformUser", b =>

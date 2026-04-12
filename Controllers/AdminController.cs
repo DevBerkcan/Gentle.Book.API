@@ -1,7 +1,11 @@
+using System.Text;
+using GentleBook.Api.Data;
+using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
 using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace GentleBook.Api.Controllers;
 
@@ -12,16 +16,22 @@ public class AdminController : ControllerBase
 {
     private readonly AdminService _adminService;
     private readonly ManualBookingService _manualBookingService;
+    private readonly EmailService _emailService;
+    private readonly GentleBookDbContext _db;
     private readonly ILogger<AdminController> _logger;
 
     public AdminController(
         AdminService adminService,
         ILogger<AdminController> logger,
-        ManualBookingService manualBookingService)
+        ManualBookingService manualBookingService,
+        EmailService emailService,
+        GentleBookDbContext db)
     {
         _adminService = adminService;
         _logger = logger;
         _manualBookingService = manualBookingService;
+        _emailService = emailService;
+        _db = db;
     }
 
     // ── Helper to get current employee from JWT ──────────────────
@@ -220,6 +230,94 @@ public class AdminController : ControllerBase
         {
             _logger.LogWarning(ex, "Cannot delete booking: {BookingId}", id);
             return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Export bookings as CSV with optional filters.</summary>
+    [HttpGet("bookings/export")]
+    public async Task<IActionResult> ExportBookingsCsv(
+        [FromQuery] string? status,
+        [FromQuery] DateTime? fromDate,
+        [FromQuery] DateTime? toDate)
+    {
+        var query = _db.Bookings
+            .Include(b => b.Customer)
+            .Include(b => b.Service)
+            .Include(b => b.Employee)
+            .AsQueryable();
+
+        if (!string.IsNullOrEmpty(status))
+            query = query.Where(b => b.Status.ToString() == status);
+        if (fromDate.HasValue)
+            query = query.Where(b => b.BookingDate >= DateOnly.FromDateTime(fromDate.Value));
+        if (toDate.HasValue)
+            query = query.Where(b => b.BookingDate <= DateOnly.FromDateTime(toDate.Value));
+
+        var bookings = await query.OrderBy(b => b.BookingDate).ThenBy(b => b.StartTime).ToListAsync();
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Buchungsnummer,Datum,Startzeit,Endzeit,Kunde,E-Mail,Telefon,Service,Mitarbeiter,Preis,Währung,Status,Erstellt am");
+
+        foreach (var b in bookings)
+        {
+            var price = (b.Service?.Price ?? 0).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            var bookingNumber = Booking.GenerateBookingNumber(b.BookingDate, b.Id);
+            var row = string.Join(",", new[]
+            {
+                CsvEscape(bookingNumber),
+                b.BookingDate.ToString("dd.MM.yyyy"),
+                b.StartTime.ToString(@"hh\:mm"),
+                b.EndTime.ToString(@"hh\:mm"),
+                CsvEscape(b.Customer?.FullName ?? ""),
+                CsvEscape(b.Customer?.Email ?? ""),
+                CsvEscape(b.Customer?.Phone ?? ""),
+                CsvEscape(b.Service?.Name ?? ""),
+                CsvEscape(b.Employee?.Name ?? ""),
+                price,
+                CsvEscape(b.Service?.Currency ?? "EUR"),
+                CsvEscape(b.Status.ToString()),
+                b.CreatedAt.ToString("dd.MM.yyyy HH:mm"),
+            });
+            sb.AppendLine(row);
+        }
+
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(sb.ToString())).ToArray();
+        var fileName = $"buchungen_{DateTime.Now:yyyyMMdd_HHmm}.csv";
+        return File(bytes, "text/csv; charset=utf-8", fileName);
+    }
+
+    private static string CsvEscape(string val)
+    {
+        if (val.Contains(',') || val.Contains('"') || val.Contains('\n'))
+            return $"\"{val.Replace("\"", "\"\"")}\"";
+        return val;
+    }
+
+    /// <summary>Resend booking confirmation email.</summary>
+    [HttpPost("bookings/{id}/resend-confirmation")]
+    public async Task<IActionResult> ResendConfirmation(Guid id)
+    {
+        var booking = await _db.Bookings
+            .Include(b => b.Customer)
+            .Include(b => b.Service)
+            .FirstOrDefaultAsync(b => b.Id == id);
+
+        if (booking == null)
+            return NotFound(new { message = "Buchung nicht gefunden." });
+
+        if (booking.Status.ToString() == "Cancelled")
+            return BadRequest(new { message = "Stornierte Buchungen können nicht erneut bestätigt werden." });
+
+        try
+        {
+            await _emailService.SendConfirmationReceiptAsync(booking, booking.Customer, booking.Service);
+            _logger.LogInformation("Confirmation resent for booking {BookingId}", id);
+            return Ok(new { message = $"Bestätigung wurde erneut an {booking.Customer.Email} gesendet." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to resend confirmation for booking {BookingId}", id);
+            return StatusCode(500, new { message = "E-Mail konnte nicht gesendet werden." });
         }
     }
 }

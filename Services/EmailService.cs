@@ -15,6 +15,10 @@ public class EmailService
     private readonly GentleBookDbContext _context;
     private readonly ILogger<EmailService> _logger;
 
+    public string FrontendUrl => string.IsNullOrEmpty(_emailOptions.FrontendUrl)
+        ? _emailOptions.BaseUrl
+        : _emailOptions.FrontendUrl;
+
     public EmailService(
         IOptions<EmailOptions> emailOptions,
         GentleBookDbContext context,
@@ -483,6 +487,111 @@ Status:       Storniert
 {(!string.IsNullOrEmpty(booking.CancellationReason) ? $"\nGrund:        {booking.CancellationReason}" : "")}
 ------------------------------------------------
 Diese Nachricht wurde automatisch generiert.";
+    }
+
+    /// <summary>
+    /// Sends a support / contact message from a TenantAdmin to support@gentlegroup.de.
+    /// Always sends from noreply@gentlegroup.de with Reply-To set to the tenant's email.
+    /// </summary>
+    public async Task SendSupportMessageAsync(
+        string tenantSlug,
+        string companyName,
+        string senderEmail,
+        string senderName,
+        string subject,
+        string messageBody)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook Support", _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress("GentleBook Support", "support@gentlegroup.de"));
+            message.ReplyTo.Add(new MailboxAddress(senderName, senderEmail));
+            message.Subject = $"[Support] {companyName} ({tenantSlug}): {subject}";
+
+            var html = $@"<!DOCTYPE html>
+<html lang='de'>
+<head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:600px;margin:0 auto'>
+  <!-- Header -->
+  <div style='background:linear-gradient(135deg,#017172,#01a0a2);border-radius:16px 16px 0 0;padding:28px 32px;'>
+    <h1 style='color:#fff;margin:0;font-size:20px;font-weight:700'>📩 Support-Anfrage</h1>
+    <p style='color:rgba(255,255,255,0.75);margin:6px 0 0;font-size:13px'>Eingegangen über GentleBook Dashboard</p>
+  </div>
+  <!-- Body -->
+  <div style='background:#ffffff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
+    <!-- Firma Info -->
+    <table style='width:100%;border-collapse:collapse;margin-bottom:24px;background:#f8fafc;border-radius:10px;overflow:hidden'>
+      <tr style='border-bottom:1px solid #e5e7eb'>
+        <td style='padding:12px 16px;font-size:12px;color:#6b7280;font-weight:600;width:140px'>Firma</td>
+        <td style='padding:12px 16px;font-size:14px;color:#111827;font-weight:700'>{companyName}</td>
+      </tr>
+      <tr style='border-bottom:1px solid #e5e7eb'>
+        <td style='padding:12px 16px;font-size:12px;color:#6b7280;font-weight:600'>Tenant-ID</td>
+        <td style='padding:12px 16px;font-size:14px;color:#017172;font-family:monospace'>{tenantSlug}</td>
+      </tr>
+      <tr style='border-bottom:1px solid #e5e7eb'>
+        <td style='padding:12px 16px;font-size:12px;color:#6b7280;font-weight:600'>Absender</td>
+        <td style='padding:12px 16px;font-size:14px;color:#111827'>{senderName}</td>
+      </tr>
+      <tr>
+        <td style='padding:12px 16px;font-size:12px;color:#6b7280;font-weight:600'>E-Mail</td>
+        <td style='padding:12px 16px;font-size:14px;'><a href='mailto:{senderEmail}' style='color:#017172'>{senderEmail}</a></td>
+      </tr>
+    </table>
+    <!-- Betreff -->
+    <p style='font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px'>Betreff</p>
+    <p style='font-size:16px;font-weight:700;color:#111827;margin:0 0 20px'>{subject}</p>
+    <!-- Nachricht -->
+    <p style='font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px'>Nachricht</p>
+    <div style='background:#f8fafc;border-left:4px solid #017172;border-radius:0 8px 8px 0;padding:16px 20px;font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap'>{messageBody}</div>
+    <!-- CTA -->
+    <div style='margin-top:28px;padding-top:20px;border-top:1px solid #e5e7eb;text-align:center'>
+      <a href='mailto:{senderEmail}' style='background:linear-gradient(135deg,#017172,#01a0a2);color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:600;font-size:14px;display:inline-block'>
+        Direkt antworten →
+      </a>
+    </div>
+    <p style='text-align:center;font-size:11px;color:#9ca3af;margin-top:20px'>
+      Eingegangen am {DateTime.Now:dd.MM.yyyy} um {DateTime.Now:HH:mm} Uhr
+    </p>
+  </div>
+</div>
+</body>
+</html>";
+
+            var text = $@"Support-Anfrage via GentleBook
+==============================
+Firma:     {companyName}
+Tenant-ID: {tenantSlug}
+Absender:  {senderName}
+E-Mail:    {senderEmail}
+
+Betreff: {subject}
+
+Nachricht:
+{messageBody}
+
+---
+Zum Antworten: {senderEmail}
+Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Support message sent from {TenantSlug} ({SenderEmail})", tenantSlug, senderEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send support message from {TenantSlug}", tenantSlug);
+            throw;
+        }
     }
 
     #endregion
@@ -1254,6 +1363,86 @@ Tel: +41 61 123 45 67";
         }
 
         return (Guid.Empty, string.Empty);
+    }
+
+    /// <summary>
+    /// Sends a password reset link to a TenantAdmin.
+    /// </summary>
+    public async Task SendPasswordResetEmailAsync(string recipientEmail, string firstName, string resetUrl)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = "Passwort zurücksetzen – GentleBook";
+
+            var html = $@"<!DOCTYPE html>
+<html lang='de'>
+<head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:520px;margin:0 auto'>
+  <div style='background:linear-gradient(135deg,#017172,#01a0a2);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+    <div style='width:56px;height:56px;background:rgba(255,255,255,0.2);border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px'>
+      <span style='font-size:28px'>🔐</span>
+    </div>
+    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Passwort zurücksetzen</h1>
+    <p style='color:rgba(255,255,255,0.7);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
+  </div>
+  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
+    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
+    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 24px'>
+      Du hast eine Anfrage zum Zurücksetzen deines Passworts gestellt. Klicke auf den Button unten, um ein neues Passwort festzulegen.
+    </p>
+    <div style='text-align:center;margin:28px 0'>
+      <a href='{resetUrl}' style='background:linear-gradient(135deg,#017172,#01a0a2);color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block;box-shadow:0 4px 14px rgba(1,113,114,0.3)'>
+        Passwort zurücksetzen →
+      </a>
+    </div>
+    <div style='background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;margin:24px 0'>
+      <p style='font-size:13px;color:#92400e;margin:0'>
+        ⏱️ <strong>Achtung:</strong> Dieser Link ist nur <strong>1 Stunde</strong> gültig. Danach musst du eine neue Anfrage stellen.
+      </p>
+    </div>
+    <p style='font-size:13px;color:#9ca3af;margin:0 0 4px'>Falls du diese Anfrage nicht gestellt hast, ignoriere diese E-Mail einfach.</p>
+    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
+      GentleBook · support@gentlegroup.de
+    </p>
+  </div>
+</div>
+</body>
+</html>";
+
+            var text = $@"Passwort zurücksetzen – GentleBook
+=====================================
+Hallo {firstName},
+
+du hast eine Anfrage zum Zurücksetzen deines Passworts gestellt.
+
+Link zum Zurücksetzen:
+{resetUrl}
+
+Dieser Link ist 1 Stunde gültig.
+Falls du diese Anfrage nicht gestellt hast, ignoriere diese E-Mail.
+
+GentleBook · support@gentlegroup.de";
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Password reset email sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send password reset email to {Email}", recipientEmail);
+            throw;
+        }
     }
 
     /// <summary>

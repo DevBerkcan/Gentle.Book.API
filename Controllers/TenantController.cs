@@ -16,11 +16,13 @@ public class TenantController : ControllerBase
 {
     private readonly GentleBookDbContext _db;
     private readonly ITenantContext _tenantContext;
+    private readonly EmailService _emailService;
 
-    public TenantController(GentleBookDbContext db, ITenantContext tenantContext)
+    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService)
     {
         _db = db;
         _tenantContext = tenantContext;
+        _emailService = emailService;
     }
 
     private IActionResult? RequireTenantAdmin()
@@ -266,7 +268,48 @@ public class TenantController : ControllerBase
             }
         });
     }
+
+    // POST /api/tenant/support
+    [HttpPost("support")]
+    public async Task<IActionResult> SendSupportMessage([FromBody] SupportMessageRequest dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        if (string.IsNullOrWhiteSpace(dto.Subject) || string.IsNullOrWhiteSpace(dto.Message))
+            return BadRequest(new { message = "Betreff und Nachricht sind erforderlich." });
+
+        var tenantId = _tenantContext.TenantId!.Value;
+
+        var tenant   = await _db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId);
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+
+        var companyName = settings?.CompanyName ?? tenant?.Slug ?? "Unbekannt";
+        var tenantSlug  = tenant?.Slug ?? tenantId.ToString();
+
+        var senderEmail = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                       ?? User.FindFirst("email")?.Value
+                       ?? "noreply@gentlegroup.de";
+        var senderName  = User.FindFirst("name")?.Value
+                       ?? User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value
+                       ?? companyName;
+
+        try
+        {
+            await _emailService.SendSupportMessageAsync(
+                tenantSlug, companyName, senderEmail, senderName,
+                dto.Subject.Trim(), dto.Message.Trim());
+
+            return Ok(new { message = "Nachricht erfolgreich gesendet." });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = "E-Mail konnte nicht gesendet werden.", detail = ex.Message });
+        }
+    }
 }
+
+public record SupportMessageRequest(string Subject, string Message);
 
 public record UpdateBusinessHoursItemDto(int DayOfWeek, bool IsOpen, string? OpenTime, string? CloseTime, string? BreakStartTime, string? BreakEndTime);
 

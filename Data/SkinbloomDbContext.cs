@@ -35,6 +35,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<PageView> PageViews { get; set; }
     public DbSet<LinkClick> LinkClicks { get; set; }
     public DbSet<TenantLink> TenantLinks { get; set; }
+    public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -113,6 +114,19 @@ public class GentleBookDbContext : DbContext
                   .HasForeignKey(e => e.TenantId)
                   .OnDelete(DeleteBehavior.Cascade)
                   .IsRequired(false);
+        });
+
+        // ── PasswordResetToken ────────────────────────────────
+        modelBuilder.Entity<PasswordResetToken>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TokenHash).IsRequired().HasMaxLength(64);
+            entity.HasIndex(e => e.TokenHash);
+            entity.HasIndex(e => new { e.UserId, e.IsUsed });
+            entity.HasOne(e => e.User)
+                  .WithMany()
+                  .HasForeignKey(e => e.UserId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ── Employee ──────────────────────────────────────────
