@@ -17,12 +17,14 @@ public class SuperAdminController : ControllerBase
     private readonly GentleBookDbContext _db;
     private readonly IConfiguration _config;
     private readonly EmailService _emailService;
+    private readonly ILogger<SuperAdminController> _logger;
 
-    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService)
+    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger)
     {
         _db = db;
         _config = config;
         _emailService = emailService;
+        _logger = logger;
     }
 
     private IActionResult ForbidIfNotSuperAdmin()
@@ -156,7 +158,15 @@ public class SuperAdminController : ControllerBase
             _db.PlatformUsers.Add(adminUser);
         }
 
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SaveChanges failed in CreateTenant");
+            return StatusCode(500, new { message = "DB-Fehler beim Speichern.", detail = ex.Message, inner = ex.InnerException?.Message });
+        }
 
         // Send welcome email with credentials after save
         if (!string.IsNullOrWhiteSpace(dto.AdminEmail) && dto.SendWelcomeEmail != false && plainPassword != null)

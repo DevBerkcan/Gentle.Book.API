@@ -141,6 +141,74 @@ public class BookingsController : ControllerBase
         return Ok(bookings);
     }
 
+    /// <summary>Export all bookings as CSV file.</summary>
+    [HttpGet("export/csv")]
+    [Authorize]
+    public async Task<IActionResult> ExportCsv()
+    {
+        var bookings = await _bookingService.GetAllBookingsAsync(null);
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("Buchungsnummer;Status;Datum;Uhrzeit;Ende;Service;Preis;Währung;Vorname;Nachname;E-Mail;Mitarbeiter");
+
+        foreach (var b in bookings)
+        {
+            var employee = b.Employee?.Name ?? "";
+            var line = string.Join(";", new[]
+            {
+                Escape(b.BookingNumber),
+                Escape(b.Status),
+                Escape(b.Booking.BookingDate),
+                Escape(b.Booking.StartTime),
+                Escape(b.Booking.EndTime),
+                Escape(b.Booking.ServiceName),
+                b.Booking.Price.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
+                Escape(b.Booking.Currency),
+                Escape(b.Customer.FirstName),
+                Escape(b.Customer.LastName),
+                Escape(b.Customer.Email ?? ""),
+                Escape(employee),
+            });
+            sb.AppendLine(line);
+        }
+
+        var bytes = System.Text.Encoding.UTF8.GetPreamble()
+            .Concat(System.Text.Encoding.UTF8.GetBytes(sb.ToString()))
+            .ToArray();
+
+        var fileName = $"buchungen_{DateTime.UtcNow:yyyyMMdd}.csv";
+        return File(bytes, "text/csv; charset=utf-8", fileName);
+
+        static string Escape(string? value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            if (value.Contains(';') || value.Contains('"') || value.Contains('\n'))
+                return $"\"{value.Replace("\"", "\"\"")}\"";
+            return value;
+        }
+    }
+
+    /// <summary>Resend booking confirmation email to the customer.</summary>
+    [HttpPost("{id}/resend-confirmation")]
+    [Authorize]
+    public async Task<IActionResult> ResendConfirmation(Guid id)
+    {
+        try
+        {
+            await _emailService.SendBookingConfirmationAsync(id);
+            return Ok(new { message = "Bestätigung wurde erneut gesendet." });
+        }
+        catch (ArgumentException)
+        {
+            return NotFound(new { message = "Buchung nicht gefunden." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to resend confirmation for booking {BookingId}", id);
+            return StatusCode(500, new { message = "E-Mail konnte nicht gesendet werden." });
+        }
+    }
+
     /// <summary>
     /// Cancel a booking.
     /// Employees can only cancel their own bookings unless admin.

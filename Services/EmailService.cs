@@ -43,12 +43,16 @@ public class EmailService
             throw new ArgumentException("Booking not found");
         }
 
+        var tenantName1 = booking.Tenant?.Settings?.CompanyName ?? booking.Tenant?.Name ?? "Buchungssystem";
+        var tenantLogo1 = booking.Tenant?.Settings?.LogoUrl;
+        var currency1 = booking.Tenant?.Settings?.DefaultCurrency ?? "EUR";
+
         var emailLog = new EmailLog
         {
             BookingId = bookingId,
             EmailType = EmailType.Confirmation,
             RecipientEmail = booking.Customer.Email,
-            Subject = $"Ihre Buchungsbestätigung - GentleBook",
+            Subject = $"Ihre Buchungsbestätigung – {tenantName1}",
             Status = EmailStatus.Pending,
             CreatedAt = DateTime.UtcNow
         };
@@ -56,7 +60,7 @@ public class EmailService
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
+            message.From.Add(new MailboxAddress(tenantName1, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(booking.Customer.FullName, booking.Customer.Email));
             message.Subject = emailLog.Subject;
 
@@ -65,11 +69,8 @@ public class EmailService
             var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
             var cancellationUrl = $"{frontendBase}/booking/cancel/{cancellationToken}";
 
-            var tenantName1 = booking.Tenant?.Settings?.CompanyName ?? booking.Tenant?.Name ?? "GentleBook";
-            var tenantLogo1 = booking.Tenant?.Settings?.LogoUrl;
-            var currency1 = booking.Tenant?.Settings?.DefaultCurrency ?? "EUR";
             builder.HtmlBody = GetConfirmationEmailHtml(booking, cancellationUrl, tenantName1, tenantLogo1, currency1);
-            builder.TextBody = GetConfirmationEmailText(booking, cancellationUrl);
+            builder.TextBody = GetConfirmationEmailText(booking, cancellationUrl, tenantName1, currency1);
 
             message.Body = builder.ToMessageBody();
 
@@ -121,7 +122,12 @@ public class EmailService
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
+            var tenantSettings2 = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
+            var tenantName2 = tenantSettings2?.CompanyName ?? "Buchungssystem";
+            var tenantLogo2 = tenantSettings2?.LogoUrl;
+            var currency2 = tenantSettings2?.DefaultCurrency ?? "EUR";
+
+            message.From.Add(new MailboxAddress(tenantName2, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(customer.FullName, customer.Email));
             message.Subject = emailLog.Subject;
 
@@ -130,12 +136,8 @@ public class EmailService
             var frontendBase2 = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
             var cancellationUrl = $"{frontendBase2}/booking/cancel/{cancellationToken}";
 
-            var tenantSettings2 = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
-            var tenantName2 = tenantSettings2?.CompanyName ?? "GentleBook";
-            var tenantLogo2 = tenantSettings2?.LogoUrl;
-            var currency2 = tenantSettings2?.DefaultCurrency ?? "EUR";
             builder.HtmlBody = GetConfirmationReceiptHtml(booking, customer, service, cancellationUrl, tenantName2, tenantLogo2, currency2);
-            builder.TextBody = GetConfirmationReceiptText(booking, customer, service, cancellationUrl);
+            builder.TextBody = GetConfirmationReceiptText(booking, customer, service, cancellationUrl, tenantName2, currency2);
 
             message.Body = builder.ToMessageBody();
 
@@ -178,7 +180,6 @@ public class EmailService
             BookingId = booking.Id,
             EmailType = EmailType.Cancellation,
             RecipientEmail = customer.Email,
-            Subject = $"Ihre Stornierung - GentleBook",
             Status = EmailStatus.Pending,
             CreatedAt = DateTime.UtcNow
         };
@@ -186,17 +187,21 @@ public class EmailService
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
+
+            var tenantSettings3 = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
+            var tenantName3 = tenantSettings3?.CompanyName ?? "Buchungssystem";
+            var tenantLogo3 = tenantSettings3?.LogoUrl;
+
+            emailLog.Subject = $"Ihre Stornierung – {tenantName3}";
+
+            message.From.Add(new MailboxAddress(tenantName3, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(customer.FullName, customer.Email));
             message.Subject = emailLog.Subject;
 
             var builder = new BodyBuilder();
 
-            var tenantSettings3 = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
-            var tenantName3 = tenantSettings3?.CompanyName ?? "GentleBook";
-            var tenantLogo3 = tenantSettings3?.LogoUrl;
             builder.HtmlBody = GetCancellationEmailHtml(booking, customer, service, tenantName3, tenantLogo3);
-            builder.TextBody = GetCancellationEmailText(booking, customer, service);
+            builder.TextBody = GetCancellationEmailText(booking, customer, service, tenantName3);
 
             message.Body = builder.ToMessageBody();
 
@@ -257,7 +262,11 @@ public class EmailService
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
+
+            var tenantName4 = booking.Tenant?.Settings?.CompanyName ?? booking.Tenant?.Name ?? "Buchungssystem";
+            var tenantLogo4 = booking.Tenant?.Settings?.LogoUrl;
+
+            message.From.Add(new MailboxAddress(tenantName4, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(booking.Customer.FullName, booking.Customer.Email));
             message.Subject = emailLog.Subject;
 
@@ -266,10 +275,8 @@ public class EmailService
             var frontendBase3 = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
             var cancellationUrl = $"{frontendBase3}/booking/cancel/{cancellationToken}";
 
-            var tenantName4 = booking.Tenant?.Settings?.CompanyName ?? booking.Tenant?.Name ?? "GentleBook";
-            var tenantLogo4 = booking.Tenant?.Settings?.LogoUrl;
             builder.HtmlBody = GetReminderEmailHtml(booking, cancellationUrl, tenantName4, tenantLogo4);
-            builder.TextBody = GetReminderEmailText(booking, cancellationUrl);
+            builder.TextBody = GetReminderEmailText(booking, cancellationUrl, tenantName4);
 
             message.Body = builder.ToMessageBody();
 
@@ -1246,15 +1253,15 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 
     #region Plain Text Versions
 
-    private string GetConfirmationEmailText(Booking booking, string cancellationUrl)
+    private string GetConfirmationEmailText(Booking booking, string cancellationUrl, string tenantName = "Buchungssystem", string currency = "EUR")
     {
         return $@"
-GENTLEBOOK - IHRE BUCHUNGSBESTÄTIGUNG
+{tenantName.ToUpperInvariant()} - IHRE BUCHUNGSBESTÄTIGUNG
 
 ------------------------------------------------
 Hallo {booking.Customer.FirstName},
 
-vielen Dank für Ihre Buchung bei GentleBook. Ihr Termin wurde erfolgreich bestätigt.
+vielen Dank für Ihre Buchung bei {tenantName}. Ihr Termin wurde erfolgreich bestätigt.
 
 BUCHUNGSDETAILS:
 ------------------------------------------------
@@ -1262,7 +1269,7 @@ Service: {booking.Service.Name}
 Datum: {booking.BookingDate:dd.MM.yyyy}
 Uhrzeit: {booking.StartTime:HH:mm} - {booking.EndTime:HH:mm} Uhr
 Dauer: {booking.Service.DurationMinutes} Minuten
-Preis: {booking.Service.Price:0.00} CHF
+Preis: {booking.Service.Price:0.00} {currency}
 Status: Bestätigt
 
 
@@ -1271,24 +1278,14 @@ TERMIN STORNIEREN:
 Falls Sie Ihren Termin nicht wahrnehmen können:
 {cancellationUrl}
 
-KONTAKT:
 ------------------------------------------------
-GentleBook
-Elisabethenstrasse 41
-4051 Basel, Schweiz
-
-Tel: +41 61 123 45 67
-info@gentlebook.app
-gentlebook.app
-
-------------------------------------------------
-© {DateTime.UtcNow.Year} GentleBook. Alle Rechte vorbehalten.";
+© {DateTime.UtcNow.Year} {tenantName}. Alle Rechte vorbehalten.";
     }
 
-    private string GetConfirmationReceiptText(Booking booking, Customer customer, Service service, string cancellationUrl)
+    private string GetConfirmationReceiptText(Booking booking, Customer customer, Service service, string cancellationUrl, string tenantName = "Buchungssystem", string currency = "EUR")
     {
         return $@"
-GENTLEBOOK - BUCHUNG BESTÄTIGT
+{tenantName.ToUpperInvariant()} - BUCHUNG BESTÄTIGT
 
 ------------------------------------------------
 Hallo {customer.FirstName},
@@ -1301,21 +1298,17 @@ Service: {service.Name}
 Datum: {booking.BookingDate:dd.MM.yyyy}
 Uhrzeit: {booking.StartTime:HH:mm} - {booking.EndTime:HH:mm} Uhr
 Dauer: {service.DurationMinutes} Minuten
-Preis: {service.Price:0.00} CHF
+Preis: {service.Price:0.00} {currency}
 Status: Bestätigt
 
-
-KONTAKT:
 ------------------------------------------------
-GentleBook
-Tel: +41 61 123 45 67
-info@gentlebook.app";
+© {DateTime.UtcNow.Year} {tenantName}. Alle Rechte vorbehalten.";
     }
 
-    private string GetCancellationEmailText(Booking booking, Customer customer, Service service)
+    private string GetCancellationEmailText(Booking booking, Customer customer, Service service, string tenantName = "Buchungssystem")
     {
         return $@"
-GENTLEBOOK - STORNIERUNGSBESTÄTIGUNG
+{tenantName.ToUpperInvariant()} - STORNIERUNGSBESTÄTIGUNG
 
 ------------------------------------------------
 Hallo {customer.FirstName},
@@ -1330,21 +1323,14 @@ Uhrzeit: {booking.StartTime:HH:mm} Uhr
 Storniert am: {DateTime.UtcNow:dd.MM.yyyy HH:mm} Uhr
 {(booking.CancellationReason != null ? $"Grund: {booking.CancellationReason}" : "")}
 
-NEUEN TERMIN BUCHEN:
 ------------------------------------------------
-https://gentlebook.runasp.net
-
-KONTAKT:
-------------------------------------------------
-GentleBook
-Tel: +41 61 123 45 67
-info@gentlebook.app";
+© {DateTime.UtcNow.Year} {tenantName}. Alle Rechte vorbehalten.";
     }
 
-    private string GetReminderEmailText(Booking booking, string cancellationUrl)
+    private string GetReminderEmailText(Booking booking, string cancellationUrl, string tenantName = "Buchungssystem")
     {
         return $@"
-GENTLEBOOK - TERMINERINNERUNG
+{tenantName.ToUpperInvariant()} - TERMINERINNERUNG
 
 ------------------------------------------------
 Hallo {booking.Customer.FirstName},
@@ -1367,10 +1353,8 @@ STORNIERUNG:
 ------------------------------------------------
 {cancellationUrl}
 
-KONTAKT:
 ------------------------------------------------
-GentleBook
-Tel: +41 61 123 45 67";
+© {DateTime.UtcNow.Year} {tenantName}. Alle Rechte vorbehalten.";
     }
 
     #endregion

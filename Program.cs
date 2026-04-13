@@ -211,10 +211,9 @@ using (var scope = app.Services.CreateScope())
 app.MapControllers();
 app.MapGet("/health", () => "GentleBook API is running");
 
-// ── Auto-migrate in Development ───────────────────────────────────────────────
-if (app.Environment.IsDevelopment())
+// ── Auto-migrate on every startup ─────────────────────────────────────────────
+using (var scope = app.Services.CreateScope())
 {
-    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
     await db.Database.MigrateAsync();
 }
