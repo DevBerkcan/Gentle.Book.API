@@ -107,7 +107,7 @@ public class GentleBookDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Email).IsRequired().HasMaxLength(255);
-            entity.HasIndex(e => e.Email).IsUnique();
+            entity.HasIndex(e => new { e.TenantId, e.Email }).IsUnique();
             entity.Property(e => e.Role).HasConversion<string>().HasMaxLength(50);
             entity.HasOne(e => e.Tenant)
                   .WithMany(t => t.Users)

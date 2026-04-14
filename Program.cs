@@ -250,6 +250,30 @@ using (var scope = app.Services.CreateScope())
 
             IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('PlatformUsers') AND name = 'PasswordResetTokenExpiry')
                 ALTER TABLE PlatformUsers ADD PasswordResetTokenExpiry datetime2 NULL;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID('PasswordResetTokens') AND type = 'U')
+            BEGIN
+                CREATE TABLE PasswordResetTokens (
+                    Id uniqueidentifier NOT NULL DEFAULT NEWID(),
+                    UserId uniqueidentifier NOT NULL,
+                    TokenHash nvarchar(64) NOT NULL,
+                    ExpiresAt datetime2 NOT NULL,
+                    IsUsed bit NOT NULL DEFAULT 0,
+                    CreatedAt datetime2 NOT NULL DEFAULT GETUTCDATE(),
+                    CONSTRAINT PK_PasswordResetTokens PRIMARY KEY (Id),
+                    CONSTRAINT FK_PasswordResetTokens_PlatformUsers FOREIGN KEY (UserId)
+                        REFERENCES PlatformUsers(Id) ON DELETE CASCADE
+                );
+                CREATE INDEX IX_PasswordResetTokens_TokenHash ON PasswordResetTokens(TokenHash);
+                CREATE INDEX IX_PasswordResetTokens_UserId_IsUsed ON PasswordResetTokens(UserId, IsUsed);
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_PlatformUsers_TenantId_Email' AND object_id = OBJECT_ID('PlatformUsers'))
+            BEGIN
+                IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_PlatformUsers_Email' AND object_id = OBJECT_ID('PlatformUsers'))
+                    DROP INDEX IX_PlatformUsers_Email ON PlatformUsers;
+                CREATE UNIQUE INDEX IX_PlatformUsers_TenantId_Email ON PlatformUsers(TenantId, Email);
+            END
         ");
         Console.WriteLine("[SCHEMA-FALLBACK] OK");
     }

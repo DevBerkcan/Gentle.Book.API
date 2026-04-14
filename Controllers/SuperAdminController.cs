@@ -142,18 +142,19 @@ public class SuperAdminController : ControllerBase
         string? adminFirstName = null;
         if (!string.IsNullOrWhiteSpace(dto.AdminEmail))
         {
+            var emailLower = dto.AdminEmail.ToLowerInvariant();
             var passwordWasGenerated = string.IsNullOrWhiteSpace(dto.AdminPassword);
             plainPassword = passwordWasGenerated ? GeneratePassword() : dto.AdminPassword!;
             adminFirstName = dto.AdminFirstName ?? "Admin";
             var adminUser = new PlatformUser
             {
                 TenantId = tenant.Id,
-                Email = dto.AdminEmail.ToLowerInvariant(),
+                Email = emailLower,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(plainPassword, workFactor: 12),
                 FirstName = adminFirstName,
                 LastName = dto.AdminLastName ?? tenant.Name,
                 Role = PlatformRole.TenantAdmin,
-                MustChangePassword = passwordWasGenerated, // force change if password was auto-generated
+                MustChangePassword = passwordWasGenerated,
             };
             _db.PlatformUsers.Add(adminUser);
         }
@@ -236,7 +237,15 @@ public class SuperAdminController : ControllerBase
         if (tenant == null) return NotFound();
 
         _db.Tenants.Remove(tenant);
-        await _db.SaveChangesAsync();
+        try
+        {
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DeleteTenant failed for {TenantId}", id);
+            return StatusCode(500, new { message = "Löschen fehlgeschlagen.", detail = ex.Message, inner = ex.InnerException?.Message });
+        }
         return NoContent();
     }
 
