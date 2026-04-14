@@ -215,7 +215,48 @@ app.MapGet("/health", () => "GentleBook API is running");
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
-    await db.Database.MigrateAsync();
+    try
+    {
+        await db.Database.MigrateAsync();
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[MIGRATION ERROR] {ex.Message}");
+        Console.Error.WriteLine(ex.ToString());
+        // App continues even if migration fails — so we can diagnose via API
+    }
+}
+
+// ── Schema-Fallback: fehlende Spalten direkt anlegen ─────────────────────────
+// Falls MigrateAsync auf Production keine Rechte hat, legen wir die Spalten
+// per Raw-SQL an (IF NOT EXISTS = idempotent, sicher bei mehrfachem Neustart).
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+    try
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('TenantSettings') AND name = 'LinktreeStyle')
+                ALTER TABLE TenantSettings ADD LinktreeStyle nvarchar(max) NOT NULL DEFAULT '';
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('TenantSettings') AND name = 'LinktreeConfig')
+                ALTER TABLE TenantSettings ADD LinktreeConfig nvarchar(max) NULL;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('PlatformUsers') AND name = 'MustChangePassword')
+                ALTER TABLE PlatformUsers ADD MustChangePassword bit NOT NULL DEFAULT 0;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('PlatformUsers') AND name = 'PasswordResetToken')
+                ALTER TABLE PlatformUsers ADD PasswordResetToken nvarchar(max) NULL;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('PlatformUsers') AND name = 'PasswordResetTokenExpiry')
+                ALTER TABLE PlatformUsers ADD PasswordResetTokenExpiry datetime2 NULL;
+        ");
+        Console.WriteLine("[SCHEMA-FALLBACK] OK");
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[SCHEMA-FALLBACK ERROR] {ex.Message}");
+    }
 }
 
 app.Run();

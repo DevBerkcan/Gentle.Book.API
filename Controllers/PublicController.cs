@@ -19,30 +19,41 @@ public class PublicController : ControllerBase
         _db = db;
     }
 
+    /// <summary>Diagnostics — no DB required.</summary>
+    [HttpGet("ping")]
+    public IActionResult Ping() => Ok(new { ok = true, time = DateTime.UtcNow });
+
     /// <summary>Returns public branding info for the booking widget.</summary>
     [HttpGet("{slug}/info")]
     public async Task<IActionResult> GetTenantInfo(string slug)
     {
-        var tenant = await _db.Tenants
-            .Include(t => t.Settings)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Slug == slug && t.IsActive);
-
-        if (tenant == null) return NotFound();
-
-        return Ok(new
+        try
         {
-            tenant.Name,
-            CompanyName = tenant.Settings?.CompanyName ?? tenant.Name,
-            tenant.Slug,
-            PrimaryColor = tenant.Settings?.PrimaryColor,
-            Tagline = tenant.Settings?.Tagline,
-            WelcomeMessage = tenant.Settings?.WelcomeMessage,
-            IndustryType = tenant.IndustryType.ToString(),
-            LogoUrl = tenant.Settings?.LogoUrl,
-            LinktreeStyle = tenant.Settings?.LinktreeStyle ?? "gradient",
-            LinktreeConfig = tenant.Settings?.LinktreeConfig,
-        });
+            var tenant = await _db.Tenants
+                .Include(t => t.Settings)
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Slug == slug && t.IsActive);
+
+            if (tenant == null) return NotFound();
+
+            return Ok(new
+            {
+                tenant.Name,
+                CompanyName = tenant.Settings?.CompanyName ?? tenant.Name,
+                tenant.Slug,
+                PrimaryColor = tenant.Settings?.PrimaryColor,
+                Tagline = tenant.Settings?.Tagline,
+                WelcomeMessage = tenant.Settings?.WelcomeMessage,
+                IndustryType = tenant.IndustryType.ToString(),
+                LogoUrl = tenant.Settings?.LogoUrl,
+                LinktreeStyle = tenant.Settings?.LinktreeStyle ?? "gradient",
+                LinktreeConfig = tenant.Settings?.LinktreeConfig,
+            });
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { message = ex.Message, inner = ex.InnerException?.Message });
+        }
     }
 
     /// <summary>Returns active profile links for the Linktree page.</summary>
