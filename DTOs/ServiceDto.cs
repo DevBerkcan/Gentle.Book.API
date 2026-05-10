@@ -52,12 +52,13 @@ public record AdminServiceDto(
     string Name,
     string? Description,
     int DurationMinutes,
+    int BufferTimeMinutes,
     decimal Price,
     int DisplayOrder,
     Guid CategoryId,
     string CategoryName,
     string Currency,
-    List<EmployeeBasicDto> AssignedEmployees, 
+    List<EmployeeBasicDto> AssignedEmployees,
     bool IsActive
 );
 
@@ -74,6 +75,7 @@ public record CreateServiceDto(
     string Name,
     string? Description,
     int DurationMinutes,
+    int BufferTimeMinutes,
     decimal Price,
     int DisplayOrder,
     Guid CategoryId,
@@ -85,6 +87,7 @@ public record UpdateServiceDto(
     string Name,
     string? Description,
     int DurationMinutes,
+    int BufferTimeMinutes,
     decimal Price,
     int DisplayOrder,
     Guid CategoryId,

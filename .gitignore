@@ -64,6 +64,7 @@ Thumbs.db
 
 # Publish
 publish/
+publish-*/
 Properties/PublishProfiles/
 *.pubxml
 *.pubxml.user

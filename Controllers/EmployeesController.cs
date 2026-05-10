@@ -1,6 +1,8 @@
-﻿using GentleBook.Api.Data;
+﻿using GentleBook.Api.Configuration;
+using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
+using GentleBook.Api.Middleware;
 using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -92,6 +94,24 @@ public class EmployeesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateEmployeeRequest request)
     {
+        // Plan-Limit prüfen
+        var tenantContext = HttpContext.RequestServices.GetRequiredService<ITenantContext>();
+        var tenantId = tenantContext.TenantId;
+        if (tenantId.HasValue)
+        {
+            var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
+            var limits = PlanLimits.Get(sub?.Plan ?? SubscriptionPlan.Trial);
+            var activeCount = await _db.Employees.CountAsync(e => e.IsActive);
+            if (activeCount >= limits.MaxEmployees)
+                return StatusCode(402, new
+                {
+                    message = $"Ihr Plan erlaubt maximal {limits.MaxEmployees} Mitarbeiter. Bitte upgraden Sie Ihren Plan.",
+                    limit = limits.MaxEmployees,
+                    current = activeCount,
+                    upgrade = true
+                });
+        }
+
         var (success, employee, errorMessage) = await _employeeService.CreateAsync(request);
 
         if (!success)

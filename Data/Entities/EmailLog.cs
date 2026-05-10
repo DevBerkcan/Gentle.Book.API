@@ -23,7 +23,8 @@ public enum EmailType
     Confirmation,
     Reminder,
     Cancellation,
-    AvailabilityNotification
+    AvailabilityNotification,
+    Welcome
 }
 
 public enum EmailStatus

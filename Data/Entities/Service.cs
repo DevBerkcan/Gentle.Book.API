@@ -9,6 +9,7 @@ public class Service
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public int DurationMinutes { get; set; }
+    public int BufferTimeMinutes { get; set; } = 0;
     public decimal Price { get; set; }
     public string Currency { get; set; } = "EUR";
     public bool IsActive { get; set; } = true;

@@ -1,5 +1,6 @@
 // Controllers/TenantController.cs
 // TenantAdmin self-service endpoints: settings + subscription info
+using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.Services;
@@ -42,11 +43,15 @@ public class TenantController : ControllerBase
         var check = RequireTenantAdmin();
         if (check != null) return check;
 
+        var tenantId = _tenantContext.TenantId!.Value;
+
         var settings = await _db.TenantSettings
-            .FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId);
 
         if (settings == null)
             return Ok(new { data = (object?)null, message = "Keine Einstellungen vorhanden" });
+
+        var tenant = await _db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId);
 
         return Ok(new
         {
@@ -68,8 +73,11 @@ public class TenantController : ControllerBase
                 settings.DefaultCurrency,
                 settings.WelcomeMessage,
                 settings.CancellationPolicy,
+                settings.CancellationHoursNotice,
+                settings.CancellationFeePercent,
                 settings.LinktreeStyle,
                 settings.LinktreeConfig,
+                Slug = tenant?.Slug,
             }
         });
     }
@@ -122,6 +130,10 @@ public class TenantController : ControllerBase
             settings.TimeZone = dto.TimeZone.Trim();
         if (!string.IsNullOrWhiteSpace(dto.DefaultCurrency))
             settings.DefaultCurrency = dto.DefaultCurrency.Trim().ToUpper();
+        if (dto.CancellationHoursNotice.HasValue && dto.CancellationHoursNotice.Value >= 0)
+            settings.CancellationHoursNotice = dto.CancellationHoursNotice.Value;
+        if (dto.CancellationFeePercent.HasValue && dto.CancellationFeePercent.Value >= 0)
+            settings.CancellationFeePercent = dto.CancellationFeePercent.Value;
 
         var validStyles = new[] { "gradient", "dark", "minimal", "bold", "glass" };
         if (!string.IsNullOrWhiteSpace(dto.LinktreeStyle) && validStyles.Contains(dto.LinktreeStyle))
@@ -269,6 +281,36 @@ public class TenantController : ControllerBase
         });
     }
 
+    // GET /api/tenant/usage
+    [HttpGet("usage")]
+    public async Task<IActionResult> GetUsage()
+    {
+        var tenantId = _tenantContext.TenantId;
+        if (!tenantId.HasValue) return Unauthorized();
+
+        var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
+        var limits = PlanLimits.Get(sub?.Plan ?? SubscriptionPlan.Trial);
+
+        var employeeCount = await _db.Employees.CountAsync(e => e.IsActive);
+        var serviceCount = await _db.Services.CountAsync(s => s.IsActive);
+
+        static object BuildMeter(int current, int limit) => new
+        {
+            current,
+            limit,
+            isUnlimited = PlanLimits.IsUnlimited(limit),
+            percentage = PlanLimits.IsUnlimited(limit) ? 0 : (int)Math.Round(current * 100.0 / limit),
+        };
+
+        return Ok(new
+        {
+            plan = sub?.Plan.ToString() ?? "Trial",
+            planDisplayName = limits.DisplayName,
+            employees = BuildMeter(employeeCount, limits.MaxEmployees),
+            services = BuildMeter(serviceCount, limits.MaxServices),
+        });
+    }
+
     // POST /api/tenant/support
     [HttpPost("support")]
     public async Task<IActionResult> SendSupportMessage([FromBody] SupportMessageRequest dto)
@@ -330,5 +372,7 @@ public record UpdateTenantSettingsRequest(
     string? TimeZone,
     string? DefaultCurrency,
     string? LinktreeStyle,
-    string? LinktreeConfig
+    string? LinktreeConfig,
+    int? CancellationHoursNotice,
+    decimal? CancellationFeePercent
 );

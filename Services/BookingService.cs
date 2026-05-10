@@ -235,6 +235,17 @@ public class BookingService
         if (booking.Status == BookingStatus.Completed)
             throw new InvalidOperationException("Abgeschlossene Buchungen können nicht storniert werden");
 
+        // Stornierungsfrist prüfen (falls konfiguriert)
+        var settings = await _context.TenantSettings.FirstOrDefaultAsync();
+        if (settings?.CancellationHoursNotice > 0)
+        {
+            var bookingDateTime = booking.BookingDate.ToDateTime(booking.StartTime);
+            var hoursUntil = (bookingDateTime - DateTime.UtcNow).TotalHours;
+            if (hoursUntil < settings.CancellationHoursNotice && hoursUntil > 0)
+                throw new InvalidOperationException(
+                    $"Stornierung ist nur bis {settings.CancellationHoursNotice} Stunden vor dem Termin möglich.");
+        }
+
         booking.Status = BookingStatus.Cancelled;
         booking.CancelledAt = DateTime.UtcNow;
         booking.CancellationReason = dto.Reason;

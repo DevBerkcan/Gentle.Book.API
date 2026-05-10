@@ -4,10 +4,12 @@ using GentleBook.Api.Options;
 using GentleBook.Api.Services;
 using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -143,6 +145,26 @@ builder.Services.AddHangfire(configuration => configuration
 builder.Services.AddHangfireServer();
 builder.Services.AddSingleton<IHostedService, HangfireJobScheduler>();
 
+// ── Rate Limiting ─────────────────────────────────────────────────────────────
+builder.Services.AddRateLimiter(options =>
+{
+    // Brute-force protection: max 8 login attempts per IP per minute
+    options.AddFixedWindowLimiter("auth-limit", o =>
+    {
+        o.Window = TimeSpan.FromMinutes(1);
+        o.PermitLimit = 8;
+        o.QueueLimit = 0;
+        o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+    });
+    options.RejectionStatusCode = 429;
+    options.OnRejected = async (ctx, ct) =>
+    {
+        ctx.HttpContext.Response.ContentType = "application/json";
+        await ctx.HttpContext.Response.WriteAsync(
+            """{"message":"Zu viele Anfragen. Bitte warten Sie einen Moment."}""", ct);
+    };
+});
+
 // ── CORS ──────────────────────────────────────────────────────────────────────
 var allowedOrigins = builder.Configuration
     .GetSection("Cors:AllowedOrigins")
@@ -174,10 +196,21 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync("""{"message":"Ein interner Fehler ist aufgetreten. Bitte versuchen Sie es erneut."}""");
+    });
+});
+
 app.UseCors("GentleBookCors");
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseRouting();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -273,6 +306,34 @@ using (var scope = app.Services.CreateScope())
                 IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_PlatformUsers_Email' AND object_id = OBJECT_ID('PlatformUsers'))
                     DROP INDEX IX_PlatformUsers_Email ON PlatformUsers;
                 CREATE UNIQUE INDEX IX_PlatformUsers_TenantId_Email ON PlatformUsers(TenantId, Email);
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Services') AND name = 'BufferTimeMinutes')
+                ALTER TABLE Services ADD BufferTimeMinutes int NOT NULL DEFAULT 0;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('TenantSettings') AND name = 'CancellationHoursNotice')
+                ALTER TABLE TenantSettings ADD CancellationHoursNotice int NOT NULL DEFAULT 0;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('TenantSettings') AND name = 'CancellationFeePercent')
+                ALTER TABLE TenantSettings ADD CancellationFeePercent decimal(5,2) NOT NULL DEFAULT 0;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID('EmployeeVacations') AND type = 'U')
+            BEGIN
+                CREATE TABLE EmployeeVacations (
+                    Id uniqueidentifier NOT NULL DEFAULT NEWID(),
+                    TenantId uniqueidentifier NOT NULL,
+                    EmployeeId uniqueidentifier NOT NULL,
+                    StartDate date NOT NULL,
+                    EndDate date NOT NULL,
+                    Type nvarchar(50) NOT NULL DEFAULT 'Vacation',
+                    Note nvarchar(500) NULL,
+                    CreatedAt datetime2 NOT NULL DEFAULT GETUTCDATE(),
+                    CONSTRAINT PK_EmployeeVacations PRIMARY KEY (Id),
+                    CONSTRAINT FK_EmployeeVacations_Employees FOREIGN KEY (EmployeeId)
+                        REFERENCES Employees(Id) ON DELETE CASCADE
+                );
+                CREATE INDEX IX_EmployeeVacations_EmployeeId ON EmployeeVacations(EmployeeId);
+                CREATE INDEX IX_EmployeeVacations_TenantId ON EmployeeVacations(TenantId);
             END
         ");
         Console.WriteLine("[SCHEMA-FALLBACK] OK");

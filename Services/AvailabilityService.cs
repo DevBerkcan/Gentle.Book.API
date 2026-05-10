@@ -144,13 +144,16 @@ public class AvailabilityService
         TimeOnly endTime,
         Guid employeeId)
     {
-        // Check for any non-cancelled booking for this employee at this time
+        // Check for any non-cancelled booking for this employee at this time.
+        // EndTime is extended by the existing booking's service BufferTimeMinutes
+        // to block the cleanup/preparation gap after each appointment.
         var existingBooking = await _context.Bookings
+            .Include(b => b.Service)
             .AnyAsync(b => b.BookingDate == date &&
                           b.EmployeeId == employeeId &&
                           b.Status != BookingStatus.Cancelled &&
                           b.StartTime < endTime &&
-                          b.EndTime > startTime);
+                          b.EndTime.AddMinutes(b.Service.BufferTimeMinutes) > startTime);
 
         if (existingBooking)
             return false;
@@ -303,6 +306,18 @@ public class AvailabilityService
         int serviceDuration)
     {
         var availableSlots = new List<TimeSlotDto>();
+
+        // Check if employee is on vacation this day
+        var isOnVacation = await _context.EmployeeVacations
+            .AnyAsync(v => v.EmployeeId == employeeId && v.StartDate <= date && v.EndDate >= date);
+        if (isOnVacation)
+        {
+            return timeSlots.Select(slot => new TimeSlotDto(
+                slot.Start.ToString("HH:mm"),
+                slot.End.ToString("HH:mm"),
+                false
+            )).ToList();
+        }
 
         // Check employee's personal schedule for this day
         var dayOfWeek = date.DayOfWeek;

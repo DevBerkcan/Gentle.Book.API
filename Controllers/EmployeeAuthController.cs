@@ -2,6 +2,7 @@
 using GentleBook.Api.DTOs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using GentleBook.Api.Services;
 
 namespace GentleBook.Api.Controllers;
@@ -23,6 +24,7 @@ public class EmployeeAuthController : ControllerBase
 
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth-limit")]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         var (success, result, errorMessage) = await _authService.LoginAsync(request);

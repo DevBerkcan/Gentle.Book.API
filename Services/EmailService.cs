@@ -1472,23 +1472,34 @@ GentleBook · support@gentlegroup.de";
     /// <summary>
     /// Sends a welcome / onboarding email to a newly created TenantAdmin with their login credentials.
     /// </summary>
-    public async Task SendWelcomeEmailAsync(string recipientEmail, string firstName, string tenantSlug, string password)
+    public async Task SendWelcomeEmailAsync(string recipientEmail, string firstName, string tenantSlug, string setupUrl, Guid tenantId = default)
     {
+        var emailLog = new EmailLog
+        {
+            TenantId = tenantId,
+            EmailType = EmailType.Welcome,
+            RecipientEmail = recipientEmail,
+            Subject = $"Willkommen bei GentleBook, {firstName}! Bitte Passwort festlegen",
+            Status = EmailStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+        };
+
         try
         {
             var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl)
                 ? _emailOptions.BaseUrl?.Replace("/api", "") ?? "https://gentle-book-ui.vercel.app"
                 : _emailOptions.FrontendUrl;
-            var loginUrl    = $"{frontendBase}/admin/login";
             var profileUrl  = $"{frontendBase}/booking/{tenantSlug}";
             var settingsUrl = $"{frontendBase}/admin/settings";
             var linksUrl    = $"{frontendBase}/admin/links";
 
             var message = new MimeMessage();
-            // Always send from noreply@gentlegroup.de
-            message.From.Add(new MailboxAddress("GentleGroup", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.ReplyTo.Add(new MailboxAddress("GentleBook Support", "support@gentlegroup.de"));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
-            message.Subject = $"Willkommen bei GentleBook, {firstName}! 🎉 Ihre Zugangsdaten";
+            message.Subject = $"Willkommen bei GentleBook, {firstName}! Bitte Passwort festlegen";
+            message.Headers.Add("X-Mailer", "GentleBook Mailer");
+            message.Headers.Add("List-Unsubscribe", $"<mailto:noreply@gentlegroup.de?subject=unsubscribe>");
 
             var builder = new BodyBuilder();
 
@@ -1525,26 +1536,20 @@ GentleBook · support@gentlegroup.de";
                           </td>
                         </tr>
 
-                        <!-- LOGIN CREDENTIALS -->
+                        <!-- ACCOUNT INFO -->
                         <tr>
                           <td style="background:#ffffff;padding:0 32px 28px;">
                             <div style="background:#F5EDEB;border-radius:14px;padding:22px 24px;border-left:4px solid #E8C7C3;">
-                              <p style="margin:0 0 14px;color:#8A8A8A;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">🔐 Ihre Zugangsdaten</p>
+                              <p style="margin:0 0 14px;color:#8A8A8A;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Ihr Konto</p>
                               <table cellpadding="0" cellspacing="0" width="100%">
                                 <tr>
                                   <td style="padding:5px 0;color:#8A8A8A;font-size:14px;width:90px;">E-Mail</td>
                                   <td style="padding:5px 0;color:#1E1E1E;font-size:14px;font-weight:600;">{recipientEmail}</td>
                                 </tr>
                                 <tr>
-                                  <td style="padding:5px 0;color:#8A8A8A;font-size:14px;">Passwort</td>
-                                  <td style="padding:5px 0;">
-                                    <code style="background:#fff;color:#D8706A;padding:4px 12px;border-radius:8px;font-size:15px;font-family:monospace;border:1px solid #f0e0de;letter-spacing:1px;">{password}</code>
-                                  </td>
-                                </tr>
-                                <tr>
                                   <td style="padding:5px 0;color:#8A8A8A;font-size:14px;">Ihr Profil</td>
                                   <td style="padding:5px 0;">
-                                    <a href="{profileUrl}" style="color:#E8C7C3;font-size:14px;text-decoration:none;font-weight:500;">{profileUrl}</a>
+                                    <a href="{profileUrl}" style="color:#C9A8A4;font-size:14px;text-decoration:none;font-weight:500;">{profileUrl}</a>
                                   </td>
                                 </tr>
                               </table>
@@ -1555,12 +1560,12 @@ GentleBook · support@gentlegroup.de";
                         <!-- CTA BUTTON -->
                         <tr>
                           <td style="background:#ffffff;padding:0 32px 32px;text-align:center;">
-                            <a href="{loginUrl}"
-                               style="display:inline-block;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);color:#fff;text-decoration:none;padding:16px 40px;border-radius:14px;font-weight:700;font-size:16px;letter-spacing:0.3px;box-shadow:0 4px 16px rgba(232,199,195,0.45);">
-                              Jetzt einloggen &rarr;
+                            <a href="{setupUrl}"
+                               style="display:inline-block;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);color:#fff;text-decoration:none;padding:18px 48px;border-radius:14px;font-weight:700;font-size:17px;letter-spacing:0.3px;box-shadow:0 4px 16px rgba(232,199,195,0.45);">
+                              Passwort festlegen &rarr;
                             </a>
-                            <p style="margin:12px 0 0;color:#AAAAAA;font-size:12px;">
-                              Bitte ändern Sie Ihr Passwort nach dem ersten Login.
+                            <p style="margin:14px 0 0;color:#AAAAAA;font-size:12px;">
+                              Dieser Link ist 72 Stunden gultig und kann nur einmal verwendet werden.
                             </p>
                           </td>
                         </tr>
@@ -1583,9 +1588,9 @@ GentleBook · support@gentlegroup.de";
                                   <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">1</div>
                                 </td>
                                 <td style="padding:0 0 16px 8px;">
-                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Einloggen &amp; Passwort ändern</p>
+                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Passwort festlegen &amp; einloggen</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
-                                    Melden Sie sich unter <a href="{loginUrl}" style="color:#E8C7C3;text-decoration:none;">{loginUrl}</a> an und ändern Sie sofort Ihr Passwort unter Einstellungen.
+                                    Klicken Sie auf den Button oben, legen Sie Ihr Passwort fest und melden Sie sich an.
                                   </p>
                                 </td>
                               </tr>
@@ -1695,18 +1700,18 @@ GentleBook · support@gentlegroup.de";
             builder.TextBody = $"""
                 Willkommen bei GentleBook, {firstName}!
 
-                Ihr Buchungssystem ist einsatzbereit. Hier sind Ihre Zugangsdaten:
+                Ihr Buchungssystem ist einsatzbereit. Legen Sie jetzt Ihr Passwort fest:
 
-                E-Mail:   {recipientEmail}
-                Passwort: {password}
-                Profil:   {profileUrl}
+                E-Mail:  {recipientEmail}
+                Profil:  {profileUrl}
 
-                LOGIN: {loginUrl}
+                PASSWORT FESTLEGEN (72h gültig):
+                {setupUrl}
 
                 IHRE NÄCHSTEN SCHRITTE:
 
-                1. Einloggen & Passwort ändern
-                   Melden Sie sich an und ändern Sie sofort Ihr Passwort unter Einstellungen.
+                1. Passwort festlegen
+                   Klicken Sie auf den Link oben und legen Sie Ihr persönliches Passwort fest.
 
                 2. Profil & Branding einrichten
                    Laden Sie Ihr Logo hoch und wählen Sie Ihre Branchenfarbe.
@@ -1737,12 +1742,330 @@ GentleBook · support@gentlegroup.de";
             await smtp.SendAsync(message);
             await smtp.DisconnectAsync(true);
 
+            emailLog.Status = EmailStatus.Sent;
+            emailLog.SentAt = DateTime.UtcNow;
             _logger.LogInformation("Welcome email sent to {Email}", recipientEmail);
         }
         catch (Exception ex)
         {
+            emailLog.Status = EmailStatus.Failed;
+            emailLog.ErrorMessage = ex.Message;
             _logger.LogError(ex, "Failed to send welcome email to {Email}", recipientEmail);
-            // Don't throw — user was already created, email failure is non-critical
+        }
+
+        try
+        {
+            if (tenantId != default)
+            {
+                _context.EmailLogs.Add(emailLog);
+                await _context.SaveChangesAsync();
+            }
+        }
+        catch (Exception dbEx)
+        {
+            _logger.LogError(dbEx, "Failed to save email log for welcome email to {Email}", recipientEmail);
+        }
+    }
+
+    /// <summary>
+    /// Sends a trial-expiring warning email (7 or 3 days before expiry).
+    /// </summary>
+    public async Task SendTrialExpiringEmailAsync(string recipientEmail, string firstName, string tenantSlug, int daysLeft)
+    {
+        try
+        {
+            var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl)
+                ? _emailOptions.BaseUrl?.Replace("/api", "") ?? "https://gentle-book-ui.vercel.app"
+                : _emailOptions.FrontendUrl;
+            var subscriptionUrl = $"{frontendBase}/admin/subscription";
+
+            var urgencyColor  = daysLeft <= 3 ? "#ef4444" : "#f59e0b";
+            var urgencyBg     = daysLeft <= 3 ? "#fef2f2" : "#fffbeb";
+            var urgencyBorder = daysLeft <= 3 ? "#fecaca" : "#fde68a";
+            var urgencyText   = daysLeft <= 3 ? "#991b1b" : "#92400e";
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = $"Noch {daysLeft} Tag{(daysLeft == 1 ? "" : "e")} – Ihr GentleBook Testzeitraum läuft ab";
+
+            var html = $"""
+                <!DOCTYPE html>
+                <html lang="de">
+                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <body style="margin:0;padding:0;background:#f4f4f5;font-family:Inter,Arial,sans-serif">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 20px">
+                    <tr><td align="center">
+                      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+
+                        <!-- Header -->
+                        <tr><td style="background:linear-gradient(135deg,#1a1a2e 0%,#2d1f3d 100%);border-radius:16px 16px 0 0;padding:36px 32px;text-align:center">
+                          <div style="width:64px;height:64px;background:rgba(255,255,255,0.1);border-radius:16px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px">
+                            <span style="font-size:32px">⏰</span>
+                          </div>
+                          <h1 style="color:#fff;margin:0;font-size:24px;font-weight:700">Ihr Testzeitraum läuft ab</h1>
+                          <p style="color:rgba(255,255,255,0.6);margin:8px 0 0;font-size:14px">GentleBook Buchungssystem</p>
+                        </td></tr>
+
+                        <!-- Body -->
+                        <tr><td style="background:#fff;padding:36px 32px;border:1px solid #e5e7eb;border-top:none">
+                          <p style="font-size:16px;color:#1e1e1e;margin:0 0 8px;font-weight:600">Hallo {firstName},</p>
+                          <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 28px">
+                            Ihr kostenloser Testzeitraum für GentleBook endet in <strong style="color:{urgencyColor}">{daysLeft} Tag{(daysLeft == 1 ? "" : "en")}</strong>.
+                            Damit Ihr Buchungssystem unterbrechungsfrei weiterläuft, upgraden Sie jetzt auf unser Monatspaket.
+                          </p>
+
+                          <!-- Countdown badge -->
+                          <div style="background:{urgencyBg};border:2px solid {urgencyBorder};border-radius:14px;padding:20px 24px;margin:0 0 28px;text-align:center">
+                            <p style="font-size:13px;color:{urgencyText};margin:0 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em">Testzeitraum endet in</p>
+                            <p style="font-size:48px;font-weight:900;color:{urgencyColor};margin:0;line-height:1">{daysLeft}</p>
+                            <p style="font-size:16px;color:{urgencyText};margin:4px 0 0;font-weight:600">Tag{(daysLeft == 1 ? "" : "en")}</p>
+                          </div>
+
+                          <!-- Pricing card -->
+                          <div style="background:linear-gradient(135deg,#1e1e1e 0%,#2c2c2c 100%);border-radius:16px;padding:28px;margin:0 0 28px">
+                            <p style="color:rgba(255,255,255,0.5);font-size:12px;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.08em">Ihr Upgrade-Paket</p>
+                            <div style="display:flex;align-items:baseline;gap:4px;margin:0 0 4px">
+                              <span style="font-size:48px;font-weight:900;color:#C09995;line-height:1">€49,99</span>
+                              <span style="font-size:18px;color:rgba(255,255,255,0.5);font-weight:500">/Monat</span>
+                            </div>
+                            <div style="display:inline-block;background:#C09995;color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;margin:8px 0 20px">
+                              inkl. Support &amp; Wartung
+                            </div>
+                            <table cellpadding="0" cellspacing="0" style="width:100%">
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Unbegrenzte Buchungen</td></tr>
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Mehrere Mitarbeiter-Konten</td></tr>
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Automatische E-Mail-Bestätigungen</td></tr>
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Professionelle Buchungsseite</td></tr>
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Priority Support &amp; Wartung</td></tr>
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Alle zukünftigen Updates</td></tr>
+                            </table>
+                          </div>
+
+                          <!-- CTAs -->
+                          <table cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 24px">
+                            <tr>
+                              <td style="padding-right:8px;width:50%">
+                                <a href="https://wa.me/491754701892?text=Hallo%2C%20ich%20m%C3%B6chte%20GentleBook%20upgraden%20(%7B{tenantSlug}%7D)"
+                                   style="display:block;background:#25D366;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center">
+                                  💬 WhatsApp
+                                </a>
+                              </td>
+                              <td style="padding-left:8px;width:50%">
+                                <a href="mailto:support@gentlegroup.de?subject=Upgrade GentleBook - {tenantSlug}"
+                                   style="display:block;background:#1e1e1e;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;border:1px solid #444">
+                                  ✉️ E-Mail senden
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+
+                          <p style="font-size:13px;color:#9ca3af;text-align:center;margin:0">
+                            Oder besuchen Sie direkt Ihre <a href="{subscriptionUrl}" style="color:#C09995;text-decoration:none;font-weight:600">Abonnement-Seite</a>
+                          </p>
+                        </td></tr>
+
+                        <!-- Footer -->
+                        <tr><td style="background:#1e1e1e;border-radius:0 0 16px 16px;padding:20px 32px;text-align:center">
+                          <p style="margin:0;color:#666;font-size:12px">
+                            &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
+                            <a href="mailto:support@gentlegroup.de" style="color:#C09995;text-decoration:none">support@gentlegroup.de</a>
+                          </p>
+                        </td></tr>
+
+                      </table>
+                    </td></tr>
+                  </table>
+                </body>
+                </html>
+                """;
+
+            var text = $"""
+                Noch {daysLeft} Tag{(daysLeft == 1 ? "" : "e")} – GentleBook Testzeitraum läuft ab
+                ================================================================
+                Hallo {firstName},
+
+                Ihr Testzeitraum endet in {daysLeft} Tag{(daysLeft == 1 ? "" : "en")}.
+
+                UPGRADE-PAKET: €49,99 / Monat
+                inkl. Support & Wartung
+
+                Was Sie erhalten:
+                ✓ Unbegrenzte Buchungen
+                ✓ Mehrere Mitarbeiter-Konten
+                ✓ Automatische E-Mail-Bestätigungen
+                ✓ Professionelle Buchungsseite
+                ✓ Priority Support & Wartung
+                ✓ Alle zukünftigen Updates
+
+                Jetzt upgraden:
+                WhatsApp: https://wa.me/491754701892
+                E-Mail:   support@gentlegroup.de
+
+                Abonnement-Status: {subscriptionUrl}
+
+                © {DateTime.UtcNow.Year} GentleGroup
+                """;
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Trial expiring email sent to {Email} ({DaysLeft} days left)", recipientEmail, daysLeft);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send trial expiring email to {Email}", recipientEmail);
+        }
+    }
+
+    /// <summary>
+    /// Sends a trial-expired notification email with upgrade offer.
+    /// </summary>
+    public async Task SendTrialExpiredEmailAsync(string recipientEmail, string firstName, string tenantSlug)
+    {
+        try
+        {
+            var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl)
+                ? _emailOptions.BaseUrl?.Replace("/api", "") ?? "https://gentle-book-ui.vercel.app"
+                : _emailOptions.FrontendUrl;
+            var subscriptionUrl = $"{frontendBase}/admin/subscription";
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = "Ihr GentleBook Testzeitraum ist abgelaufen";
+
+            var html = $"""
+                <!DOCTYPE html>
+                <html lang="de">
+                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <body style="margin:0;padding:0;background:#f4f4f5;font-family:Inter,Arial,sans-serif">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 20px">
+                    <tr><td align="center">
+                      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+
+                        <!-- Header -->
+                        <tr><td style="background:linear-gradient(135deg,#1a1a2e 0%,#2d1f3d 100%);border-radius:16px 16px 0 0;padding:36px 32px;text-align:center">
+                          <div style="width:64px;height:64px;background:rgba(239,68,68,0.2);border-radius:16px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px">
+                            <span style="font-size:32px">🔒</span>
+                          </div>
+                          <h1 style="color:#fff;margin:0;font-size:24px;font-weight:700">Testzeitraum abgelaufen</h1>
+                          <p style="color:rgba(255,255,255,0.6);margin:8px 0 0;font-size:14px">GentleBook Buchungssystem</p>
+                        </td></tr>
+
+                        <!-- Body -->
+                        <tr><td style="background:#fff;padding:36px 32px;border:1px solid #e5e7eb;border-top:none">
+                          <p style="font-size:16px;color:#1e1e1e;margin:0 0 8px;font-weight:600">Hallo {firstName},</p>
+                          <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 12px">
+                            vielen Dank, dass Sie GentleBook getestet haben! Ihr kostenloser Testzeitraum ist leider abgelaufen.
+                          </p>
+                          <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 28px">
+                            Um Ihr Buchungssystem weiter zu nutzen und keine Kundentermine zu verpassen, upgraden Sie jetzt —
+                            für nur <strong style="color:#C09995">€49,99 pro Monat</strong> inkl. Support &amp; Wartung.
+                          </p>
+
+                          <!-- Pricing card -->
+                          <div style="background:linear-gradient(135deg,#1e1e1e 0%,#2c2c2c 100%);border-radius:16px;padding:28px;margin:0 0 28px">
+                            <p style="color:rgba(255,255,255,0.5);font-size:12px;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.08em">GentleBook Pro</p>
+                            <div style="margin:0 0 4px">
+                              <span style="font-size:48px;font-weight:900;color:#C09995;line-height:1">€49,99</span>
+                              <span style="font-size:18px;color:rgba(255,255,255,0.5);font-weight:500">/Monat</span>
+                            </div>
+                            <div style="display:inline-block;background:#C09995;color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;margin:8px 0 20px">
+                              inkl. Support &amp; Wartung
+                            </div>
+                            <table cellpadding="0" cellspacing="0" style="width:100%">
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Unbegrenzte Buchungen</td></tr>
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Mehrere Mitarbeiter-Konten</td></tr>
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Automatische E-Mail-Bestätigungen</td></tr>
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Professionelle Buchungsseite</td></tr>
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Priority Support &amp; Wartung</td></tr>
+                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Alle zukünftigen Updates</td></tr>
+                            </table>
+                          </div>
+
+                          <!-- CTAs -->
+                          <table cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 24px">
+                            <tr>
+                              <td style="padding-right:8px;width:50%">
+                                <a href="https://wa.me/491754701892?text=Hallo%2C%20ich%20m%C3%B6chte%20GentleBook%20upgraden%20({tenantSlug})"
+                                   style="display:block;background:#25D366;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center">
+                                  💬 WhatsApp
+                                </a>
+                              </td>
+                              <td style="padding-left:8px;width:50%">
+                                <a href="mailto:support@gentlegroup.de?subject=Upgrade GentleBook - {tenantSlug}"
+                                   style="display:block;background:#1e1e1e;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;border:1px solid #444">
+                                  ✉️ E-Mail senden
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+
+                          <p style="font-size:13px;color:#9ca3af;text-align:center;margin:0">
+                            Mehr Infos: <a href="{subscriptionUrl}" style="color:#C09995;text-decoration:none;font-weight:600">Abonnement-Seite</a>
+                          </p>
+                        </td></tr>
+
+                        <!-- Footer -->
+                        <tr><td style="background:#1e1e1e;border-radius:0 0 16px 16px;padding:20px 32px;text-align:center">
+                          <p style="margin:0;color:#666;font-size:12px">
+                            &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
+                            <a href="mailto:support@gentlegroup.de" style="color:#C09995;text-decoration:none">support@gentlegroup.de</a>
+                          </p>
+                        </td></tr>
+
+                      </table>
+                    </td></tr>
+                  </table>
+                </body>
+                </html>
+                """;
+
+            var text = $"""
+                Ihr GentleBook Testzeitraum ist abgelaufen
+                ==========================================
+                Hallo {firstName},
+
+                vielen Dank für Ihren Test! Leider ist Ihr Testzeitraum abgelaufen.
+
+                UPGRADE: €49,99 / Monat – inkl. Support & Wartung
+                ✓ Unbegrenzte Buchungen
+                ✓ Mehrere Mitarbeiter-Konten
+                ✓ Automatische E-Mail-Bestätigungen
+                ✓ Professionelle Buchungsseite
+                ✓ Priority Support & Wartung
+                ✓ Alle zukünftigen Updates
+
+                Jetzt upgraden:
+                WhatsApp: https://wa.me/491754701892
+                E-Mail:   support@gentlegroup.de
+
+                Abonnement-Status: {subscriptionUrl}
+
+                © {DateTime.UtcNow.Year} GentleGroup
+                """;
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Trial expired email sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send trial expired email to {Email}", recipientEmail);
         }
     }
 }

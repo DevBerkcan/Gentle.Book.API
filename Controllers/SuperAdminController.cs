@@ -1,5 +1,7 @@
 // Controllers/SuperAdminController.cs
 // Full tenant management for the Super Admin.
+using System.Security.Cryptography;
+using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.Services;
@@ -49,6 +51,20 @@ public class SuperAdminController : ControllerBase
             .OrderByDescending(t => t.CreatedAt);
 
         var total = await query.CountAsync();
+
+        // Aggregate counts in a single query per type to avoid N+1
+        var tenantIds = await query.Skip((page - 1) * pageSize).Take(pageSize).Select(t => t.Id).ToListAsync();
+        var employeeCounts = await _db.Employees.IgnoreQueryFilters()
+            .Where(e => tenantIds.Contains(e.TenantId))
+            .GroupBy(e => e.TenantId)
+            .Select(g => new { TenantId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.TenantId, x => x.Count);
+        var bookingCounts = await _db.Bookings.IgnoreQueryFilters()
+            .Where(b => tenantIds.Contains(b.TenantId))
+            .GroupBy(b => b.TenantId)
+            .Select(g => new { TenantId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.TenantId, x => x.Count);
+
         var items = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
@@ -63,8 +79,6 @@ public class SuperAdminController : ControllerBase
                 CompanyName = t.Settings != null ? t.Settings.CompanyName : t.Name,
                 LogoUrl = t.Settings != null ? t.Settings.LogoUrl : null,
                 PrimaryColor = t.Settings != null ? t.Settings.PrimaryColor : null,
-                EmployeeCount = _db.Employees.IgnoreQueryFilters().Count(e => e.TenantId == t.Id),
-                BookingCount = _db.Bookings.IgnoreQueryFilters().Count(b => b.TenantId == t.Id),
                 Subscription = t.Subscription == null ? null : new
                 {
                     t.Subscription.Plan,
@@ -77,7 +91,15 @@ public class SuperAdminController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(new { items, totalCount = total, page, pageSize });
+        var result = items.Select(t => new
+        {
+            t.Id, t.Name, t.Slug, t.IndustryType, t.IsActive, t.CreatedAt,
+            t.CompanyName, t.LogoUrl, t.PrimaryColor, t.Subscription,
+            EmployeeCount = employeeCounts.GetValueOrDefault(t.Id, 0),
+            BookingCount  = bookingCounts.GetValueOrDefault(t.Id, 0),
+        });
+
+        return Ok(new { items = result, totalCount = total, page, pageSize });
     }
 
     /// <summary>Get single tenant details.</summary>
@@ -137,26 +159,37 @@ public class SuperAdminController : ControllerBase
         _db.TenantSettings.Add(settings);
         _db.Subscriptions.Add(subscription);
 
-        // Optionally create the first TenantAdmin user
-        string? plainPassword = null;
+        // Optionally create the first TenantAdmin user with a setup link (no plaintext password)
         string? adminFirstName = null;
+        string? setupRawToken = null;
         if (!string.IsNullOrWhiteSpace(dto.AdminEmail))
         {
-            var emailLower = dto.AdminEmail.ToLowerInvariant();
-            var passwordWasGenerated = string.IsNullOrWhiteSpace(dto.AdminPassword);
-            plainPassword = passwordWasGenerated ? GeneratePassword() : dto.AdminPassword!;
             adminFirstName = dto.AdminFirstName ?? "Admin";
+            var lockedHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString(), workFactor: 4);
             var adminUser = new PlatformUser
             {
                 TenantId = tenant.Id,
-                Email = emailLower,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(plainPassword, workFactor: 12),
+                Email = dto.AdminEmail.ToLowerInvariant(),
+                PasswordHash = lockedHash,
                 FirstName = adminFirstName,
                 LastName = dto.AdminLastName ?? tenant.Name,
                 Role = PlatformRole.TenantAdmin,
-                MustChangePassword = passwordWasGenerated,
+                MustChangePassword = true,
             };
             _db.PlatformUsers.Add(adminUser);
+
+            setupRawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
+                .Replace("+", "-").Replace("/", "_").Replace("=", "");
+            var tokenHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(setupRawToken)));
+            _db.PasswordResetTokens.Add(new PasswordResetToken
+            {
+                Id        = Guid.NewGuid(),
+                UserId    = adminUser.Id,
+                TokenHash = tokenHash,
+                ExpiresAt = DateTime.UtcNow.AddHours(72),
+                IsUsed    = false,
+                CreatedAt = DateTime.UtcNow,
+            });
         }
 
         try
@@ -169,10 +202,11 @@ public class SuperAdminController : ControllerBase
             return StatusCode(500, new { message = "DB-Fehler beim Speichern.", detail = ex.Message, inner = ex.InnerException?.Message });
         }
 
-        // Send welcome email with credentials after save
-        if (!string.IsNullOrWhiteSpace(dto.AdminEmail) && dto.SendWelcomeEmail != false && plainPassword != null)
+        // Send welcome email with setup link after save
+        if (!string.IsNullOrWhiteSpace(dto.AdminEmail) && dto.SendWelcomeEmail != false && setupRawToken != null)
         {
-            _ = _emailService.SendWelcomeEmailAsync(dto.AdminEmail.ToLowerInvariant(), adminFirstName!, slug, plainPassword);
+            var setupUrl = $"{_emailService.FrontendUrl}/admin/reset-password?token={setupRawToken}";
+            _ = _emailService.SendWelcomeEmailAsync(dto.AdminEmail.ToLowerInvariant(), adminFirstName!, slug, setupUrl, tenant.Id);
         }
 
         return CreatedAtAction(nameof(GetTenant), new { id = tenant.Id }, new
@@ -340,31 +374,42 @@ public class SuperAdminController : ControllerBase
         if (await _db.PlatformUsers.AnyAsync(u => u.Email == dto.Email.ToLowerInvariant()))
             return Conflict(new { message = "Email already in use." });
 
-        // Auto-generate password if not provided
-        var plainPassword = !string.IsNullOrWhiteSpace(dto.Password)
-            ? dto.Password
-            : GeneratePassword();
-
+        var lockedHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString(), workFactor: 4);
         var user = new PlatformUser
         {
             TenantId = id,
             Email = dto.Email.ToLowerInvariant(),
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(plainPassword, workFactor: 12),
+            PasswordHash = lockedHash,
             FirstName = dto.FirstName,
             LastName = dto.LastName,
             Role = PlatformRole.TenantAdmin,
+            MustChangePassword = true,
         };
-
         _db.PlatformUsers.Add(user);
+
+        var setupRawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
+            .Replace("+", "-").Replace("/", "_").Replace("=", "");
+        var tokenHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(setupRawToken)));
+        _db.PasswordResetTokens.Add(new PasswordResetToken
+        {
+            Id        = Guid.NewGuid(),
+            UserId    = user.Id,
+            TokenHash = tokenHash,
+            ExpiresAt = DateTime.UtcNow.AddHours(72),
+            IsUsed    = false,
+            CreatedAt = DateTime.UtcNow,
+        });
+
         await _db.SaveChangesAsync();
 
-        // Send welcome email with credentials (fire-and-forget; failure is logged, not thrown)
+        // Send welcome email with setup link (fire-and-forget; failure is logged, not thrown)
         if (dto.SendWelcomeEmail != false)
         {
-            _ = _emailService.SendWelcomeEmailAsync(user.Email, user.FirstName, tenant.Slug, plainPassword);
+            var setupUrl = $"{_emailService.FrontendUrl}/admin/reset-password?token={setupRawToken}";
+            _ = _emailService.SendWelcomeEmailAsync(user.Email, user.FirstName, tenant.Slug, setupUrl, tenant.Id);
         }
 
-        return Ok(new { user.Id, user.Email, user.FirstName, user.LastName, passwordGenerated = string.IsNullOrWhiteSpace(dto.Password) });
+        return Ok(new { user.Id, user.Email, user.FirstName, user.LastName, passwordGenerated = true });
     }
 
     private static string GeneratePassword()
@@ -393,6 +438,43 @@ public class SuperAdminController : ControllerBase
         await _db.SaveChangesAsync();
 
         return Ok(new { subscription.TrialEndsAt, subscription.TrialDaysRemaining });
+    }
+
+    /// <summary>Upgrade or change a tenant's subscription plan.</summary>
+    [HttpPatch("tenants/{id:guid}/plan")]
+    public async Task<IActionResult> ChangePlan(Guid id, [FromBody] ChangePlanDto dto)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var subscription = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == id);
+        if (subscription == null) return NotFound(new { message = "Subscription nicht gefunden" });
+
+        if (!Enum.TryParse<SubscriptionPlan>(dto.Plan, ignoreCase: true, out var newPlan))
+            return BadRequest(new { message = $"Ungültiger Plan: {dto.Plan}. Erlaubt: Trial, Starter, Professional, Agency" });
+
+        subscription.Plan = newPlan;
+        subscription.Status = newPlan == SubscriptionPlan.Trial
+            ? SubscriptionStatus.Trial
+            : SubscriptionStatus.Active;
+
+        if (newPlan != SubscriptionPlan.Trial)
+        {
+            subscription.CurrentPeriodStart = DateTime.UtcNow;
+            subscription.CurrentPeriodEnd = DateTime.UtcNow.AddMonths(1);
+        }
+
+        subscription.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        var limits = PlanLimits.Get(newPlan);
+        return Ok(new
+        {
+            plan = subscription.Plan.ToString(),
+            status = subscription.Status.ToString(),
+            displayName = limits.DisplayName,
+            maxEmployees = limits.MaxEmployees,
+            maxServices = limits.MaxServices,
+        });
     }
 
     /// <summary>Platform-wide stats for SuperAdmin dashboard.</summary>
@@ -792,3 +874,4 @@ public record UpdateTenantSettingsDto(
 
 public record CreateTenantUserDto(string Email, string? Password, string FirstName, string LastName, bool? SendWelcomeEmail = true);
 public record ExtendTrialDto(int Days);
+public record ChangePlanDto(string Plan);

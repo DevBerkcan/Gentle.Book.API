@@ -30,6 +30,10 @@ public class TenantSettings
     public string? WelcomeMessage { get; set; }
     public string? CancellationPolicy { get; set; }
 
+    // ── Cancellation Policy ───────────────────────────────────
+    public int CancellationHoursNotice { get; set; } = 0;    // 0 = immer kostenlos stornierbar
+    public decimal CancellationFeePercent { get; set; } = 0m; // % des Servicepreises als Stornogebühr
+
     // ── Linktree Customization ────────────────────────────────
     public string LinktreeStyle { get; set; } = "gradient";
     public string? LinktreeConfig { get; set; } // JSON blob for fine-grained design

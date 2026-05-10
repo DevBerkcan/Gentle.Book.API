@@ -5,6 +5,7 @@ using GentleBook.Api.Data.Entities;
 using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace GentleBook.Api.Controllers;
@@ -24,6 +25,7 @@ public class SuperAdminAuthController : ControllerBase
 
     [HttpPost("login")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth-limit")]
     public async Task<IActionResult> Login([FromBody] SuperAdminLoginDto dto)
     {
         var user = await _db.PlatformUsers

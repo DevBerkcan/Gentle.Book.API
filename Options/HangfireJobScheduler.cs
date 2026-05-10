@@ -30,6 +30,18 @@ namespace GentleBook.Api.Options
                 service => service.SendDailyRemindersAsync(),
                 Cron.Daily(8, 0));
 
+            // Daily 01:00 UTC — set expired trials to Status=Expired + send expiration email
+            _recurringJobManager.AddOrUpdate<SubscriptionService>(
+                "process-expired-trials",
+                s => s.ProcessExpiredTrialsAsync(),
+                Cron.Daily(1, 0));
+
+            // Daily 09:00 UTC — send warning emails at 7 and 3 days before expiry
+            _recurringJobManager.AddOrUpdate<SubscriptionService>(
+                "trial-warning-emails",
+                s => s.SendTrialWarningEmailsAsync(),
+                Cron.Daily(9, 0));
+
             _logger.LogInformation("Hangfire jobs scheduled successfully");
 
             return Task.CompletedTask;

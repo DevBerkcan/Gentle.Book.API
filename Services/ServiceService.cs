@@ -340,6 +340,7 @@ public class ServiceService
                 s.Name,
                 s.Description,
                 s.DurationMinutes,
+                s.BufferTimeMinutes,
                 s.Price,
                 s.DisplayOrder,
                 s.CategoryId,
@@ -375,6 +376,7 @@ public class ServiceService
             service.Name,
             service.Description,
             service.DurationMinutes,
+            service.BufferTimeMinutes,
             service.Price,
             service.DisplayOrder,
             service.CategoryId,
@@ -404,6 +406,7 @@ public class ServiceService
             Name = dto.Name,
             Description = dto.Description,
             DurationMinutes = dto.DurationMinutes,
+            BufferTimeMinutes = dto.BufferTimeMinutes,
             Price = dto.Price,
             Currency = dto.Currency,
             DisplayOrder = dto.DisplayOrder,
@@ -471,6 +474,7 @@ public class ServiceService
         service.Name = dto.Name;
         service.Description = dto.Description;
         service.DurationMinutes = dto.DurationMinutes;
+        service.BufferTimeMinutes = dto.BufferTimeMinutes;
         service.Price = dto.Price;
         service.Currency = dto.Currency;
         service.DisplayOrder = dto.DisplayOrder;
@@ -631,6 +635,7 @@ public class ServiceService
                     s.Name,
                     s.Description,
                     s.DurationMinutes,
+                    s.BufferTimeMinutes,
                     s.Price,
                     s.DisplayOrder,
                     s.CategoryId,
@@ -672,6 +677,7 @@ public class ServiceService
                 s.Name,
                 s.Description,
                 s.DurationMinutes,
+                s.BufferTimeMinutes,
                 s.Price,
                 s.DisplayOrder,
                 s.CategoryId,
@@ -799,6 +805,7 @@ public class ServiceService
                 s.Name,
                 s.Description,
                 s.DurationMinutes,
+                s.BufferTimeMinutes,
                 s.Price,
                 s.DisplayOrder,
                 s.CategoryId,

@@ -1,9 +1,12 @@
-﻿using GentleBook.Api.Data;
+﻿using GentleBook.Api.Configuration;
+using GentleBook.Api.Data;
+using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
+using GentleBook.Api.Middleware;
 using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using GentleBook.Api.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace GentleBook.Api.Controllers;
 
@@ -13,11 +16,13 @@ namespace GentleBook.Api.Controllers;
 public class AdminServicesController : ControllerBase
 {
     private readonly ServiceService _serviceService;
+    private readonly GentleBookDbContext _db;
     private readonly ILogger<AdminServicesController> _logger;
 
-    public AdminServicesController(ServiceService serviceService, ILogger<AdminServicesController> logger)
+    public AdminServicesController(ServiceService serviceService, GentleBookDbContext db, ILogger<AdminServicesController> logger)
     {
         _serviceService = serviceService;
+        _db = db;
         _logger = logger;
     }
 
@@ -66,6 +71,24 @@ public class AdminServicesController : ControllerBase
     public async Task<ActionResult<AdminServiceDto>> CreateService([FromBody] CreateServiceDto dto)
     {
         var employeeId = GetCurrentEmployeeId();
+
+        // Plan-Limit prüfen
+        var tenantContext = HttpContext.RequestServices.GetRequiredService<ITenantContext>();
+        var tenantId = tenantContext.TenantId;
+        if (tenantId.HasValue)
+        {
+            var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
+            var limits = PlanLimits.Get(sub?.Plan ?? SubscriptionPlan.Trial);
+            var serviceCount = await _db.Services.CountAsync(s => s.IsActive);
+            if (serviceCount >= limits.MaxServices)
+                return StatusCode(402, new
+                {
+                    message = $"Ihr Plan erlaubt maximal {limits.MaxServices} Services. Bitte upgraden Sie Ihren Plan.",
+                    limit = limits.MaxServices,
+                    current = serviceCount,
+                    upgrade = true
+                });
+        }
 
         try
         {
