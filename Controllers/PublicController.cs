@@ -19,6 +19,30 @@ public class PublicController : ControllerBase
         _db = db;
     }
 
+    /// <summary>Verifies a customer's email via double opt-in token.</summary>
+    [HttpGet("/api/public/verify-email")]
+    public async Task<IActionResult> VerifyEmail([FromQuery] string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return BadRequest(new { message = "Token fehlt." });
+
+        var customer = await _db.Customers
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(c => c.EmailVerificationToken == token
+                                   && c.EmailVerificationTokenExpiry > DateTime.UtcNow);
+
+        if (customer == null)
+            return BadRequest(new { message = "Link ungültig oder abgelaufen." });
+
+        customer.IsEmailVerified = true;
+        customer.ConsentGivenAt = DateTime.UtcNow;
+        customer.EmailVerificationToken = null;
+        customer.EmailVerificationTokenExpiry = null;
+        await _db.SaveChangesAsync();
+
+        return Ok(new { message = "E-Mail erfolgreich bestätigt. Vielen Dank!" });
+    }
+
     /// <summary>Diagnostics — no DB required.</summary>
     [HttpGet("ping")]
     public IActionResult Ping() => Ok(new { ok = true, time = DateTime.UtcNow });

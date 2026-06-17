@@ -14,6 +14,11 @@ public class Customer
     public int TotalBookings { get; set; } = 0;
     public int NoShowCount { get; set; } = 0;
     public string? Notes { get; set; }
+    public bool IsEmailVerified { get; set; } = false;
+    public string? EmailVerificationToken { get; set; }
+    public DateTime? EmailVerificationTokenExpiry { get; set; }
+    public DateTime? ConsentGivenAt { get; set; }
+
     // Navigation
     public Tenant Tenant { get; set; } = null!;
     public ICollection<Booking> Bookings { get; set; } = new List<Booking>();

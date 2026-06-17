@@ -10,12 +10,14 @@ public class CustomerService
     private readonly GentleBookDbContext _context;
     private readonly ILogger<CustomerService> _logger;
     private readonly ITenantContext _tenantContext;
+    private readonly EmailService _emailService;
 
-    public CustomerService(GentleBookDbContext context, ILogger<CustomerService> logger, ITenantContext tenantContext)
+    public CustomerService(GentleBookDbContext context, ILogger<CustomerService> logger, ITenantContext tenantContext, EmailService emailService)
     {
         _context = context;
         _logger = logger;
         _tenantContext = tenantContext;
+        _emailService = emailService;
     }
 
     // ── GET ALL (with employee filtering) ───────────────────────────────────
@@ -138,29 +140,36 @@ public class CustomerService
     }
 
     // ── CREATE ───────────────────────────────────────────────────────────────
-    public async Task<CustomerResponseDto> CreateCustomerAsync(CreateCustomerRequestDto dto, Guid employeeId)
+    public async Task<CustomerResponseDto> CreateCustomerAsync(CreateCustomerRequestDto dto, Guid? employeeId)
     {
-        // Check for existing customer with same email/phone for this employee
+        var tenantId = _tenantContext.TenantId
+            ?? throw new InvalidOperationException("TenantId fehlt im Kontext");
+
+        // Duplicate check — scope by employee if present, otherwise tenant-wide
         if (!string.IsNullOrEmpty(dto.Email))
         {
             var existingEmail = await _context.Customers
-                .FirstOrDefaultAsync(c => c.EmployeeId == employeeId && c.Email == dto.Email);
-            if (existingEmail != null)
+                .Where(c => c.TenantId == tenantId && c.Email == dto.Email)
+                .Where(c => employeeId == null || c.EmployeeId == employeeId)
+                .AnyAsync();
+            if (existingEmail)
                 throw new InvalidOperationException("Ein Kunde mit dieser E-Mail existiert bereits");
         }
 
         if (!string.IsNullOrEmpty(dto.Phone))
         {
             var existingPhone = await _context.Customers
-                .FirstOrDefaultAsync(c => c.EmployeeId == employeeId && c.Phone == dto.Phone);
-            if (existingPhone != null)
+                .Where(c => c.TenantId == tenantId && c.Phone == dto.Phone)
+                .Where(c => employeeId == null || c.EmployeeId == employeeId)
+                .AnyAsync();
+            if (existingPhone)
                 throw new InvalidOperationException("Ein Kunde mit dieser Telefonnummer existiert bereits");
         }
 
         var customer = new Customer
         {
             Id = Guid.NewGuid(),
-            TenantId = _tenantContext.TenantId!.Value,
+            TenantId = tenantId,
             FirstName = dto.FirstName?.Trim() ?? string.Empty,
             LastName = dto.LastName?.Trim() ?? string.Empty,
             Email = dto.Email?.Trim(),
@@ -177,6 +186,14 @@ public class CustomerService
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("Customer created: {CustomerId} for employee {EmployeeId}", customer.Id, employeeId);
+
+        if (!string.IsNullOrEmpty(customer.Email))
+        {
+            customer.EmailVerificationToken = Guid.NewGuid().ToString("N");
+            customer.EmailVerificationTokenExpiry = DateTime.UtcNow.AddDays(7);
+            await _context.SaveChangesAsync();
+            _ = _emailService.SendWelcomeEmailAsync(customer, customer.TenantId);
+        }
 
         return ToDto(customer);
     }
@@ -292,12 +309,18 @@ public class CustomerService
         string searchTerm,
         int limit = 10)
     {
-        if (string.IsNullOrWhiteSpace(searchTerm) || !employeeId.HasValue)
+        if (string.IsNullOrWhiteSpace(searchTerm))
             return new List<CustomerListItemDto>();
 
+        var tenantId = _tenantContext.TenantId;
+
         var query = _context.Customers
-            .Where(c => c.EmployeeId == employeeId.Value)
+            .Where(c => tenantId == null || c.TenantId == tenantId)
             .AsQueryable();
+
+        // Scope to employee only when caller is an employee (not TenantAdmin)
+        if (employeeId.HasValue)
+            query = query.Where(c => c.EmployeeId == employeeId.Value);
 
         var search = searchTerm.ToLower();
         query = query.Where(c =>

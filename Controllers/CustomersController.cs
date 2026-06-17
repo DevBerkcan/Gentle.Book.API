@@ -27,6 +27,8 @@ public class CustomersController : ControllerBase
     // ── Helpers ───────────────────────────────────────────────────
     private Guid? GetCurrentEmployeeId() => JwtService.GetEmployeeId(User);
 
+    private bool IsTenantAdmin() => JwtService.GetRole(User) == "TenantAdmin";
+
     private bool IsAdminRequest()
     {
         var secret = _config["AdminBootstrapSecret"]
@@ -35,8 +37,7 @@ public class CustomersController : ControllerBase
     }
 
     /// <summary>
-    /// Get all customers for the logged-in employee
-    /// Pass ?all=true to see all customers (admin only)
+    /// Get all customers. TenantAdmin sees all tenant customers; employees see their own.
     /// </summary>
     [HttpGet]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -46,11 +47,8 @@ public class CustomersController : ControllerBase
         [FromQuery] int pageSize = 20,
         [FromQuery] bool all = false)
     {
-        var employeeId = GetCurrentEmployeeId();
-        var isAdmin = IsAdminRequest();
-
-        // Only admins can see all customers
-        Guid? filterEmployeeId = (isAdmin && all) ? null : employeeId;
+        // TenantAdmin sees all customers (no employee filter); employees see only their own
+        Guid? filterEmployeeId = (IsTenantAdmin() || IsAdminRequest()) ? null : GetCurrentEmployeeId();
 
         var result = await _customerService.GetCustomersAsync(filterEmployeeId, search, page, pageSize);
         return Ok(result);
@@ -66,7 +64,7 @@ public class CustomersController : ControllerBase
     public async Task<ActionResult<CustomerDetailDto>> GetCustomer(Guid id)
     {
         var employeeId = GetCurrentEmployeeId();
-        var isAdmin = IsAdminRequest();
+        var isAdmin = IsTenantAdmin() || IsAdminRequest();
 
         var customer = await _customerService.GetCustomerByIdAsync(id, employeeId, isAdmin);
 
@@ -88,13 +86,16 @@ public class CustomersController : ControllerBase
         if (string.IsNullOrWhiteSpace(dto.FirstName) || string.IsNullOrWhiteSpace(dto.LastName))
             return BadRequest(new { message = "Vor- und Nachname sind erforderlich" });
 
-        var employeeId = GetCurrentEmployeeId();
-        if (employeeId == null)
+        // TenantAdmins don't have an EmployeeId — pass null so the FK isn't violated
+        var role = JwtService.GetRole(User);
+        var employeeId = (role == "TenantAdmin") ? (Guid?)null : GetCurrentEmployeeId();
+
+        if (employeeId == null && role != "TenantAdmin")
             return Unauthorized(new { message = "Nicht angemeldet" });
 
         try
         {
-            var customer = await _customerService.CreateCustomerAsync(dto, employeeId.Value);
+            var customer = await _customerService.CreateCustomerAsync(dto, employeeId);
 
             return CreatedAtAction(
                 nameof(GetCustomer),
@@ -130,7 +131,7 @@ public class CustomersController : ControllerBase
             return BadRequest(new { message = "Vor- und Nachname sind erforderlich" });
 
         var employeeId = GetCurrentEmployeeId();
-        var isAdmin = IsAdminRequest();
+        var isAdmin = IsTenantAdmin() || IsAdminRequest();
 
         try
         {
@@ -158,7 +159,7 @@ public class CustomersController : ControllerBase
     public async Task<IActionResult> DeleteCustomer(Guid id)
     {
         var employeeId = GetCurrentEmployeeId();
-        var isAdmin = IsAdminRequest();
+        var isAdmin = IsTenantAdmin() || IsAdminRequest();
 
         try
         {
@@ -187,9 +188,8 @@ public class CustomersController : ControllerBase
         if (string.IsNullOrWhiteSpace(q))
             return Ok(new List<CustomerListItemDto>());
 
-        var employeeId = GetCurrentEmployeeId();
-        if (employeeId == null)
-            return Unauthorized(new { message = "Nicht angemeldet" });
+        // TenantAdmin searches all customers in the tenant; employees search their own
+        Guid? employeeId = IsTenantAdmin() ? null : GetCurrentEmployeeId();
 
         var results = await _customerService.SearchCustomersAsync(employeeId, q, limit);
         return Ok(results);

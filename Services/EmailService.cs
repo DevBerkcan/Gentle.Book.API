@@ -309,6 +309,105 @@ public class EmailService
         await _context.SaveChangesAsync();
     }
 
+    public async Task SendWelcomeEmailAsync(Customer customer, Guid tenantId)
+    {
+        var tenantSettings = await _context.TenantSettings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+
+        var tenantName = tenantSettings?.CompanyName ?? "Buchungssystem";
+        var tenantLogo = tenantSettings?.LogoUrl;
+        var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
+        var verifyUrl = $"{frontendBase}/verify-email?token={customer.EmailVerificationToken}";
+
+        var subject = $"Willkommen bei {tenantName} – Bitte bestätigen Sie Ihre E-Mail";
+
+        var emailLog = new EmailLog
+        {
+            TenantId = tenantId,
+            EmailType = EmailType.Welcome,
+            RecipientEmail = customer.Email!,
+            Subject = subject,
+            Status = EmailStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(tenantName, _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(customer.FullName, customer.Email));
+            message.Subject = subject;
+
+            var content = $@"
+                <div class='greeting'>Hallo {customer.FirstName},</div>
+                <p style='color: var(--text-secondary); margin-bottom: 24px;'>
+                    Sie wurden als Kunde bei <strong>{tenantName}</strong> registriert.
+                    Bitte bestätigen Sie Ihre E-Mail-Adresse, damit wir Ihnen Terminbestätigungen und Erinnerungen zusenden dürfen.
+                </p>
+                <div class='cancel-section'>
+                    <div class='cancel-title'>E-Mail-Adresse bestätigen</div>
+                    <div class='cancel-text'>
+                        Klicken Sie auf den Button, um Ihre E-Mail-Adresse zu bestätigen und Ihre Einwilligung zur Datenspeicherung zu erteilen.
+                    </div>
+                    <a href='{verifyUrl}' style='display: inline-block; background: linear-gradient(135deg, #C09995 0%, #A87B77 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>
+                        E-Mail bestätigen
+                    </a>
+                    <p style='color: var(--text-secondary); font-size: 13px; margin-top: 16px;'>
+                        Dieser Link ist 7 Tage gültig.
+                    </p>
+                </div>
+                <div class='info-box' style='margin-top: 24px;'>
+                    <h3>Datenschutzhinweis</h3>
+                    <p style='font-size: 14px; margin-top: 8px;'>
+                        Ihre Daten werden ausschließlich für die Terminverwaltung bei {tenantName} verwendet.
+                        Wenn Sie keine Registrierung beantragt haben, können Sie diese E-Mail ignorieren – es entstehen keine Konsequenzen.
+                    </p>
+                </div>";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = GetBaseEmailTemplate(subject, content, tenantName, tenantLogo),
+                TextBody = $@"{tenantName.ToUpperInvariant()} – WILLKOMMEN
+
+Hallo {customer.FirstName},
+
+Sie wurden als Kunde bei {tenantName} registriert.
+Bitte bestätigen Sie Ihre E-Mail-Adresse unter folgendem Link:
+
+{verifyUrl}
+
+Dieser Link ist 7 Tage gültig.
+
+Wenn Sie keine Registrierung beantragt haben, können Sie diese E-Mail ignorieren.
+
+---
+Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
+            };
+
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            emailLog.Status = EmailStatus.Sent;
+            emailLog.SentAt = DateTime.UtcNow;
+            _logger.LogInformation("Welcome email sent to {Email}", customer.Email);
+        }
+        catch (Exception ex)
+        {
+            emailLog.Status = EmailStatus.Failed;
+            emailLog.ErrorMessage = ex.Message;
+            _logger.LogError(ex, "Failed to send welcome email to {Email}", customer.Email);
+        }
+
+        _context.EmailLogs.Add(emailLog);
+        await _context.SaveChangesAsync();
+    }
+
     #region Internal Notifications
 
     private async Task<(string email, string name)> GetTenantAdminEmailAsync(Guid tenantId)

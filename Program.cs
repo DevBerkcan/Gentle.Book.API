@@ -327,6 +327,18 @@ using (var scope = app.Services.CreateScope())
             IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('TenantSettings') AND name = 'CancellationFeePercent')
                 ALTER TABLE TenantSettings ADD CancellationFeePercent decimal(5,2) NOT NULL DEFAULT 0;
 
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'IsEmailVerified')
+                ALTER TABLE Customers ADD IsEmailVerified bit NOT NULL DEFAULT 0;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'EmailVerificationToken')
+                ALTER TABLE Customers ADD EmailVerificationToken nvarchar(200) NULL;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'EmailVerificationTokenExpiry')
+                ALTER TABLE Customers ADD EmailVerificationTokenExpiry datetime2 NULL;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'ConsentGivenAt')
+                ALTER TABLE Customers ADD ConsentGivenAt datetime2 NULL;
+
             IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID('EmployeeVacations') AND type = 'U')
             BEGIN
                 CREATE TABLE EmployeeVacations (
