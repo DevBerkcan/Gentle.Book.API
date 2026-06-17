@@ -19,12 +19,37 @@ public class EmployeeService
         _tenantContext = tenantContext;
     }
 
-    // Updated GetAllAsync to optionally filter by service using the junction table
-    public async Task<IEnumerable<object>> GetAllAsync(bool activeOnly = true, Guid? serviceId = null)
+    private bool TryRequireTenant(out Guid tenantId)
     {
+        tenantId = _tenantContext.TenantId ?? Guid.Empty;
+        return _tenantContext.TenantId.HasValue;
+    }
+
+    private async Task<Guid?> ResolveTenantIdAsync(string? tenantSlug)
+    {
+        if (_tenantContext.TenantId.HasValue)
+            return _tenantContext.TenantId.Value;
+
+        if (string.IsNullOrWhiteSpace(tenantSlug))
+            return null;
+
+        return await _context.Tenants
+            .Where(t => t.Slug == tenantSlug.Trim().ToLower() && t.IsActive)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync();
+    }
+
+    // Updated GetAllAsync to optionally filter by service using the junction table
+    public async Task<IEnumerable<object>> GetAllAsync(bool activeOnly = true, Guid? serviceId = null, string? tenantSlug = null)
+    {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return Enumerable.Empty<object>();
+
         var query = _context.Employees
             .Include(e => e.ServiceEmployees)
                 .ThenInclude(se => se.Service)
+            .Where(e => e.TenantId == tenantId.Value)
             .AsQueryable();
 
         if (activeOnly)
@@ -57,11 +82,15 @@ public class EmployeeService
     }
 
     // Updated: Get employees by service ID using the junction table
-    public async Task<IEnumerable<object>> GetEmployeesByServiceAsync(Guid serviceId, bool activeOnly = true)
+    public async Task<IEnumerable<object>> GetEmployeesByServiceAsync(Guid serviceId, bool activeOnly = true, string? tenantSlug = null)
     {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return Enumerable.Empty<object>();
+
         // First check if service exists
         var service = await _context.Services
-            .FirstOrDefaultAsync(s => s.Id == serviceId && s.IsActive);
+            .FirstOrDefaultAsync(s => s.Id == serviceId && s.TenantId == tenantId.Value && s.IsActive);
 
         if (service == null)
             return new List<object>();
@@ -69,7 +98,7 @@ public class EmployeeService
         // Find employees that have this service assigned via the junction table
         var query = _context.Employees
             .Include(e => e.ServiceEmployees)
-            .Where(e => e.ServiceEmployees.Any(se => se.ServiceId == serviceId));
+            .Where(e => e.TenantId == tenantId.Value && e.ServiceEmployees.Any(se => se.ServiceId == serviceId));
 
         if (activeOnly)
             query = query.Where(e => e.IsActive);
@@ -93,10 +122,13 @@ public class EmployeeService
     // Updated GetByIdAsync to include assigned services via junction table
     public async Task<object?> GetByIdAsync(Guid id)
     {
+        if (!TryRequireTenant(out var tenantId))
+            return null;
+
         var e = await _context.Employees
             .Include(emp => emp.ServiceEmployees)
                 .ThenInclude(se => se.Service)
-            .FirstOrDefaultAsync(emp => emp.Id == id);
+            .FirstOrDefaultAsync(emp => emp.Id == id && emp.TenantId == tenantId);
 
         if (e == null) return null;
 
@@ -128,9 +160,13 @@ public class EmployeeService
     // Updated: Get employees with their assigned services (for admin panel)
     public async Task<IEnumerable<EmployeeWithServicesDto>> GetEmployeesWithServicesAsync(bool activeOnly = true)
     {
+        if (!TryRequireTenant(out var tenantId))
+            return Enumerable.Empty<EmployeeWithServicesDto>();
+
         var query = _context.Employees
             .Include(e => e.ServiceEmployees)
                 .ThenInclude(se => se.Service)
+            .Where(e => e.TenantId == tenantId)
             .AsQueryable();
 
         if (activeOnly)
@@ -160,18 +196,21 @@ public class EmployeeService
     // Keep existing GetStatsAsync method
     public async Task<object?> GetStatsAsync(Guid id, DateOnly? from, DateOnly? to)
     {
-        var exists = await _context.Employees.AnyAsync(e => e.Id == id);
+        if (!TryRequireTenant(out var tenantId))
+            return null;
+
+        var exists = await _context.Employees.AnyAsync(e => e.Id == id && e.TenantId == tenantId);
         if (!exists) return null;
 
         var bookingsQ = _context.Bookings
             .Include(b => b.Service)
-            .Where(b => b.EmployeeId == id);
+            .Where(b => b.EmployeeId == id && b.TenantId == tenantId);
 
         if (from.HasValue) bookingsQ = bookingsQ.Where(b => b.BookingDate >= from.Value);
         if (to.HasValue) bookingsQ = bookingsQ.Where(b => b.BookingDate <= to.Value);
 
         var bookings = await bookingsQ.ToListAsync();
-        var blockedCount = await _context.BlockedTimeSlots.CountAsync(b => b.EmployeeId == id);
+        var blockedCount = await _context.BlockedTimeSlots.CountAsync(b => b.EmployeeId == id && b.TenantId == tenantId);
 
         return new
         {
@@ -187,24 +226,26 @@ public class EmployeeService
         if (string.IsNullOrWhiteSpace(request.Name))
             return (false, null, "Name ist erforderlich");
 
+        if (!TryRequireTenant(out var tenantId))
+            return (false, null, "TenantId fehlt");
+
         if (!string.IsNullOrWhiteSpace(request.Username))
         {
             var username = request.Username.Trim().ToLower();
-            if (await _context.Employees.AnyAsync(e => e.Username == username))
+            if (await _context.Employees.AnyAsync(e => e.TenantId == tenantId && e.Username == username))
                 return (false, null, "Benutzername bereits vergeben");
         }
 
         // Enforce plan limits
-        var tenantId = _tenantContext.TenantId;
-        if (tenantId.HasValue)
+        if (tenantId != Guid.Empty)
         {
-            var subscription = await _context.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
+            var subscription = await _context.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
             if (subscription != null)
             {
                 var limits = PlanLimits.Get(subscription.Plan);
                 if (!PlanLimits.IsUnlimited(limits.MaxEmployees))
                 {
-                    var currentCount = await _context.Employees.CountAsync(e => e.TenantId == tenantId.Value && e.IsActive);
+                    var currentCount = await _context.Employees.CountAsync(e => e.TenantId == tenantId && e.IsActive);
                     if (currentCount >= limits.MaxEmployees)
                         return (false, null, $"Ihr Plan erlaubt maximal {limits.MaxEmployees} aktive Mitarbeiter. Bitte upgraden Sie Ihren Plan.");
                 }
@@ -214,7 +255,7 @@ public class EmployeeService
         var employee = new Employee
         {
             Id = Guid.NewGuid(),
-            TenantId = _tenantContext.TenantId ?? throw new InvalidOperationException("TenantId fehlt"),
+            TenantId = tenantId,
             Name = request.Name.Trim(),
             Role = request.Role?.Trim() ?? "Mitarbeiterin",
             Specialty = request.Specialty?.Trim(),
@@ -250,14 +291,17 @@ public class EmployeeService
     // Keep existing UpdateAsync method
     public async Task<(bool Success, object? Employee, string? ErrorMessage)> UpdateAsync(Guid id, UpdateEmployeeRequest request)
     {
-        var employee = await _context.Employees.FindAsync(id);
+        if (!TryRequireTenant(out var tenantId))
+            return (false, null, "TenantId fehlt");
+
+        var employee = await _context.Employees.FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId);
         if (employee == null)
             return (false, null, "Mitarbeiter nicht gefunden");
 
         if (!string.IsNullOrWhiteSpace(request.Username))
         {
             var username = request.Username.Trim().ToLower();
-            if (await _context.Employees.AnyAsync(e => e.Username == username && e.Id != id))
+            if (await _context.Employees.AnyAsync(e => e.TenantId == tenantId && e.Username == username && e.Id != id))
                 return (false, null, "Benutzername bereits vergeben");
             employee.Username = username;
         }
@@ -294,7 +338,10 @@ public class EmployeeService
     // Keep existing ToggleActiveAsync method
     public async Task<(bool Success, object? Result, string? ErrorMessage, string? Warning)> ToggleActiveAsync(Guid id)
     {
-        var employee = await _context.Employees.FindAsync(id);
+        if (!TryRequireTenant(out var tenantId))
+            return (false, null, "TenantId fehlt", null);
+
+        var employee = await _context.Employees.FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId);
         if (employee == null)
             return (false, null, "Mitarbeiter nicht gefunden", null);
 
@@ -304,6 +351,7 @@ public class EmployeeService
             var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
             var futureBookingCount = await _context.Bookings
                 .CountAsync(b => b.EmployeeId == id &&
+                                 b.TenantId == tenantId &&
                                  b.BookingDate >= today &&
                                  b.Status != BookingStatus.Cancelled);
 
@@ -321,12 +369,15 @@ public class EmployeeService
     // Keep existing DeleteAsync method
     public async Task<(bool Success, string? ErrorMessage)> DeleteAsync(Guid id)
     {
-        if (await _context.Bookings.AnyAsync(b => b.EmployeeId == id))
-            return (false, "Mitarbeiter hat Buchungen und kann nicht gelöscht werden. Bitte deaktivieren.");
+        if (!TryRequireTenant(out var tenantId))
+            return (false, "TenantId fehlt");
 
-        var employee = await _context.Employees.FindAsync(id);
+        var employee = await _context.Employees.FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId);
         if (employee == null)
             return (false, "Mitarbeiter nicht gefunden");
+
+        if (await _context.Bookings.AnyAsync(b => b.EmployeeId == id && b.TenantId == tenantId))
+            return (false, "Mitarbeiter hat Buchungen und kann nicht gelöscht werden. Bitte deaktivieren.");
 
         _context.Employees.Remove(employee);
         await _context.SaveChangesAsync();

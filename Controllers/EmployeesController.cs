@@ -35,9 +35,10 @@ public class EmployeesController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> GetAll(
         [FromQuery] bool activeOnly = true,
-        [FromQuery] Guid? serviceId = null) // Added serviceId parameter
+        [FromQuery] Guid? serviceId = null,
+        [FromQuery] string? tenantSlug = null)
     {
-        var employees = await _employeeService.GetAllAsync(activeOnly, serviceId);
+        var employees = await _employeeService.GetAllAsync(activeOnly, serviceId, tenantSlug);
         return Ok(employees);
     }
 
@@ -49,9 +50,10 @@ public class EmployeesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetEmployeesByService(
         Guid serviceId,
-        [FromQuery] bool activeOnly = true)
+        [FromQuery] bool activeOnly = true,
+        [FromQuery] string? tenantSlug = null)
     {
-        var employees = await _employeeService.GetEmployeesByServiceAsync(serviceId, activeOnly);
+        var employees = await _employeeService.GetEmployeesByServiceAsync(serviceId, activeOnly, tenantSlug);
         return Ok(employees);
     }
 
@@ -101,7 +103,7 @@ public class EmployeesController : ControllerBase
         {
             var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
             var limits = PlanLimits.Get(sub?.Plan ?? SubscriptionPlan.Trial);
-            var activeCount = await _db.Employees.CountAsync(e => e.IsActive);
+            var activeCount = await _db.Employees.CountAsync(e => e.TenantId == tenantId.Value && e.IsActive);
             if (activeCount >= limits.MaxEmployees)
                 return StatusCode(402, new
                 {
@@ -171,11 +173,14 @@ public class EmployeesController : ControllerBase
     [HttpGet("{id:guid}/schedule")]
     public async Task<IActionResult> GetSchedule(Guid id)
     {
-        var employee = await _db.Employees.FindAsync(id);
+        var tenantId = HttpContext.RequestServices.GetRequiredService<ITenantContext>().TenantId;
+        if (!tenantId.HasValue) return Unauthorized(new { message = "TenantId fehlt" });
+
+        var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId.Value);
         if (employee == null) return NotFound();
 
         var schedules = await _db.EmployeeSchedules
-            .Where(s => s.EmployeeId == id)
+            .Where(s => s.EmployeeId == id && s.TenantId == tenantId.Value)
             .OrderBy(s => s.DayOfWeek)
             .ToListAsync();
 
@@ -196,13 +201,16 @@ public class EmployeesController : ControllerBase
     [HttpPut("{id:guid}/schedule")]
     public async Task<IActionResult> UpdateSchedule(Guid id, [FromBody] List<UpdateEmployeeScheduleItemDto> dto)
     {
-        var employee = await _db.Employees.FindAsync(id);
+        var tenantId = HttpContext.RequestServices.GetRequiredService<ITenantContext>().TenantId;
+        if (!tenantId.HasValue) return Unauthorized(new { message = "TenantId fehlt" });
+
+        var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId.Value);
         if (employee == null) return NotFound();
 
         foreach (var item in dto)
         {
             var existing = await _db.EmployeeSchedules
-                .FirstOrDefaultAsync(s => s.EmployeeId == id && s.DayOfWeek == (DayOfWeek)item.DayOfWeek);
+                .FirstOrDefaultAsync(s => s.EmployeeId == id && s.TenantId == tenantId.Value && s.DayOfWeek == (DayOfWeek)item.DayOfWeek);
 
             if (existing == null)
             {

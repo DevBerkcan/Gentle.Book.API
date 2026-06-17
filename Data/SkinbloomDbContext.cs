@@ -8,6 +8,7 @@ namespace GentleBook.Api.Data;
 public class GentleBookDbContext : DbContext
 {
     private readonly ITenantContext? _tenantContext;
+    public Guid? CurrentTenantId => _tenantContext?.IsSuperAdmin == true ? null : _tenantContext?.TenantId;
 
     public GentleBookDbContext(DbContextOptions<GentleBookDbContext> options, ITenantContext? tenantContext = null)
         : base(options)
@@ -43,24 +44,19 @@ public class GentleBookDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         // ── Global Query Filters (Tenant Isolation) ───────────
-        // Applied automatically when TenantId is available in context.
-        // SuperAdmin bypasses these via IgnoreQueryFilters().
-        var tenantId = _tenantContext?.TenantId;
-
-        if (tenantId.HasValue)
-        {
-            modelBuilder.Entity<Employee>().HasQueryFilter(e => e.TenantId == tenantId.Value);
-            modelBuilder.Entity<Service>().HasQueryFilter(s => s.TenantId == tenantId.Value);
-            modelBuilder.Entity<ServiceCategory>().HasQueryFilter(sc => sc.TenantId == tenantId.Value);
-            modelBuilder.Entity<Booking>().HasQueryFilter(b => b.TenantId == tenantId.Value);
-            modelBuilder.Entity<Customer>().HasQueryFilter(c => c.TenantId == tenantId.Value);
-            modelBuilder.Entity<BusinessHours>().HasQueryFilter(bh => bh.TenantId == tenantId.Value);
-            modelBuilder.Entity<BlockedTimeSlot>().HasQueryFilter(bt => bt.TenantId == tenantId.Value);
-            modelBuilder.Entity<EmailLog>().HasQueryFilter(el => el.TenantId == tenantId.Value);
-            modelBuilder.Entity<TenantLink>().HasQueryFilter(tl => tl.TenantId == tenantId.Value);
-            modelBuilder.Entity<EmployeeSchedule>().HasQueryFilter(es => es.TenantId == tenantId.Value);
-            modelBuilder.Entity<EmployeeVacation>().HasQueryFilter(ev => ev.TenantId == tenantId.Value);
-        }
+        // The tenant value is read at query time. This is important because the
+        // DbContext can be constructed before TenantMiddleware sets ITenantContext.
+        modelBuilder.Entity<Employee>().HasQueryFilter(e => CurrentTenantId == null || e.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Service>().HasQueryFilter(s => CurrentTenantId == null || s.TenantId == CurrentTenantId);
+        modelBuilder.Entity<ServiceCategory>().HasQueryFilter(sc => CurrentTenantId == null || sc.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Booking>().HasQueryFilter(b => CurrentTenantId == null || b.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Customer>().HasQueryFilter(c => CurrentTenantId == null || c.TenantId == CurrentTenantId);
+        modelBuilder.Entity<BusinessHours>().HasQueryFilter(bh => CurrentTenantId == null || bh.TenantId == CurrentTenantId);
+        modelBuilder.Entity<BlockedTimeSlot>().HasQueryFilter(bt => CurrentTenantId == null || bt.TenantId == CurrentTenantId);
+        modelBuilder.Entity<EmailLog>().HasQueryFilter(el => CurrentTenantId == null || el.TenantId == CurrentTenantId);
+        modelBuilder.Entity<TenantLink>().HasQueryFilter(tl => CurrentTenantId == null || tl.TenantId == CurrentTenantId);
+        modelBuilder.Entity<EmployeeSchedule>().HasQueryFilter(es => CurrentTenantId == null || es.TenantId == CurrentTenantId);
+        modelBuilder.Entity<EmployeeVacation>().HasQueryFilter(ev => CurrentTenantId == null || ev.TenantId == CurrentTenantId);
 
         // ── Tenant ────────────────────────────────────────────
         modelBuilder.Entity<Tenant>(entity =>

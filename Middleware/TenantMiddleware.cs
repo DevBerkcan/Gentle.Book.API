@@ -57,6 +57,8 @@ public class TenantMiddleware
             return;
         }
 
+        tenantContext.Set(tenantId, tenantSlugClaim);
+
         // Validate tenant is active and subscription allows access
         var subscription = await db.Subscriptions
             .AsNoTracking()
@@ -74,7 +76,6 @@ public class TenantMiddleware
             return;
         }
 
-        tenantContext.Set(tenantId, tenantSlugClaim);
         await _next(context);
     }
 
