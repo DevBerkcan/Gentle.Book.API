@@ -10,5 +10,6 @@ public record AvailabilityResponseDto(
     string Date,
     Guid ServiceId,
     int ServiceDuration,
-    List<TimeSlotDto> AvailableSlots
+    List<TimeSlotDto> AvailableSlots,
+    string? Message = null
 );

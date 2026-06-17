@@ -28,6 +28,7 @@ public class AdminLinksController : ControllerBase
     public async Task<IActionResult> GetAll()
     {
         var links = await _db.TenantLinks
+            .Where(l => l.TenantId == _tenantContext.TenantId)
             .OrderBy(l => l.DisplayOrder)
             .Select(l => new
             {
@@ -48,8 +49,8 @@ public class AdminLinksController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Title) || string.IsNullOrWhiteSpace(request.Url))
             return BadRequest(new { message = "Titel und URL sind erforderlich." });
 
-        var maxOrder = await _db.TenantLinks.AnyAsync()
-            ? await _db.TenantLinks.MaxAsync(l => l.DisplayOrder)
+        var maxOrder = await _db.TenantLinks.Where(l => l.TenantId == tenantId).AnyAsync()
+            ? await _db.TenantLinks.Where(l => l.TenantId == tenantId).MaxAsync(l => l.DisplayOrder)
             : -1;
 
         var link = new TenantLink
@@ -72,7 +73,7 @@ public class AdminLinksController : ControllerBase
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateLinkRequest request)
     {
-        var link = await _db.TenantLinks.FindAsync(id);
+        var link = await _db.TenantLinks.FirstOrDefaultAsync(l => l.Id == id && l.TenantId == _tenantContext.TenantId);
         if (link == null) return NotFound();
 
         if (!string.IsNullOrWhiteSpace(request.Title)) link.Title = request.Title.Trim();
@@ -89,7 +90,7 @@ public class AdminLinksController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        var link = await _db.TenantLinks.FindAsync(id);
+        var link = await _db.TenantLinks.FirstOrDefaultAsync(l => l.Id == id && l.TenantId == _tenantContext.TenantId);
         if (link == null) return NotFound();
 
         _db.TenantLinks.Remove(link);
@@ -101,7 +102,7 @@ public class AdminLinksController : ControllerBase
     [HttpPatch("reorder")]
     public async Task<IActionResult> Reorder([FromBody] Guid[] orderedIds)
     {
-        var links = await _db.TenantLinks.ToListAsync();
+        var links = await _db.TenantLinks.Where(l => l.TenantId == _tenantContext.TenantId).ToListAsync();
 
         for (int i = 0; i < orderedIds.Length; i++)
         {

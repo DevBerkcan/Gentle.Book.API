@@ -73,7 +73,7 @@ public class VacationController : ControllerBase
         var tenantId = _tenantContext.TenantId;
         if (!tenantId.HasValue) return Unauthorized();
 
-        var employee = await _db.Employees.FindAsync(dto.EmployeeId);
+        var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == dto.EmployeeId);
         if (employee == null)
             return NotFound(new { message = "Mitarbeiter nicht gefunden" });
 
@@ -109,7 +109,7 @@ public class VacationController : ControllerBase
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] CreateVacationDto dto)
     {
-        var vacation = await _db.EmployeeVacations.FindAsync(id);
+        var vacation = await _db.EmployeeVacations.FirstOrDefaultAsync(v => v.Id == id);
         if (vacation == null) return NotFound();
 
         if (DateOnly.Parse(dto.StartDate) > DateOnly.Parse(dto.EndDate))
@@ -136,7 +136,7 @@ public class VacationController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        var vacation = await _db.EmployeeVacations.FindAsync(id);
+        var vacation = await _db.EmployeeVacations.FirstOrDefaultAsync(v => v.Id == id);
         if (vacation == null) return NotFound();
 
         _db.EmployeeVacations.Remove(vacation);

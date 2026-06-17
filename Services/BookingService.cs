@@ -1,3 +1,4 @@
+using System.Data;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
@@ -35,7 +36,13 @@ public class BookingService
         var startTime = TimeOnly.Parse(dto.StartTime);
         var endTime = startTime.AddMinutes(service.DurationMinutes);
 
-        // 3. Check slot availability (employee-scoped when EmployeeId is set)
+        if (bookingDate < DateOnly.FromDateTime(DateTime.UtcNow.Date))
+            throw new InvalidOperationException("Termine in der Vergangenheit können nicht gebucht werden.");
+
+        // 3. Check slot availability inside a serializable transaction to prevent race conditions
+        await using var tx = await _context.Database
+            .BeginTransactionAsync(IsolationLevel.RepeatableRead);
+
         var isSlotAvailable = await IsSlotAvailableAsync(
             bookingDate, startTime, endTime, dto.EmployeeId);
 
@@ -119,6 +126,7 @@ public class BookingService
         customer.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+        await tx.CommitAsync();
 
         _logger.LogInformation(
             "Booking created: {BookingId} for customer {Email} on {Date} at {Time}, employee: {EmployeeId}",
@@ -309,6 +317,14 @@ public class BookingService
 
         if (booking == null)
             throw new ArgumentException("Buchung nicht gefunden");
+
+        // Idempotent: already Confirmed → just resend receipt, no error
+        if (booking.Status == BookingStatus.Confirmed)
+        {
+            try { await _emailService.SendConfirmationReceiptAsync(booking, booking.Customer, booking.Service); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to resend receipt for already-confirmed booking {BookingId}", booking.Id); }
+            return ToDto(booking, true);
+        }
 
         if (booking.Status != BookingStatus.Pending)
             throw new InvalidOperationException(

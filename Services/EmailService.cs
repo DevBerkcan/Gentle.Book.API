@@ -1,3 +1,4 @@
+using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.Options;
@@ -14,6 +15,7 @@ public class EmailService
     private readonly EmailOptions _emailOptions;
     private readonly GentleBookDbContext _context;
     private readonly ILogger<EmailService> _logger;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public string FrontendUrl => string.IsNullOrEmpty(_emailOptions.FrontendUrl)
         ? _emailOptions.BaseUrl
@@ -22,11 +24,13 @@ public class EmailService
     public EmailService(
         IOptions<EmailOptions> emailOptions,
         GentleBookDbContext context,
-        ILogger<EmailService> logger)
+        ILogger<EmailService> logger,
+        IServiceScopeFactory scopeFactory)
     {
         _emailOptions = emailOptions.Value;
         _context = context;
         _logger = logger;
+        _scopeFactory = scopeFactory;
     }
 
     public async Task SendBookingConfirmationAsync(Guid bookingId)
@@ -1178,7 +1182,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 <div class='cancel-text'>
                     Wir freuen uns, Sie bald wieder bei uns begrüßen zu dürfen.
                 </div>
-                <a href='https://gentlebook.runasp.net' style='display: inline-block; background: linear-gradient(135deg, #3c3d3c, #A87B77 100%); color: #000000; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>Neuen Termin buchen
+                <a href='{FrontendUrl}' style='display: inline-block; background: linear-gradient(135deg, #3c3d3c, #A87B77 100%); color: #000000; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>Neuen Termin buchen
                 </a>
             </div>";
 
@@ -1470,16 +1474,25 @@ GentleBook · support@gentlegroup.de";
     }
 
     /// <summary>
-    /// Sends a welcome / onboarding email to a newly created TenantAdmin with their login credentials.
+    /// Sends a premium onboarding email to a newly created TenantAdmin.
     /// </summary>
-    public async Task SendWelcomeEmailAsync(string recipientEmail, string firstName, string tenantSlug, string setupUrl, Guid tenantId = default)
+    public async Task SendWelcomeEmailAsync(
+        string recipientEmail,
+        string firstName,
+        string setupUrl,
+        string tenantName,
+        string tenantSlug,
+        Guid tenantId,
+        string industryType,
+        string plan,
+        string? personalNote = null)
     {
         var emailLog = new EmailLog
         {
             TenantId = tenantId,
             EmailType = EmailType.Welcome,
             RecipientEmail = recipientEmail,
-            Subject = $"Willkommen bei GentleBook, {firstName}! Bitte Passwort festlegen",
+            Subject = $"Willkommen bei GentleBook — Ihr Buchungssystem ist bereit, {firstName}!",
             Status = EmailStatus.Pending,
             CreatedAt = DateTime.UtcNow,
         };
@@ -1493,11 +1506,121 @@ GentleBook · support@gentlegroup.de";
             var settingsUrl = $"{frontendBase}/admin/settings";
             var linksUrl    = $"{frontendBase}/admin/links";
 
+            // ── Industry-specific content ────────────────────────────────
+            var (industryEmoji, industryLabel, step3Label) = industryType.ToLowerInvariant() switch
+            {
+                "beauty"              => ("💄", "Beauty-Buchungssystem",         "Template &amp; Farben abstimmen — Beauty-Vorlage empfohlen"),
+                "barbershop"          => ("💈", "Barbershop-Buchungssystem",      "Template &amp; Barbershop-Stil einrichten"),
+                "tattoo"              => ("🪡", "Tattoo-Studio-Buchungssystem",   "Template wählen &amp; Portfolio-Links hinzufügen"),
+                "wellness" or "organic" => ("🌿", "Wellness-Buchungssystem",      "Template &amp; Ambiente gestalten — Organic-Vorlage empfohlen"),
+                "corporate"           => ("🏢", "Business-Buchungssystem",        "Corporate-Template einrichten &amp; Branding anpassen"),
+                _                     => ("📅", "Buchungssystem",                 "Template &amp; Design personalisieren"),
+            };
+
+            // ── Plan data ────────────────────────────────────────────────
+            if (!Enum.TryParse<SubscriptionPlan>(plan, ignoreCase: true, out var parsedPlan))
+                parsedPlan = SubscriptionPlan.Trial;
+            var limits = PlanLimits.Get(parsedPlan);
+            var planDisplayName = parsedPlan switch
+            {
+                SubscriptionPlan.Trial        => "Trial — 14 Tage kostenlos",
+                SubscriptionPlan.Starter      => "Starter",
+                SubscriptionPlan.Professional => "Professional",
+                SubscriptionPlan.Agency       => "Agency",
+                _                             => plan,
+            };
+            var planPrice      = limits.MonthlyPrice == 0 ? "Kostenlos" : $"&euro;{limits.MonthlyPrice:0}/Monat";
+            var empText        = PlanLimits.IsUnlimited(limits.MaxEmployees)         ? "Unbegrenzte Mitarbeiter"     : $"{limits.MaxEmployees} Mitarbeiter";
+            var svcText        = PlanLimits.IsUnlimited(limits.MaxServices)          ? "Unbegrenzte Services"        : $"{limits.MaxServices} Services";
+            var bkgText        = PlanLimits.IsUnlimited(limits.MaxBookingsPerMonth)  ? "Unbegrenzte Buchungen"       : $"{limits.MaxBookingsPerMonth} Buchungen/Monat";
+            var analyticsCheck = limits.HasAnalytics ? "&#10003;" : "&#8722;";
+            var apiCheck       = limits.HasApiAccess  ? "&#10003;" : "&#8722;";
+
+            // ── Upgrade section (only if not Agency) ─────────────────────
+            var nextPlan = parsedPlan switch
+            {
+                SubscriptionPlan.Trial        => SubscriptionPlan.Starter,
+                SubscriptionPlan.Starter      => SubscriptionPlan.Professional,
+                SubscriptionPlan.Professional => SubscriptionPlan.Agency,
+                _                             => (SubscriptionPlan?)null,
+            };
+            var nextLimits      = nextPlan.HasValue ? PlanLimits.Get(nextPlan.Value) : null;
+            var nextEmpText     = nextLimits != null ? (PlanLimits.IsUnlimited(nextLimits.MaxEmployees) ? "Unbegrenzt" : nextLimits.MaxEmployees.ToString()) : "";
+            var nextSvcText     = nextLimits != null ? (PlanLimits.IsUnlimited(nextLimits.MaxServices) ? "Unbegrenzt" : nextLimits.MaxServices.ToString()) : "";
+            var nextBkgText     = nextLimits != null ? (PlanLimits.IsUnlimited(nextLimits.MaxBookingsPerMonth) ? "Unbegrenzt" : nextLimits.MaxBookingsPerMonth.ToString()) : "";
+            var nextPlanName    = nextPlan switch { SubscriptionPlan.Starter => "Starter", SubscriptionPlan.Professional => "Professional", SubscriptionPlan.Agency => "Agency", _ => "" };
+            var nextPrice       = nextLimits != null ? $"&euro;{nextLimits.MonthlyPrice:0}/Monat" : "";
+            var upgradeSubject  = Uri.EscapeDataString($"Upgrade-Anfrage: von {planDisplayName} auf {nextPlanName}");
+            var upgradeBody     = Uri.EscapeDataString($"Hallo,\n\nich möchte mein GentleBook-Paket von {planDisplayName} auf {nextPlanName} upgraden.\n\nMein Buchungssystem: {tenantName}\n\nBitte kontaktieren Sie mich für die weiteren Schritte.\n\nVielen Dank!");
+            var upgradeHref     = $"mailto:support@gentlegroup.de?subject={upgradeSubject}&body={upgradeBody}";
+
+            // ── Personal note block ──────────────────────────────────────
+            var personalNoteBlock = string.IsNullOrWhiteSpace(personalNote) ? "" : $"""
+                        <!-- PERSONAL NOTE -->
+                        <tr>
+                          <td style="background:#ffffff;padding:0 32px 24px;">
+                            <table cellpadding="0" cellspacing="0" width="100%" style="background:#FFFBEB;border-radius:12px;border-left:4px solid #F59E0B;padding:18px 22px;">
+                              <tr>
+                                <td>
+                                  <p style="margin:0 0 6px;color:#92400E;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;">&#128276; Persönliche Nachricht von Berkcan</p>
+                                  <p style="margin:0;color:#78350F;font-size:14px;line-height:1.6;">{personalNote}</p>
+                                </td>
+                              </tr>
+                            </table>
+                          </td>
+                        </tr>
+                """;
+
+            // ── Upgrade section block ────────────────────────────────────
+            var analyticsRow = nextLimits != null && nextLimits.HasAnalytics && !limits.HasAnalytics
+                ? "<tr style=\"background:#FAFAFA;\"><td style=\"padding:10px 16px;color:#888;font-size:13px;\">Analysen: &#8722;</td><td style=\"padding:10px 16px;color:#059669;font-size:13px;font-weight:600;\">Analysen: &#10003;</td></tr>"
+                : "";
+            var apiRow = nextLimits != null && nextLimits.HasApiAccess && !limits.HasApiAccess
+                ? "<tr style=\"background:#FAFAFA;\"><td style=\"padding:10px 16px;color:#888;font-size:13px;\">API-Zugang: &#8722;</td><td style=\"padding:10px 16px;color:#059669;font-size:13px;font-weight:600;\">API-Zugang: &#10003;</td></tr>"
+                : "";
+
+            var upgradeBlock = nextLimits == null ? "" : $"""
+                        <!-- UPGRADE SECTION -->
+                        <tr>
+                          <td style="background:#F8F8FF;padding:28px 32px;">
+                            <p style="margin:0 0 6px;color:#1E1E1E;font-size:15px;font-weight:700;">&#11088; Holen Sie noch mehr heraus</p>
+                            <p style="margin:0 0 18px;color:#888;font-size:13px;">Mit dem {nextPlanName}-Paket schalten Sie weitere Funktionen frei:</p>
+                            <table cellpadding="0" cellspacing="0" width="100%" style="background:#fff;border-radius:12px;border:1px solid #E5E7EB;overflow:hidden;">
+                              <tr style="background:#F3F4F6;">
+                                <td style="padding:10px 16px;color:#6B7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;width:50%;">Ihr Paket</td>
+                                <td style="padding:10px 16px;color:#4F46E5;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;">{nextPlanName} &mdash; {nextPrice}</td>
+                              </tr>
+                              <tr>
+                                <td style="padding:10px 16px;color:#888;font-size:13px;border-top:1px solid #F3F4F6;">{empText}</td>
+                                <td style="padding:10px 16px;color:#1E1E1E;font-size:13px;font-weight:600;border-top:1px solid #F3F4F6;">{nextEmpText} Mitarbeiter</td>
+                              </tr>
+                              <tr style="background:#FAFAFA;">
+                                <td style="padding:10px 16px;color:#888;font-size:13px;">{svcText}</td>
+                                <td style="padding:10px 16px;color:#1E1E1E;font-size:13px;font-weight:600;">{nextSvcText} Services</td>
+                              </tr>
+                              <tr>
+                                <td style="padding:10px 16px;color:#888;font-size:13px;">{bkgText}</td>
+                                <td style="padding:10px 16px;color:#1E1E1E;font-size:13px;font-weight:600;">{nextBkgText} Buchungen/Monat</td>
+                              </tr>
+                              {analyticsRow}
+                              {apiRow}
+                            </table>
+                            <div style="margin-top:16px;text-align:center;">
+                              <a href="{upgradeHref}" style="display:inline-block;background:linear-gradient(135deg,#4F46E5,#7C3AED);color:#fff;text-decoration:none;padding:12px 32px;border-radius:10px;font-weight:700;font-size:14px;">
+                                Upgrade anfragen &rarr;
+                              </a>
+                              <p style="margin:8px 0 0;color:#AAAAAA;font-size:11px;">Einfach antworten — wir kümmern uns um den Rest.</p>
+                            </div>
+                          </td>
+                        </tr>
+                """;
+
+
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
             message.ReplyTo.Add(new MailboxAddress("GentleBook Support", "support@gentlegroup.de"));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
-            message.Subject = $"Willkommen bei GentleBook, {firstName}! Bitte Passwort festlegen";
+            message.Subject = $"Willkommen bei GentleBook — Ihr Buchungssystem ist bereit, {firstName}!";
             message.Headers.Add("X-Mailer", "GentleBook Mailer");
             message.Headers.Add("List-Unsubscribe", $"<mailto:noreply@gentlegroup.de?subject=unsubscribe>");
 
@@ -1511,46 +1634,53 @@ GentleBook · support@gentlegroup.de";
                   <meta name="viewport" content="width=device-width,initial-scale=1">
                   <title>Willkommen bei GentleBook</title>
                 </head>
-                <body style="margin:0;padding:0;background:#F5EDEB;font-family:'Helvetica Neue',Arial,sans-serif;">
-                  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F5EDEB;padding:32px 16px;">
+                <body style="margin:0;padding:0;background:#F0F2F5;font-family:'Helvetica Neue',Arial,sans-serif;">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="background:#F0F2F5;padding:32px 16px;">
                     <tr><td align="center">
                       <table width="100%" style="max-width:580px;" cellpadding="0" cellspacing="0">
 
                         <!-- HEADER -->
                         <tr>
-                          <td style="background:linear-gradient(135deg,#E8C7C3 0%,#C9A8A4 100%);border-radius:20px 20px 0 0;padding:40px 32px 36px;text-align:center;">
-                            <div style="display:inline-block;width:64px;height:64px;background:rgba(255,255,255,0.25);border-radius:50%;line-height:64px;font-size:30px;margin-bottom:16px;">🎉</div>
-                            <h1 style="margin:0;color:#fff;font-size:28px;font-weight:700;letter-spacing:-0.5px;">Herzlich willkommen!</h1>
-                            <p style="margin:10px 0 0;color:rgba(255,255,255,0.88);font-size:15px;">Ihr GentleBook-Buchungssystem ist einsatzbereit</p>
+                          <td style="background:linear-gradient(135deg,#1E293B 0%,#334155 60%,#1E293B 100%);border-radius:20px 20px 0 0;padding:44px 32px 40px;text-align:center;">
+                            <div style="display:inline-block;width:72px;height:72px;background:rgba(255,255,255,0.12);border-radius:50%;line-height:72px;font-size:36px;margin-bottom:18px;">{industryEmoji}</div>
+                            <h1 style="margin:0;color:#ffffff;font-size:27px;font-weight:700;letter-spacing:-0.5px;">Herzlich willkommen!</h1>
+                            <p style="margin:10px 0 0;color:rgba(255,255,255,0.7);font-size:15px;">Ihr {industryLabel} ist einsatzbereit</p>
                           </td>
                         </tr>
 
                         <!-- GREETING -->
                         <tr>
-                          <td style="background:#ffffff;padding:32px 32px 24px;">
-                            <p style="margin:0 0 12px;color:#1E1E1E;font-size:16px;">Hallo <strong>{firstName}</strong>,</p>
-                            <p style="margin:0;color:#555;font-size:15px;line-height:1.6;">
-                              wir freuen uns sehr, Sie als neuen Kunden bei GentleBook begrüßen zu dürfen!
-                              Ihr persönliches Online-Buchungssystem wurde erfolgreich für Sie eingerichtet und ist ab sofort aktiv.
+                          <td style="background:#ffffff;padding:32px 32px 20px;">
+                            <p style="margin:0 0 10px;color:#1E1E1E;font-size:16px;">Hallo <strong>{firstName}</strong>,</p>
+                            <p style="margin:0;color:#555;font-size:15px;line-height:1.7;">
+                              Ihr persönliches Online-Buchungssystem <strong>{tenantName}</strong> wurde erfolgreich eingerichtet und ist ab sofort aktiv.
+                              Kunden können ab jetzt direkt online bei Ihnen buchen &mdash; rund um die Uhr, ohne Telefonat.
                             </p>
                           </td>
                         </tr>
 
-                        <!-- ACCOUNT INFO -->
+                        {personalNoteBlock}
+
+                        <!-- PACKAGE -->
                         <tr>
                           <td style="background:#ffffff;padding:0 32px 28px;">
-                            <div style="background:#F5EDEB;border-radius:14px;padding:22px 24px;border-left:4px solid #E8C7C3;">
-                              <p style="margin:0 0 14px;color:#8A8A8A;font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600;">Ihr Konto</p>
+                            <div style="background:#F8FAFF;border-radius:14px;border:1px solid #E5E7EB;overflow:hidden;">
+                              <div style="background:linear-gradient(135deg,#4F46E5,#7C3AED);padding:14px 20px;">
+                                <p style="margin:0;color:#fff;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">&#128230; Ihr Paket</p>
+                                <p style="margin:4px 0 0;color:rgba(255,255,255,0.85);font-size:18px;font-weight:700;">{planDisplayName} &mdash; {planPrice}</p>
+                              </div>
                               <table cellpadding="0" cellspacing="0" width="100%">
                                 <tr>
-                                  <td style="padding:5px 0;color:#8A8A8A;font-size:14px;width:90px;">E-Mail</td>
-                                  <td style="padding:5px 0;color:#1E1E1E;font-size:14px;font-weight:600;">{recipientEmail}</td>
+                                  <td style="padding:12px 20px;color:#374151;font-size:13px;width:50%;border-right:1px solid #E5E7EB;border-bottom:1px solid #E5E7EB;">&#10003;&nbsp; {empText}</td>
+                                  <td style="padding:12px 20px;color:#374151;font-size:13px;border-bottom:1px solid #E5E7EB;">&#10003;&nbsp; {svcText}</td>
                                 </tr>
                                 <tr>
-                                  <td style="padding:5px 0;color:#8A8A8A;font-size:14px;">Ihr Profil</td>
-                                  <td style="padding:5px 0;">
-                                    <a href="{profileUrl}" style="color:#C9A8A4;font-size:14px;text-decoration:none;font-weight:500;">{profileUrl}</a>
-                                  </td>
+                                  <td style="padding:12px 20px;color:#374151;font-size:13px;border-right:1px solid #E5E7EB;border-bottom:1px solid #E5E7EB;">&#10003;&nbsp; {bkgText}</td>
+                                  <td style="padding:12px 20px;color:#374151;font-size:13px;border-bottom:1px solid #E5E7EB;">&#10003;&nbsp; Eigene Buchungsseite</td>
+                                </tr>
+                                <tr>
+                                  <td style="padding:12px 20px;color:#374151;font-size:13px;border-right:1px solid #E5E7EB;">&#10003;&nbsp; E-Mail-Benachrichtigungen</td>
+                                  <td style="padding:12px 20px;color:{(limits.HasAnalytics ? "#059669" : "#9CA3AF")};font-size:13px;">{analyticsCheck}&nbsp; Analysen &amp; Statistiken</td>
                                 </tr>
                               </table>
                             </div>
@@ -1559,13 +1689,13 @@ GentleBook · support@gentlegroup.de";
 
                         <!-- CTA BUTTON -->
                         <tr>
-                          <td style="background:#ffffff;padding:0 32px 32px;text-align:center;">
+                          <td style="background:#ffffff;padding:0 32px 36px;text-align:center;">
                             <a href="{setupUrl}"
-                               style="display:inline-block;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);color:#fff;text-decoration:none;padding:18px 48px;border-radius:14px;font-weight:700;font-size:17px;letter-spacing:0.3px;box-shadow:0 4px 16px rgba(232,199,195,0.45);">
-                              Passwort festlegen &rarr;
+                               style="display:inline-block;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);color:#fff;text-decoration:none;padding:18px 52px;border-radius:14px;font-weight:700;font-size:17px;letter-spacing:0.3px;box-shadow:0 6px 20px rgba(201,168,164,0.5);">
+                              &#128274; Passwort festlegen &rarr;
                             </a>
-                            <p style="margin:14px 0 0;color:#AAAAAA;font-size:12px;">
-                              Dieser Link ist 72 Stunden gultig und kann nur einmal verwendet werden.
+                            <p style="margin:12px 0 0;color:#AAAAAA;font-size:12px;">
+                              Link g&uuml;ltig f&uuml;r 72 Stunden &middot; Nur einmal verwendbar
                             </p>
                           </td>
                         </tr>
@@ -1577,18 +1707,18 @@ GentleBook · support@gentlegroup.de";
                           </td>
                         </tr>
 
-                        <!-- NEXT STEPS -->
+                        <!-- STEPS -->
                         <tr>
                           <td style="background:#ffffff;padding:28px 32px;">
-                            <p style="margin:0 0 18px;color:#1E1E1E;font-size:15px;font-weight:700;">✅ Ihre nächsten Schritte</p>
+                            <p style="margin:0 0 20px;color:#1E1E1E;font-size:15px;font-weight:700;">&#128203; Ihre ersten 5 Schritte</p>
                             <table cellpadding="0" cellspacing="0" width="100%">
 
                               <tr>
-                                <td valign="top" style="width:36px;padding:0 0 16px;">
-                                  <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">1</div>
+                                <td valign="top" style="width:36px;padding:0 0 18px;">
+                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">1</div>
                                 </td>
-                                <td style="padding:0 0 16px 8px;">
-                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Passwort festlegen &amp; einloggen</p>
+                                <td style="padding:0 0 18px 10px;">
+                                  <p style="margin:0 0 3px;color:#1E1E1E;font-size:14px;font-weight:600;">Passwort festlegen &amp; einloggen</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
                                     Klicken Sie auf den Button oben, legen Sie Ihr Passwort fest und melden Sie sich an.
                                   </p>
@@ -1596,53 +1726,52 @@ GentleBook · support@gentlegroup.de";
                               </tr>
 
                               <tr>
-                                <td valign="top" style="width:36px;padding:0 0 16px;">
-                                  <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">2</div>
+                                <td valign="top" style="width:36px;padding:0 0 18px;">
+                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">2</div>
                                 </td>
-                                <td style="padding:0 0 16px 8px;">
-                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Profil &amp; Branding einrichten</p>
+                                <td style="padding:0 0 18px 10px;">
+                                  <p style="margin:0 0 3px;color:#1E1E1E;font-size:14px;font-weight:600;">Profil &amp; Branding einrichten</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
-                                    Laden Sie Ihr Logo hoch, wählen Sie Ihre Branchenfarbe und passen Sie Ihren Profiltext unter
-                                    <a href="{settingsUrl}" style="color:#E8C7C3;text-decoration:none;">Einstellungen</a> an.
+                                    Laden Sie Ihr Logo hoch, wählen Sie Ihre Farbe und passen Sie Profiltext &amp; Öffnungszeiten an.
+                                    <a href="{settingsUrl}" style="color:#C9A8A4;text-decoration:none;">&rarr; Einstellungen</a>
                                   </p>
                                 </td>
                               </tr>
 
                               <tr>
-                                <td valign="top" style="width:36px;padding:0 0 16px;">
-                                  <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">3</div>
+                                <td valign="top" style="width:36px;padding:0 0 18px;">
+                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">3</div>
                                 </td>
-                                <td style="padding:0 0 16px 8px;">
-                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Links &amp; Design gestalten</p>
+                                <td style="padding:0 0 18px 10px;">
+                                  <p style="margin:0 0 3px;color:#1E1E1E;font-size:14px;font-weight:600;">{step3Label}</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
-                                    Fügen Sie unter <a href="{linksUrl}" style="color:#E8C7C3;text-decoration:none;">Meine Links</a> Instagram, WhatsApp oder andere Links hinzu
-                                    und wählen Sie eine Branchenvorlage für Ihr Design.
+                                    Unter <a href="{linksUrl}" style="color:#C9A8A4;text-decoration:none;">Meine Links</a> können Sie Instagram, WhatsApp &amp; Co. hinzufügen
+                                    und ein passendes Design-Template wählen.
                                   </p>
                                 </td>
                               </tr>
 
                               <tr>
-                                <td valign="top" style="width:36px;padding:0 0 16px;">
-                                  <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">4</div>
+                                <td valign="top" style="width:36px;padding:0 0 18px;">
+                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">4</div>
                                 </td>
-                                <td style="padding:0 0 16px 8px;">
-                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Buchungslink teilen</p>
+                                <td style="padding:0 0 18px 10px;">
+                                  <p style="margin:0 0 3px;color:#1E1E1E;font-size:14px;font-weight:600;">Leistungen &amp; Mitarbeiter anlegen</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
-                                    Teilen Sie Ihren persönlichen Link <a href="{profileUrl}" style="color:#E8C7C3;text-decoration:none;">{profileUrl}</a>
-                                    mit Ihren Kunden — per WhatsApp, Instagram Bio oder QR-Code (im Admin unter „Meine Links" → „QR-Code").
+                                    Erstellen Sie Ihre Services (Name, Preis, Dauer) und tragen Sie Ihre Mitarbeiter mit Verfügbarkeiten ein.
                                   </p>
                                 </td>
                               </tr>
 
                               <tr>
                                 <td valign="top" style="width:36px;">
-                                  <div style="width:28px;height:28px;background:#F5EDEB;border-radius:50%;text-align:center;line-height:28px;font-size:13px;font-weight:700;color:#D8B0AC;">5</div>
+                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">5</div>
                                 </td>
-                                <td style="padding:0 0 0 8px;">
-                                  <p style="margin:0 0 2px;color:#1E1E1E;font-size:14px;font-weight:600;">Leistungen &amp; Mitarbeiter anlegen</p>
+                                <td style="padding:0 0 0 10px;">
+                                  <p style="margin:0 0 3px;color:#1E1E1E;font-size:14px;font-weight:600;">Buchungslink teilen</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
-                                    Legen Sie Ihre Dienstleistungen (Preise, Dauer) und Mitarbeiter im Admin-Bereich an,
-                                    damit Kunden direkt online buchen können.
+                                    Teilen Sie <a href="{profileUrl}" style="color:#C9A8A4;text-decoration:none;">{profileUrl}</a>
+                                    per WhatsApp, Instagram Bio oder als QR-Code &mdash; und die ersten Buchungen kommen rein.
                                   </p>
                                 </td>
                               </tr>
@@ -1651,12 +1780,7 @@ GentleBook · support@gentlegroup.de";
                           </td>
                         </tr>
 
-                        <!-- DIVIDER -->
-                        <tr>
-                          <td style="background:#ffffff;padding:0 32px;">
-                            <div style="border-top:1px solid #F0E8E7;"></div>
-                          </td>
-                        </tr>
+                        {upgradeBlock}
 
                         <!-- SUPPORT -->
                         <tr>
@@ -1664,11 +1788,10 @@ GentleBook · support@gentlegroup.de";
                             <table cellpadding="0" cellspacing="0" width="100%" style="background:#F5EDEB;border-radius:12px;padding:20px 24px;">
                               <tr>
                                 <td>
-                                  <p style="margin:0 0 6px;color:#1E1E1E;font-size:14px;font-weight:700;">💬 Fragen? Wir sind für Sie da!</p>
+                                  <p style="margin:0 0 6px;color:#1E1E1E;font-size:14px;font-weight:700;">&#128172; Fragen? Wir sind f&uuml;r Sie da!</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.6;">
-                                    Bei Fragen oder Problemen stehen wir Ihnen jederzeit zur Verfügung.<br>
-                                    Schreiben Sie uns einfach an:
-                                    <a href="mailto:support@gentlegroup.de" style="color:#E8C7C3;font-weight:600;text-decoration:none;">support@gentlegroup.de</a>
+                                    Bei Fragen oder W&uuml;nschen schreiben Sie uns einfach &mdash; wir antworten innerhalb eines Werktages.<br>
+                                    <a href="mailto:support@gentlegroup.de" style="color:#C9A8A4;font-weight:600;text-decoration:none;">support@gentlegroup.de</a>
                                   </p>
                                 </td>
                               </tr>
@@ -1700,32 +1823,19 @@ GentleBook · support@gentlegroup.de";
             builder.TextBody = $"""
                 Willkommen bei GentleBook, {firstName}!
 
-                Ihr Buchungssystem ist einsatzbereit. Legen Sie jetzt Ihr Passwort fest:
+                Ihr {industryLabel} "{tenantName}" ist einsatzbereit.
 
-                E-Mail:  {recipientEmail}
-                Profil:  {profileUrl}
+                PAKET: {planDisplayName} — {planPrice}
 
                 PASSWORT FESTLEGEN (72h gültig):
                 {setupUrl}
 
-                IHRE NÄCHSTEN SCHRITTE:
-
-                1. Passwort festlegen
-                   Klicken Sie auf den Link oben und legen Sie Ihr persönliches Passwort fest.
-
-                2. Profil & Branding einrichten
-                   Laden Sie Ihr Logo hoch und wählen Sie Ihre Branchenfarbe.
-                   -> {settingsUrl}
-
-                3. Links & Design gestalten
-                   Fügen Sie Instagram, WhatsApp oder andere Links hinzu und wählen Sie eine Branchenvorlage.
-                   -> {linksUrl}
-
-                4. Buchungslink teilen
-                   Teilen Sie {profileUrl} mit Ihren Kunden per WhatsApp, Instagram Bio oder QR-Code.
-
-                5. Leistungen & Mitarbeiter anlegen
-                   Legen Sie Ihre Dienstleistungen (Preise, Dauer) und Mitarbeiter an.
+                IHRE ERSTEN 5 SCHRITTE:
+                1. Passwort festlegen — Klicken Sie auf den Link oben.
+                2. Profil & Branding einrichten → {settingsUrl}
+                3. {step3Label} → {linksUrl}
+                4. Leistungen & Mitarbeiter anlegen
+                5. Buchungslink teilen: {profileUrl}
 
                 ---
                 Fragen? Wir sind für Sie da!
@@ -1757,8 +1867,10 @@ GentleBook · support@gentlegroup.de";
         {
             if (tenantId != default)
             {
-                _context.EmailLogs.Add(emailLog);
-                await _context.SaveChangesAsync();
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+                db.EmailLogs.Add(emailLog);
+                await db.SaveChangesAsync();
             }
         }
         catch (Exception dbEx)

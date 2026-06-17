@@ -140,10 +140,13 @@ public class EmployeesController : ControllerBase
     [HttpPatch("{id:guid}/toggle-active")]
     public async Task<IActionResult> ToggleActive(Guid id)
     {
-        var (success, result, errorMessage) = await _employeeService.ToggleActiveAsync(id);
+        var (success, result, errorMessage, warning) = await _employeeService.ToggleActiveAsync(id);
 
         if (!success)
             return NotFound(new { message = errorMessage });
+
+        if (warning != null)
+            return Ok(new { result, warning });
 
         return Ok(result);
     }

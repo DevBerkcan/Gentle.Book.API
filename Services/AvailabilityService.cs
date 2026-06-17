@@ -40,11 +40,15 @@ public class AvailabilityService
 
         if (businessHours == null || !businessHours.IsOpen)
         {
+            var noHoursMsg = businessHours == null
+                ? "Für diesen Tag wurden noch keine Öffnungszeiten eingerichtet."
+                : "Das Studio ist an diesem Wochentag geschlossen.";
             return new AvailabilityResponseDto(
                 date.ToString("yyyy-MM-dd"),
                 serviceId,
                 service.DurationMinutes,
-                new List<TimeSlotDto>()
+                new List<TimeSlotDto>(),
+                noHoursMsg
             );
         }
 

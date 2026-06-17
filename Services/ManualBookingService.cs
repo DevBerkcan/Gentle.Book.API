@@ -10,15 +10,18 @@ public class ManualBookingService
     private readonly GentleBookDbContext _context;
     private readonly ILogger<ManualBookingService> _logger;
     private readonly EmailService _emailService;
+    private readonly ITenantContext _tenantContext;
 
     public ManualBookingService(
         GentleBookDbContext context,
         ILogger<ManualBookingService> logger,
-        EmailService emailService)
+        EmailService emailService,
+        ITenantContext tenantContext)
     {
         _context = context;
         _logger = logger;
         _emailService = emailService;
+        _tenantContext = tenantContext;
     }
 
     public async Task<ManualBookingResponseDto> CreateManualBookingAsync(CreateManualBookingDto dto)
@@ -66,6 +69,7 @@ public class ManualBookingService
         var booking = new Booking
         {
             Id = Guid.NewGuid(),
+            TenantId = _tenantContext.TenantId!.Value,
             CustomerId = customer.Id,
             ServiceId = service.Id,
             EmployeeId = employee?.Id,
@@ -307,6 +311,7 @@ public class ManualBookingService
             customer = new Customer
             {
                 Id = Guid.NewGuid(),
+                TenantId = _tenantContext.TenantId!.Value,
                 FirstName = firstName,
                 LastName = lastName,
                 Email = email,   // null if not provided

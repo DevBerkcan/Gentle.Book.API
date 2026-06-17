@@ -3,6 +3,7 @@ using GentleBook.Api.Services;
 using GentleBook.Api.Validators;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace GentleBook.Api.Controllers;
 
@@ -42,6 +43,7 @@ public class BookingsController : ControllerBase
     /// </summary>
     [HttpPost]
     [AllowAnonymous]
+    [EnableRateLimiting("booking-limit")]
     [ProducesResponseType(StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]

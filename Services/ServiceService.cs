@@ -1,8 +1,8 @@
-﻿using GentleBook.Api.Data;
+﻿using GentleBook.Api.Configuration;
+using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
 using Microsoft.EntityFrameworkCore;
-using GentleBook.Api.Data.Entities;
 
 namespace GentleBook.Api.Services;
 
@@ -25,7 +25,7 @@ public class ServiceService
     {
         var query = _context.Services
             .Include(s => s.ServiceEmployees)
-            .Where(s => s.IsActive)
+            .Where(s => s.TenantId == _tenantContext.TenantId && s.IsActive)
             .AsQueryable();
 
         // For employee portal - filter by employee
@@ -57,7 +57,7 @@ public class ServiceService
         var categories = await _context.ServiceCategories
             .Include(c => c.Services)
                 .ThenInclude(s => s.ServiceEmployees)
-            .Where(c => c.IsActive)
+            .Where(c => c.TenantId == _tenantContext.TenantId && c.IsActive)
             .OrderBy(c => c.DisplayOrder)
             .Select(c => new ServiceCategoryDto(
                 c.Id,
@@ -97,14 +97,14 @@ public class ServiceService
         Guid? employeeId = null)
     {
         var category = await _context.ServiceCategories
-            .FirstOrDefaultAsync(c => c.Id == categoryId && c.IsActive);
+            .FirstOrDefaultAsync(c => c.Id == categoryId && c.TenantId == _tenantContext.TenantId && c.IsActive);
 
         if (category == null)
             return (null, false);
 
         var query = _context.Services
             .Include(s => s.ServiceEmployees)
-            .Where(s => s.CategoryId == categoryId && s.IsActive);
+            .Where(s => s.TenantId == _tenantContext.TenantId && s.CategoryId == categoryId && s.IsActive);
 
         if (employeeId.HasValue)
         {
@@ -136,7 +136,7 @@ public class ServiceService
             .Include(s => s.Category)
             .Include(s => s.ServiceEmployees)
                 .ThenInclude(se => se.Employee)
-            .Where(s => s.Id == id && s.IsActive);
+            .Where(s => s.Id == id && s.TenantId == _tenantContext.TenantId && s.IsActive);
 
         if (employeeId.HasValue)
         {
@@ -170,7 +170,7 @@ public class ServiceService
     {
         var services = await _context.Services
             .Include(s => s.ServiceEmployees)
-            .Where(s => s.IsActive && s.ServiceEmployees.Any(se => se.EmployeeId == employeeId))
+            .Where(s => s.TenantId == _tenantContext.TenantId && s.IsActive && s.ServiceEmployees.Any(se => se.EmployeeId == employeeId))
             .OrderBy(s => s.DisplayOrder)
             .Select(s => new ServiceDto(
                 s.Id,
@@ -192,6 +192,7 @@ public class ServiceService
     {
         var categories = await _context.ServiceCategories
             .Include(c => c.Services)
+            .Where(c => c.TenantId == _tenantContext.TenantId)
             .OrderBy(c => c.DisplayOrder)
             .Select(c => new ServiceCategoryDto(
                 c.Id,
@@ -222,7 +223,7 @@ public class ServiceService
     {
         var query = _context.Services
             .Include(s => s.ServiceEmployees)
-            .Where(s => s.IsActive);
+            .Where(s => s.TenantId == _tenantContext.TenantId && s.IsActive);
 
         if (employeeId.HasValue)
         {
@@ -230,10 +231,10 @@ public class ServiceService
         }
 
         var totalServices = await query.CountAsync();
-        var totalCategories = await _context.ServiceCategories.CountAsync(c => c.IsActive);
+        var totalCategories = await _context.ServiceCategories.CountAsync(c => c.TenantId == _tenantContext.TenantId && c.IsActive);
 
         var categoryBreakdown = await _context.ServiceCategories
-            .Where(c => c.IsActive)
+            .Where(c => c.TenantId == _tenantContext.TenantId && c.IsActive)
             .Select(c => new
             {
                 CategoryName = c.Name,
@@ -399,6 +400,23 @@ public class ServiceService
         if (category == null)
             throw new ArgumentException("Kategorie nicht gefunden");
 
+        // Enforce plan limits
+        var tenantId = _tenantContext.TenantId;
+        if (tenantId.HasValue)
+        {
+            var subscription = await _context.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
+            if (subscription != null)
+            {
+                var limits = PlanLimits.Get(subscription.Plan);
+                if (!PlanLimits.IsUnlimited(limits.MaxServices))
+                {
+                    var currentCount = await _context.Services.CountAsync(s => s.TenantId == tenantId.Value && s.IsActive);
+                    if (currentCount >= limits.MaxServices)
+                        throw new InvalidOperationException($"Ihr Plan erlaubt maximal {limits.MaxServices} aktive Services. Bitte upgraden Sie Ihren Plan.");
+                }
+            }
+        }
+
         var service = new Service
         {
             Id = Guid.NewGuid(),
@@ -521,6 +539,16 @@ public class ServiceService
 
         if (service == null)
             throw new ArgumentException("Service nicht gefunden");
+
+        // Block deletion if future non-cancelled bookings exist
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        var futureBookingCount = service.Bookings?.Count(b =>
+            b.BookingDate >= today &&
+            b.Status != BookingStatus.Cancelled) ?? 0;
+
+        if (futureBookingCount > 0)
+            throw new InvalidOperationException(
+                $"Dieser Service hat {futureBookingCount} offene zukünftige Buchung(en). Bitte deaktivieren Sie den Service statt ihn zu löschen, oder stornieren Sie zuerst alle Buchungen.");
 
         // Use a transaction to ensure all operations succeed or fail together
         using var transaction = await _context.Database.BeginTransactionAsync();

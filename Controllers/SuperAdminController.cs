@@ -131,6 +131,10 @@ public class SuperAdminController : ControllerBase
 
         var trialDays = int.TryParse(_config["Platform:DefaultTrialDays"], out var d) ? d : 14;
 
+        var selectedPlan = dto.Plan != null && Enum.TryParse<SubscriptionPlan>(dto.Plan, ignoreCase: true, out var parsedPlan)
+            ? parsedPlan
+            : SubscriptionPlan.Trial;
+
         var tenant = new Tenant
         {
             Name = dto.Name,
@@ -151,8 +155,10 @@ public class SuperAdminController : ControllerBase
             TenantId = tenant.Id,
             TrialStartedAt = DateTime.UtcNow,
             TrialEndsAt = DateTime.UtcNow.AddDays(trialDays),
-            Plan = SubscriptionPlan.Trial,
-            Status = SubscriptionStatus.Trial,
+            Plan = selectedPlan,
+            Status = selectedPlan == SubscriptionPlan.Trial ? SubscriptionStatus.Trial : SubscriptionStatus.Active,
+            CurrentPeriodStart = selectedPlan != SubscriptionPlan.Trial ? DateTime.UtcNow : (DateTime?)null,
+            CurrentPeriodEnd = selectedPlan != SubscriptionPlan.Trial ? DateTime.UtcNow.AddMonths(1) : (DateTime?)null,
         };
 
         _db.Tenants.Add(tenant);
@@ -206,7 +212,16 @@ public class SuperAdminController : ControllerBase
         if (!string.IsNullOrWhiteSpace(dto.AdminEmail) && dto.SendWelcomeEmail != false && setupRawToken != null)
         {
             var setupUrl = $"{_emailService.FrontendUrl}/admin/reset-password?token={setupRawToken}";
-            _ = _emailService.SendWelcomeEmailAsync(dto.AdminEmail.ToLowerInvariant(), adminFirstName!, slug, setupUrl, tenant.Id);
+            _ = _emailService.SendWelcomeEmailAsync(
+                dto.AdminEmail.ToLowerInvariant(),
+                adminFirstName!,
+                setupUrl,
+                tenant.Name,
+                slug,
+                tenant.Id,
+                tenant.IndustryType.ToString(),
+                selectedPlan.ToString(),
+                dto.PersonalNote);
         }
 
         return CreatedAtAction(nameof(GetTenant), new { id = tenant.Id }, new
@@ -270,13 +285,42 @@ public class SuperAdminController : ControllerBase
         var tenant = await _db.Tenants.FindAsync(id);
         if (tenant == null) return NotFound();
 
-        _db.Tenants.Remove(tenant);
+        await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
+            await _db.EmailLogs.IgnoreQueryFilters().Where(e => e.TenantId == id).ExecuteDeleteAsync();
+            await _db.Bookings.IgnoreQueryFilters().Where(b => b.TenantId == id).ExecuteDeleteAsync();
+
+            await _db.BlockedTimeSlots.IgnoreQueryFilters().Where(b => b.TenantId == id).ExecuteDeleteAsync();
+            await _db.EmployeeVacations.IgnoreQueryFilters().Where(v => v.TenantId == id).ExecuteDeleteAsync();
+            await _db.EmployeeSchedules.IgnoreQueryFilters().Where(s => s.TenantId == id).ExecuteDeleteAsync();
+
+            await _db.ServiceEmployees.IgnoreQueryFilters()
+                .Where(se => se.Service.TenantId == id || se.Employee.TenantId == id)
+                .ExecuteDeleteAsync();
+
+            await _db.Services.IgnoreQueryFilters().Where(s => s.TenantId == id).ExecuteDeleteAsync();
+            await _db.ServiceCategories.IgnoreQueryFilters().Where(c => c.TenantId == id).ExecuteDeleteAsync();
+            await _db.Customers.IgnoreQueryFilters().Where(c => c.TenantId == id).ExecuteDeleteAsync();
+            await _db.BusinessHours.IgnoreQueryFilters().Where(h => h.TenantId == id).ExecuteDeleteAsync();
+            await _db.TenantLinks.IgnoreQueryFilters().Where(l => l.TenantId == id).ExecuteDeleteAsync();
+
+            await _db.PasswordResetTokens
+                .Where(t => t.User.TenantId == id)
+                .ExecuteDeleteAsync();
+            await _db.PlatformUsers.Where(u => u.TenantId == id).ExecuteDeleteAsync();
+
+            await _db.TenantSettings.Where(s => s.TenantId == id).ExecuteDeleteAsync();
+            await _db.Subscriptions.Where(s => s.TenantId == id).ExecuteDeleteAsync();
+            await _db.Employees.IgnoreQueryFilters().Where(e => e.TenantId == id).ExecuteDeleteAsync();
+
+            _db.Tenants.Remove(tenant);
             await _db.SaveChangesAsync();
+            await tx.CommitAsync();
         }
         catch (Exception ex)
         {
+            await tx.RollbackAsync();
             _logger.LogError(ex, "DeleteTenant failed for {TenantId}", id);
             return StatusCode(500, new { message = "Löschen fehlgeschlagen.", detail = ex.Message, inner = ex.InnerException?.Message });
         }
@@ -406,7 +450,15 @@ public class SuperAdminController : ControllerBase
         if (dto.SendWelcomeEmail != false)
         {
             var setupUrl = $"{_emailService.FrontendUrl}/admin/reset-password?token={setupRawToken}";
-            _ = _emailService.SendWelcomeEmailAsync(user.Email, user.FirstName, tenant.Slug, setupUrl, tenant.Id);
+            _ = _emailService.SendWelcomeEmailAsync(
+                user.Email,
+                user.FirstName,
+                setupUrl,
+                tenant.Name,
+                tenant.Slug,
+                tenant.Id,
+                tenant.IndustryType.ToString(),
+                "Trial");
         }
 
         return Ok(new { user.Id, user.Email, user.FirstName, user.LastName, passwordGenerated = true });
@@ -475,6 +527,62 @@ public class SuperAdminController : ControllerBase
             maxEmployees = limits.MaxEmployees,
             maxServices = limits.MaxServices,
         });
+    }
+
+    /// <summary>Resend onboarding/welcome email with a fresh password-reset link (72h).</summary>
+    [HttpPost("tenants/{id:guid}/resend-welcome")]
+    public async Task<IActionResult> ResendWelcomeEmail(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var tenant = await _db.Tenants
+            .Include(t => t.Subscription)
+            .FirstOrDefaultAsync(t => t.Id == id);
+        if (tenant == null) return NotFound(new { message = "Tenant nicht gefunden." });
+
+        var adminUser = await _db.PlatformUsers
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(u => u.TenantId == id && u.Role == PlatformRole.TenantAdmin);
+        if (adminUser == null) return BadRequest(new { message = "Kein Admin-User gefunden." });
+
+        // Generate a fresh password-reset token (72h)
+        var rawToken  = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
+            .Replace("+", "-").Replace("/", "_").Replace("=", "");
+        var tokenHash = Convert.ToHexString(SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(rawToken)));
+
+        // Invalidate any existing unused tokens for this user
+        var existing = await _db.PasswordResetTokens
+            .Where(t => t.UserId == adminUser.Id && !t.IsUsed)
+            .ToListAsync();
+        foreach (var t in existing) t.IsUsed = true;
+
+        _db.PasswordResetTokens.Add(new PasswordResetToken
+        {
+            Id        = Guid.NewGuid(),
+            UserId    = adminUser.Id,
+            TokenHash = tokenHash,
+            ExpiresAt = DateTime.UtcNow.AddHours(72),
+            IsUsed    = false,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await _db.SaveChangesAsync();
+
+        var setupUrl = $"{_emailService.FrontendUrl}/admin/reset-password?token={rawToken}";
+        var planStr  = tenant.Subscription?.Plan.ToString() ?? "Trial";
+
+        _ = _emailService.SendWelcomeEmailAsync(
+            adminUser.Email,
+            adminUser.FirstName ?? "Admin",
+            setupUrl,
+            tenant.Name,
+            tenant.Slug,
+            tenant.Id,
+            tenant.IndustryType.ToString(),
+            planStr,
+            personalNote: null);
+
+        return Ok(new { sent = true, sentTo = adminUser.Email });
     }
 
     /// <summary>Platform-wide stats for SuperAdmin dashboard.</summary>
@@ -846,7 +954,9 @@ public record CreateTenantDto(
     string? AdminPassword,
     string? AdminFirstName,
     string? AdminLastName,
-    bool? SendWelcomeEmail = true
+    bool? SendWelcomeEmail = true,
+    string? Plan = null,
+    string? PersonalNote = null
 );
 
 public record UpdateTenantDto(

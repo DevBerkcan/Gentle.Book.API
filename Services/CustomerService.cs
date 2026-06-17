@@ -9,11 +9,13 @@ public class CustomerService
 {
     private readonly GentleBookDbContext _context;
     private readonly ILogger<CustomerService> _logger;
+    private readonly ITenantContext _tenantContext;
 
-    public CustomerService(GentleBookDbContext context, ILogger<CustomerService> logger)
+    public CustomerService(GentleBookDbContext context, ILogger<CustomerService> logger, ITenantContext tenantContext)
     {
         _context = context;
         _logger = logger;
+        _tenantContext = tenantContext;
     }
 
     // ── GET ALL (with employee filtering) ───────────────────────────────────
@@ -24,6 +26,7 @@ public class CustomerService
         int pageSize = 20)
     {
         var query = _context.Customers
+            .Where(c => c.TenantId == _tenantContext.TenantId)
             .AsQueryable();
 
         // Filter by employee if specified
@@ -157,8 +160,9 @@ public class CustomerService
         var customer = new Customer
         {
             Id = Guid.NewGuid(),
-            FirstName = dto.FirstName.Trim(),
-            LastName = dto.LastName.Trim(),
+            TenantId = _tenantContext.TenantId!.Value,
+            FirstName = dto.FirstName?.Trim() ?? string.Empty,
+            LastName = dto.LastName?.Trim() ?? string.Empty,
             Email = dto.Email?.Trim(),
             Phone = dto.Phone?.Trim(),
             Notes = dto.Notes?.Trim(),

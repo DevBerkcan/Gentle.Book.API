@@ -106,6 +106,11 @@ public class CustomersController : ControllerBase
         {
             return Conflict(new { message = ex.Message });
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CreateCustomer failed");
+            return StatusCode(500, new { message = "Interner Fehler beim Anlegen des Kunden." });
+        }
     }
 
     /// <summary>

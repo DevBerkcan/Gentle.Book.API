@@ -18,12 +18,14 @@ public class TenantController : ControllerBase
     private readonly GentleBookDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly EmailService _emailService;
+    private readonly ILogger<TenantController> _logger;
 
-    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService)
+    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger)
     {
         _db = db;
         _tenantContext = tenantContext;
         _emailService = emailService;
+        _logger = logger;
     }
 
     private IActionResult? RequireTenantAdmin()
@@ -175,8 +177,16 @@ public class TenantController : ControllerBase
             Directory.CreateDirectory(uploadDir);
 
         var filePath = Path.Combine(uploadDir, fileName);
-        using (var stream = new FileStream(filePath, FileMode.Create))
-            await logo.CopyToAsync(stream);
+        try
+        {
+            using (var stream = new FileStream(filePath, FileMode.Create))
+                await logo.CopyToAsync(stream);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Logo upload failed for tenant {TenantId}, path {FilePath}", tenantId, filePath);
+            return StatusCode(500, new { message = "Datei konnte nicht gespeichert werden. Bitte versuchen Sie es erneut." });
+        }
 
         var logoUrl = $"/uploads/logos/{fileName}";
 

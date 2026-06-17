@@ -27,7 +27,20 @@ public class ReminderService
     public async Task SendDailyRemindersAsync()
     {
         var now = DateTime.UtcNow;
-        var tomorrow = DateOnly.FromDateTime(now.AddDays(1));
+
+        // Determine "tomorrow" per tenant timezone so reminders fire on the correct calendar day.
+        // Fallback to UTC when the stored timezone string is unrecognised.
+        var defaultTzId = await _context.TenantSettings
+            .IgnoreQueryFilters()
+            .Select(t => t.TimeZone)
+            .FirstOrDefaultAsync() ?? "Europe/Berlin";
+
+        TimeZoneInfo tz;
+        try { tz = TimeZoneInfo.FindSystemTimeZoneById(defaultTzId); }
+        catch { tz = TimeZoneInfo.Utc; }
+
+        var localNow  = TimeZoneInfo.ConvertTimeFromUtc(now, tz);
+        var tomorrow  = DateOnly.FromDateTime(localNow.AddDays(1));
 
         _logger.LogInformation("Starting daily reminder job for date: {Date}", tomorrow);
 

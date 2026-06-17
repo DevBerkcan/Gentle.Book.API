@@ -1,4 +1,5 @@
-﻿using GentleBook.Api.Data;
+﻿using GentleBook.Api.Configuration;
+using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
 using Microsoft.EntityFrameworkCore;
@@ -193,6 +194,23 @@ public class EmployeeService
                 return (false, null, "Benutzername bereits vergeben");
         }
 
+        // Enforce plan limits
+        var tenantId = _tenantContext.TenantId;
+        if (tenantId.HasValue)
+        {
+            var subscription = await _context.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
+            if (subscription != null)
+            {
+                var limits = PlanLimits.Get(subscription.Plan);
+                if (!PlanLimits.IsUnlimited(limits.MaxEmployees))
+                {
+                    var currentCount = await _context.Employees.CountAsync(e => e.TenantId == tenantId.Value && e.IsActive);
+                    if (currentCount >= limits.MaxEmployees)
+                        return (false, null, $"Ihr Plan erlaubt maximal {limits.MaxEmployees} aktive Mitarbeiter. Bitte upgraden Sie Ihren Plan.");
+                }
+            }
+        }
+
         var employee = new Employee
         {
             Id = Guid.NewGuid(),
@@ -274,17 +292,30 @@ public class EmployeeService
     }
 
     // Keep existing ToggleActiveAsync method
-    public async Task<(bool Success, object? Result, string? ErrorMessage)> ToggleActiveAsync(Guid id)
+    public async Task<(bool Success, object? Result, string? ErrorMessage, string? Warning)> ToggleActiveAsync(Guid id)
     {
         var employee = await _context.Employees.FindAsync(id);
         if (employee == null)
-            return (false, null, "Mitarbeiter nicht gefunden");
+            return (false, null, "Mitarbeiter nicht gefunden", null);
+
+        string? warning = null;
+        if (employee.IsActive)
+        {
+            var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+            var futureBookingCount = await _context.Bookings
+                .CountAsync(b => b.EmployeeId == id &&
+                                 b.BookingDate >= today &&
+                                 b.Status != BookingStatus.Cancelled);
+
+            if (futureBookingCount > 0)
+                warning = $"Dieser Mitarbeiter hat noch {futureBookingCount} zukünftige Buchung(en). Diese bleiben bestehen.";
+        }
 
         employee.IsActive = !employee.IsActive;
         employee.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        return (true, new { employee.Id, employee.IsActive }, null);
+        return (true, new { employee.Id, employee.IsActive }, null, warning);
     }
 
     // Keep existing DeleteAsync method

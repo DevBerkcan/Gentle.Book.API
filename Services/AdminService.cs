@@ -9,11 +9,13 @@ public class AdminService
 {
     private readonly GentleBookDbContext _context;
     private readonly ILogger<AdminService> _logger;
+    private readonly EmailService _emailService;
 
-    public AdminService(GentleBookDbContext context, ILogger<AdminService> logger)
+    public AdminService(GentleBookDbContext context, ILogger<AdminService> logger, EmailService emailService)
     {
         _context = context;
         _logger = logger;
+        _emailService = emailService;
     }
 
     public async Task<DashboardOverviewDto> GetDashboardOverviewAsync(Guid? employeeId = null)
@@ -339,6 +341,21 @@ public class AdminService
             bookingId, oldStatus, newStatus
         );
 
+        // Notify customer when admin cancels their booking
+        if (newStatus == BookingStatus.Cancelled && oldStatus != BookingStatus.Cancelled
+            && booking.Customer?.Email != null && booking.Service != null)
+        {
+            try
+            {
+                await _emailService.SendCancellationConfirmationAsync(booking, booking.Customer, booking.Service);
+                _logger.LogInformation("Cancellation email sent to {Email} for booking {BookingId}", booking.Customer.Email, bookingId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send cancellation email for booking {BookingId}", bookingId);
+            }
+        }
+
         var customerName = booking.Customer != null
             ? $"{booking.Customer.FirstName ?? ""} {booking.Customer.LastName ?? ""}".Trim()
             : "Unknown Customer";
@@ -368,6 +385,7 @@ public class AdminService
     {
         var booking = await _context.Bookings
             .Include(b => b.Customer)
+            .Include(b => b.Service)
             .Include(b => b.EmailLogs)
             .FirstOrDefaultAsync(b => b.Id == bookingId);
 
@@ -382,6 +400,20 @@ public class AdminService
             booking.Customer?.Email ?? "unknown",
             reason ?? "No reason provided"
         );
+
+        // Notify customer before deleting
+        if (booking.Customer?.Email != null && booking.Service != null && booking.Status != BookingStatus.Cancelled)
+        {
+            try
+            {
+                await _emailService.SendCancellationConfirmationAsync(booking, booking.Customer, booking.Service);
+                _logger.LogInformation("Cancellation email sent to {Email} for deleted booking {BookingId}", booking.Customer.Email, bookingId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send cancellation email for deleted booking {BookingId}", bookingId);
+            }
+        }
 
         // Remove related email logs first (if cascade delete is not set)
         if (booking.EmailLogs != null && booking.EmailLogs.Any())

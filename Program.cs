@@ -156,6 +156,16 @@ builder.Services.AddRateLimiter(options =>
         o.QueueLimit = 0;
         o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
     });
+
+    // Booking spam protection: max 10 bookings per IP per 10 minutes
+    options.AddFixedWindowLimiter("booking-limit", o =>
+    {
+        o.Window = TimeSpan.FromMinutes(10);
+        o.PermitLimit = 10;
+        o.QueueLimit = 0;
+        o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+    });
+
     options.RejectionStatusCode = 429;
     options.OnRejected = async (ctx, ct) =>
     {
