@@ -379,6 +379,14 @@ public class EmployeeService
         if (await _context.Bookings.AnyAsync(b => b.EmployeeId == id && b.TenantId == tenantId))
             return (false, "Mitarbeiter hat Buchungen und kann nicht gelöscht werden. Bitte deaktivieren.");
 
+        await _context.BlockedTimeSlots
+            .Where(b => b.EmployeeId == id && b.TenantId == tenantId)
+            .ExecuteUpdateAsync(s => s.SetProperty(b => b.EmployeeId, (Guid?)null));
+
+        await _context.Customers
+            .Where(c => c.EmployeeId == id && c.TenantId == tenantId)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.EmployeeId, (Guid?)null));
+
         _context.Employees.Remove(employee);
         await _context.SaveChangesAsync();
         return (true, null);
