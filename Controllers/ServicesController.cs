@@ -31,10 +31,10 @@ public class ServicesController : ControllerBase
     [HttpGet]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<List<ServiceDto>>> GetServices()
+    public async Task<ActionResult<List<ServiceDto>>> GetServices([FromQuery] string? tenantSlug = null)
     {
         var employeeId = GetCurrentEmployeeId();
-        var services = await _serviceService.GetServicesAsync(employeeId);
+        var services = await _serviceService.GetServicesAsync(employeeId, tenantSlug);
         return Ok(services);
     }
 
@@ -46,10 +46,10 @@ public class ServicesController : ControllerBase
     [HttpGet("categories")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<List<ServiceCategoryDto>>> GetServiceCategories()
+    public async Task<ActionResult<List<ServiceCategoryDto>>> GetServiceCategories([FromQuery] string? tenantSlug = null)
     {
         var employeeId = GetCurrentEmployeeId();
-        var categories = await _serviceService.GetServiceCategoriesAsync(employeeId);
+        var categories = await _serviceService.GetServiceCategoriesAsync(employeeId, tenantSlug);
         return Ok(categories);
     }
 
@@ -62,10 +62,10 @@ public class ServicesController : ControllerBase
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<List<ServiceDto>>> GetServicesByCategory(Guid categoryId)
+    public async Task<ActionResult<List<ServiceDto>>> GetServicesByCategory(Guid categoryId, [FromQuery] string? tenantSlug = null)
     {
         var employeeId = GetCurrentEmployeeId();
-        var (services, categoryExists) = await _serviceService.GetServicesByCategoryAsync(categoryId, employeeId);
+        var (services, categoryExists) = await _serviceService.GetServicesByCategoryAsync(categoryId, employeeId, tenantSlug);
 
         if (!categoryExists)
         {
@@ -83,10 +83,10 @@ public class ServicesController : ControllerBase
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ServiceWithCategoryDto>> GetServiceDetails(Guid id)
+    public async Task<ActionResult<ServiceWithCategoryDto>> GetServiceDetails(Guid id, [FromQuery] string? tenantSlug = null)
     {
         var employeeId = GetCurrentEmployeeId();
-        var service = await _serviceService.GetServiceDetailsAsync(id, employeeId);
+        var service = await _serviceService.GetServiceDetailsAsync(id, employeeId, tenantSlug);
 
         if (service == null)
         {
@@ -104,10 +104,10 @@ public class ServicesController : ControllerBase
     [HttpGet("summary")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<object>> GetServicesSummary()
+    public async Task<ActionResult<object>> GetServicesSummary([FromQuery] string? tenantSlug = null)
     {
         var employeeId = GetCurrentEmployeeId();
-        var summary = await _serviceService.GetServicesSummaryAsync(employeeId);
+        var summary = await _serviceService.GetServicesSummaryAsync(employeeId, tenantSlug);
         return Ok(summary);
     }
 

@@ -19,13 +19,34 @@ public class ServiceService
         _tenantContext = tenantContext;
     }
 
+    private Guid RequireTenantId()
+        => _tenantContext.TenantId ?? throw new InvalidOperationException("TenantId fehlt");
+
+    private async Task<Guid?> ResolveTenantIdAsync(string? tenantSlug)
+    {
+        if (_tenantContext.TenantId.HasValue)
+            return _tenantContext.TenantId.Value;
+
+        if (string.IsNullOrWhiteSpace(tenantSlug))
+            return null;
+
+        return await _context.Tenants
+            .Where(t => t.Slug == tenantSlug.Trim().ToLower() && t.IsActive)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync();
+    }
+
     // ── PUBLIC METHODS (for booking widget) ─────────────────────────
 
-    public async Task<List<ServiceDto>> GetServicesAsync(Guid? employeeId = null)
+    public async Task<List<ServiceDto>> GetServicesAsync(Guid? employeeId = null, string? tenantSlug = null)
     {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return new List<ServiceDto>();
+
         var query = _context.Services
             .Include(s => s.ServiceEmployees)
-            .Where(s => s.TenantId == _tenantContext.TenantId && s.IsActive)
+            .Where(s => s.TenantId == tenantId.Value && s.IsActive)
             .AsQueryable();
 
         // For employee portal - filter by employee
@@ -52,12 +73,16 @@ public class ServiceService
         return services;
     }
 
-    public async Task<List<ServiceCategoryDto>> GetServiceCategoriesAsync(Guid? employeeId = null)
+    public async Task<List<ServiceCategoryDto>> GetServiceCategoriesAsync(Guid? employeeId = null, string? tenantSlug = null)
     {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return new List<ServiceCategoryDto>();
+
         var categories = await _context.ServiceCategories
             .Include(c => c.Services)
                 .ThenInclude(s => s.ServiceEmployees)
-            .Where(c => c.TenantId == _tenantContext.TenantId && c.IsActive)
+            .Where(c => c.TenantId == tenantId.Value && c.IsActive)
             .OrderBy(c => c.DisplayOrder)
             .Select(c => new ServiceCategoryDto(
                 c.Id,
@@ -94,17 +119,22 @@ public class ServiceService
 
     public async Task<(List<ServiceDto>? Services, bool CategoryExists)> GetServicesByCategoryAsync(
         Guid categoryId,
-        Guid? employeeId = null)
+        Guid? employeeId = null,
+        string? tenantSlug = null)
     {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return (null, false);
+
         var category = await _context.ServiceCategories
-            .FirstOrDefaultAsync(c => c.Id == categoryId && c.TenantId == _tenantContext.TenantId && c.IsActive);
+            .FirstOrDefaultAsync(c => c.Id == categoryId && c.TenantId == tenantId.Value && c.IsActive);
 
         if (category == null)
             return (null, false);
 
         var query = _context.Services
             .Include(s => s.ServiceEmployees)
-            .Where(s => s.TenantId == _tenantContext.TenantId && s.CategoryId == categoryId && s.IsActive);
+            .Where(s => s.TenantId == tenantId.Value && s.CategoryId == categoryId && s.IsActive);
 
         if (employeeId.HasValue)
         {
@@ -130,13 +160,17 @@ public class ServiceService
         return (services, true);
     }
 
-    public async Task<ServiceWithCategoryDto?> GetServiceDetailsAsync(Guid id, Guid? employeeId = null)
+    public async Task<ServiceWithCategoryDto?> GetServiceDetailsAsync(Guid id, Guid? employeeId = null, string? tenantSlug = null)
     {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return null;
+
         var query = _context.Services
             .Include(s => s.Category)
             .Include(s => s.ServiceEmployees)
                 .ThenInclude(se => se.Employee)
-            .Where(s => s.Id == id && s.TenantId == _tenantContext.TenantId && s.IsActive);
+            .Where(s => s.Id == id && s.TenantId == tenantId.Value && s.IsActive);
 
         if (employeeId.HasValue)
         {
@@ -168,9 +202,11 @@ public class ServiceService
 
     public async Task<List<ServiceDto>> GetEmployeeServicesAsync(Guid employeeId)
     {
+        var tenantId = RequireTenantId();
+
         var services = await _context.Services
             .Include(s => s.ServiceEmployees)
-            .Where(s => s.TenantId == _tenantContext.TenantId && s.IsActive && s.ServiceEmployees.Any(se => se.EmployeeId == employeeId))
+            .Where(s => s.TenantId == tenantId && s.IsActive && s.ServiceEmployees.Any(se => se.EmployeeId == employeeId && se.Employee.TenantId == tenantId))
             .OrderBy(s => s.DisplayOrder)
             .Select(s => new ServiceDto(
                 s.Id,
@@ -190,9 +226,11 @@ public class ServiceService
 
     public async Task<List<ServiceCategoryDto>> GetAllCategoriesAsync()
     {
+        var tenantId = RequireTenantId();
+
         var categories = await _context.ServiceCategories
             .Include(c => c.Services)
-            .Where(c => c.TenantId == _tenantContext.TenantId)
+            .Where(c => c.TenantId == tenantId)
             .OrderBy(c => c.DisplayOrder)
             .Select(c => new ServiceCategoryDto(
                 c.Id,
@@ -219,11 +257,26 @@ public class ServiceService
         return categories;
     }
 
-    public async Task<object> GetServicesSummaryAsync(Guid? employeeId = null)
+    public async Task<object> GetServicesSummaryAsync(Guid? employeeId = null, string? tenantSlug = null)
     {
+        var resolvedTenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!resolvedTenantId.HasValue)
+        {
+            return new
+            {
+                TotalServices = 0,
+                TotalCategories = 0,
+                CategoryBreakdown = Array.Empty<object>(),
+                ForEmployee = employeeId,
+                LastUpdated = DateTime.UtcNow
+            };
+        }
+
+        var tenantId = resolvedTenantId.Value;
+
         var query = _context.Services
             .Include(s => s.ServiceEmployees)
-            .Where(s => s.TenantId == _tenantContext.TenantId && s.IsActive);
+            .Where(s => s.TenantId == tenantId && s.IsActive);
 
         if (employeeId.HasValue)
         {
@@ -231,10 +284,10 @@ public class ServiceService
         }
 
         var totalServices = await query.CountAsync();
-        var totalCategories = await _context.ServiceCategories.CountAsync(c => c.TenantId == _tenantContext.TenantId && c.IsActive);
+        var totalCategories = await _context.ServiceCategories.CountAsync(c => c.TenantId == tenantId && c.IsActive);
 
         var categoryBreakdown = await _context.ServiceCategories
-            .Where(c => c.TenantId == _tenantContext.TenantId && c.IsActive)
+            .Where(c => c.TenantId == tenantId && c.IsActive)
             .Select(c => new
             {
                 CategoryName = c.Name,
@@ -270,15 +323,17 @@ public class ServiceService
 
     public async Task<bool> AssignServiceToEmployeeAsync(Guid serviceId, Guid employeeId)
     {
+        var tenantId = RequireTenantId();
+
         var service = await _context.Services
             .Include(s => s.ServiceEmployees)
-            .FirstOrDefaultAsync(s => s.Id == serviceId && s.IsActive);
+            .FirstOrDefaultAsync(s => s.Id == serviceId && s.TenantId == tenantId && s.IsActive);
 
         if (service == null)
             throw new ArgumentException("Service not found");
 
         var employee = await _context.Employees
-            .FirstOrDefaultAsync(e => e.Id == employeeId && e.IsActive);
+            .FirstOrDefaultAsync(e => e.Id == employeeId && e.TenantId == tenantId && e.IsActive);
 
         if (employee == null)
             throw new ArgumentException("Employee not found");
@@ -305,15 +360,21 @@ public class ServiceService
 
     public async Task<bool> RemoveServiceFromEmployeeAsync(Guid serviceId, Guid employeeId)
     {
+        var tenantId = RequireTenantId();
+
         var serviceEmployee = await _context.ServiceEmployees
-            .FirstOrDefaultAsync(se => se.ServiceId == serviceId && se.EmployeeId == employeeId);
+            .FirstOrDefaultAsync(se =>
+                se.ServiceId == serviceId &&
+                se.EmployeeId == employeeId &&
+                se.Service.TenantId == tenantId &&
+                se.Employee.TenantId == tenantId);
 
         if (serviceEmployee == null)
             throw new ArgumentException("Assignment not found");
 
         _context.ServiceEmployees.Remove(serviceEmployee);
 
-        var service = await _context.Services.FindAsync(serviceId);
+        var service = await _context.Services.FirstOrDefaultAsync(s => s.Id == serviceId && s.TenantId == tenantId);
         if (service != null)
         {
             service.UpdatedAt = DateTime.UtcNow;
@@ -330,10 +391,13 @@ public class ServiceService
 
     public async Task<List<AdminServiceDto>> GetAllServicesAdminAsync()
     {
+        var tenantId = RequireTenantId();
+
         var services = await _context.Services
             .Include(s => s.Category)
             .Include(s => s.ServiceEmployees)
                 .ThenInclude(se => se.Employee)
+            .Where(s => s.TenantId == tenantId)
             .OrderBy(s => s.Category.DisplayOrder)
             .ThenBy(s => s.DisplayOrder)
             .Select(s => new AdminServiceDto(
@@ -363,11 +427,13 @@ public class ServiceService
 
     public async Task<AdminServiceDto?> GetServiceByIdAdminAsync(Guid id)
     {
+        var tenantId = RequireTenantId();
+
         var service = await _context.Services
             .Include(s => s.Category)
             .Include(s => s.ServiceEmployees)
                 .ThenInclude(se => se.Employee)
-            .FirstOrDefaultAsync(s => s.Id == id);
+            .FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tenantId);
 
         if (service == null)
             return null;
@@ -395,22 +461,23 @@ public class ServiceService
 
     public async Task<AdminServiceDto> CreateServiceAsync(CreateServiceDto dto)
     {
+        var tenantId = RequireTenantId();
+
         // Validate category
-        var category = await _context.ServiceCategories.FindAsync(dto.CategoryId);
+        var category = await _context.ServiceCategories.FirstOrDefaultAsync(c => c.Id == dto.CategoryId && c.TenantId == tenantId);
         if (category == null)
             throw new ArgumentException("Kategorie nicht gefunden");
 
         // Enforce plan limits
-        var tenantId = _tenantContext.TenantId;
-        if (tenantId.HasValue)
+        if (tenantId != Guid.Empty)
         {
-            var subscription = await _context.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
+            var subscription = await _context.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
             if (subscription != null)
             {
                 var limits = PlanLimits.Get(subscription.Plan);
                 if (!PlanLimits.IsUnlimited(limits.MaxServices))
                 {
-                    var currentCount = await _context.Services.CountAsync(s => s.TenantId == tenantId.Value && s.IsActive);
+                    var currentCount = await _context.Services.CountAsync(s => s.TenantId == tenantId && s.IsActive);
                     if (currentCount >= limits.MaxServices)
                         throw new InvalidOperationException($"Ihr Plan erlaubt maximal {limits.MaxServices} aktive Services. Bitte upgraden Sie Ihren Plan.");
                 }
@@ -420,7 +487,7 @@ public class ServiceService
         var service = new Service
         {
             Id = Guid.NewGuid(),
-            TenantId = _tenantContext.TenantId ?? throw new InvalidOperationException("TenantId fehlt"),
+            TenantId = tenantId,
             Name = dto.Name,
             Description = dto.Description,
             DurationMinutes = dto.DurationMinutes,
@@ -441,7 +508,7 @@ public class ServiceService
         {
             foreach (var employeeId in dto.EmployeeIds.Distinct())
             {
-                var employee = await _context.Employees.FindAsync(employeeId);
+                var employee = await _context.Employees.FirstOrDefaultAsync(e => e.Id == employeeId && e.TenantId == tenantId);
                 if (employee == null)
                     throw new ArgumentException($"Mitarbeiter mit ID {employeeId} nicht gefunden");
 
@@ -464,15 +531,17 @@ public class ServiceService
 
     public async Task<AdminServiceDto> UpdateServiceAsync(Guid id, UpdateServiceDto dto)
     {
+        var tenantId = RequireTenantId();
+
         var service = await _context.Services
             .Include(s => s.ServiceEmployees)
-            .FirstOrDefaultAsync(s => s.Id == id);
+            .FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tenantId);
 
         if (service == null)
             throw new ArgumentException("Service nicht gefunden");
 
         // Validate category
-        var category = await _context.ServiceCategories.FindAsync(dto.CategoryId);
+        var category = await _context.ServiceCategories.FirstOrDefaultAsync(c => c.Id == dto.CategoryId && c.TenantId == tenantId);
         if (category == null)
             throw new ArgumentException("Kategorie nicht gefunden");
 
@@ -481,6 +550,7 @@ public class ServiceService
         {
             var hasFutureBookings = await _context.Bookings
                 .AnyAsync(b => b.ServiceId == id &&
+                              b.TenantId == tenantId &&
                               b.BookingDate >= DateOnly.FromDateTime(DateTime.UtcNow) &&
                               b.Status != BookingStatus.Cancelled);
 
@@ -509,7 +579,7 @@ public class ServiceService
             // Add new assignments
             foreach (var employeeId in dto.EmployeeIds.Distinct())
             {
-                var employee = await _context.Employees.FindAsync(employeeId);
+                var employee = await _context.Employees.FirstOrDefaultAsync(e => e.Id == employeeId && e.TenantId == tenantId);
                 if (employee == null)
                     throw new ArgumentException($"Mitarbeiter mit ID {employeeId} nicht gefunden");
 
@@ -532,10 +602,12 @@ public class ServiceService
 
     public async Task<bool> DeleteServiceAsync(Guid id)
     {
+        var tenantId = RequireTenantId();
+
         var service = await _context.Services
             .Include(s => s.Bookings)
             .Include(s => s.ServiceEmployees)
-            .FirstOrDefaultAsync(s => s.Id == id);
+            .FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tenantId);
 
         if (service == null)
             throw new ArgumentException("Service nicht gefunden");
@@ -581,7 +653,7 @@ public class ServiceService
             {
                 // Delete email logs for these bookings
                 var emailLogs = await _context.EmailLogs
-                    .Where(e => bookingIds.Contains(e.BookingId ?? Guid.Empty))
+                    .Where(e => e.TenantId == tenantId && bookingIds.Contains(e.BookingId ?? Guid.Empty))
                     .ToListAsync();
 
                 if (emailLogs.Any())
@@ -614,9 +686,11 @@ public class ServiceService
 
     public async Task<bool> ToggleServiceActiveAsync(Guid id)
     {
+        var tenantId = RequireTenantId();
+
         var service = await _context.Services
             .Include(s => s.Bookings)
-            .FirstOrDefaultAsync(s => s.Id == id);
+            .FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tenantId);
 
         if (service == null)
             throw new ArgumentException("Service nicht gefunden");
@@ -626,6 +700,7 @@ public class ServiceService
         {
             var hasFutureBookings = await _context.Bookings
                 .AnyAsync(b => b.ServiceId == id &&
+                              b.TenantId == tenantId &&
                               b.BookingDate >= DateOnly.FromDateTime(DateTime.UtcNow) &&
                               b.Status != BookingStatus.Cancelled);
 
@@ -647,10 +722,13 @@ public class ServiceService
 
     public async Task<List<AdminServiceCategoryDto>> GetAllCategoriesAdminAsync()
     {
+        var tenantId = RequireTenantId();
+
         var categories = await _context.ServiceCategories
             .Include(c => c.Services)
                 .ThenInclude(s => s.ServiceEmployees)
                 .ThenInclude(se => se.Employee)
+            .Where(c => c.TenantId == tenantId)
             .OrderBy(c => c.DisplayOrder)
             .Select(c => new AdminServiceCategoryDto(
                 c.Id,
@@ -685,11 +763,13 @@ public class ServiceService
 
     public async Task<AdminServiceCategoryDto?> GetCategoryByIdAdminAsync(Guid id)
     {
+        var tenantId = RequireTenantId();
+
         var category = await _context.ServiceCategories
             .Include(c => c.Services)
                 .ThenInclude(s => s.ServiceEmployees)
                 .ThenInclude(se => se.Employee)
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .FirstOrDefaultAsync(c => c.Id == id && c.TenantId == tenantId);
 
         if (category == null)
             return null;
@@ -724,9 +804,11 @@ public class ServiceService
 
     public async Task<AdminServiceCategoryDto> CreateCategoryAsync(CreateCategoryDto dto)
     {
+        var tenantId = RequireTenantId();
+
         // Check if category with same name exists
         var existing = await _context.ServiceCategories
-            .FirstOrDefaultAsync(c => c.Name.ToLower() == dto.Name.ToLower());
+            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Name.ToLower() == dto.Name.ToLower());
 
         if (existing != null)
             throw new ArgumentException("Eine Kategorie mit diesem Namen existiert bereits");
@@ -734,7 +816,7 @@ public class ServiceService
         var category = new ServiceCategory
         {
             Id = Guid.NewGuid(),
-            TenantId = _tenantContext.TenantId ?? throw new InvalidOperationException("TenantId fehlt"),
+            TenantId = tenantId,
             Name = dto.Name,
             Description = dto.Description,
             DisplayOrder = dto.DisplayOrder,
@@ -754,13 +836,15 @@ public class ServiceService
 
     public async Task<AdminServiceCategoryDto> UpdateCategoryAsync(Guid id, UpdateCategoryDto dto)
     {
-        var category = await _context.ServiceCategories.FindAsync(id);
+        var tenantId = RequireTenantId();
+
+        var category = await _context.ServiceCategories.FirstOrDefaultAsync(c => c.Id == id && c.TenantId == tenantId);
         if (category == null)
             throw new ArgumentException("Kategorie nicht gefunden");
 
         // Check if another category with same name exists
         var existing = await _context.ServiceCategories
-            .FirstOrDefaultAsync(c => c.Name.ToLower() == dto.Name.ToLower() && c.Id != id);
+            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Name.ToLower() == dto.Name.ToLower() && c.Id != id);
 
         if (existing != null)
             throw new ArgumentException("Eine andere Kategorie mit diesem Namen existiert bereits");
@@ -781,9 +865,11 @@ public class ServiceService
 
     public async Task<bool> DeleteCategoryAsync(Guid id)
     {
+        var tenantId = RequireTenantId();
+
         var category = await _context.ServiceCategories
             .Include(c => c.Services)
-            .FirstOrDefaultAsync(c => c.Id == id);
+            .FirstOrDefaultAsync(c => c.Id == id && c.TenantId == tenantId);
 
         if (category == null)
             throw new ArgumentException("Kategorie nicht gefunden");
@@ -803,9 +889,11 @@ public class ServiceService
 
     public async Task<List<EmployeeForAssignmentDto>> GetEmployeesForAssignmentAsync()
     {
+        var tenantId = RequireTenantId();
+
         var employees = await _context.Employees
             .Include(e => e.ServiceEmployees)
-            .Where(e => e.IsActive)
+            .Where(e => e.TenantId == tenantId && e.IsActive)
             .OrderBy(e => e.Name)
             .Select(e => new EmployeeForAssignmentDto(
                 e.Id,
@@ -821,11 +909,13 @@ public class ServiceService
 
     public async Task<List<AdminServiceDto>> GetServicesByEmployeeAsync(Guid employeeId)
     {
+        var tenantId = RequireTenantId();
+
         var services = await _context.Services
             .Include(s => s.Category)
             .Include(s => s.ServiceEmployees)
                 .ThenInclude(se => se.Employee)
-            .Where(s => s.IsActive && s.ServiceEmployees.Any(se => se.EmployeeId == employeeId))
+            .Where(s => s.TenantId == tenantId && s.IsActive && s.ServiceEmployees.Any(se => se.EmployeeId == employeeId && se.Employee.TenantId == tenantId))
             .OrderBy(s => s.Category.DisplayOrder)
             .ThenBy(s => s.DisplayOrder)
             .Select(s => new AdminServiceDto(
@@ -854,13 +944,15 @@ public class ServiceService
 
     public async Task<bool> BulkAssignServicesToEmployeeAsync(Guid employeeId, List<Guid> serviceIds)
     {
-        var employee = await _context.Employees.FindAsync(employeeId);
+        var tenantId = RequireTenantId();
+
+        var employee = await _context.Employees.FirstOrDefaultAsync(e => e.Id == employeeId && e.TenantId == tenantId);
         if (employee == null)
             throw new ArgumentException("Mitarbeiter nicht gefunden");
 
         // Remove existing assignments for this employee
         var existingAssignments = await _context.ServiceEmployees
-            .Where(se => se.EmployeeId == employeeId)
+            .Where(se => se.EmployeeId == employeeId && se.Employee.TenantId == tenantId && se.Service.TenantId == tenantId)
             .ToListAsync();
 
         _context.ServiceEmployees.RemoveRange(existingAssignments);
@@ -868,7 +960,7 @@ public class ServiceService
         // Add new assignments
         foreach (var serviceId in serviceIds.Distinct())
         {
-            var service = await _context.Services.FindAsync(serviceId);
+            var service = await _context.Services.FirstOrDefaultAsync(s => s.Id == serviceId && s.TenantId == tenantId);
             if (service != null)
             {
                 _context.ServiceEmployees.Add(new ServiceEmployee

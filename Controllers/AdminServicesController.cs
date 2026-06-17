@@ -79,7 +79,7 @@ public class AdminServicesController : ControllerBase
         {
             var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
             var limits = PlanLimits.Get(sub?.Plan ?? SubscriptionPlan.Trial);
-            var serviceCount = await _db.Services.CountAsync(s => s.IsActive);
+            var serviceCount = await _db.Services.CountAsync(s => s.TenantId == tenantId.Value && s.IsActive);
             if (serviceCount >= limits.MaxServices)
                 return StatusCode(402, new
                 {
