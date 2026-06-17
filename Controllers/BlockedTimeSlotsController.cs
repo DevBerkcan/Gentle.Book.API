@@ -24,7 +24,11 @@ public class BlockedTimeSlotsController : ControllerBase
         _config = config;
     }
 
-    private Guid? GetCurrentEmployeeId() => JwtService.GetEmployeeId(User);
+    private Guid? GetCurrentEmployeeId()
+    {
+        var role = JwtService.GetRole(User);
+        return role is "TenantAdmin" or "SuperAdmin" ? null : JwtService.GetEmployeeId(User);
+    }
 
     private bool IsAdminRequest()
     {

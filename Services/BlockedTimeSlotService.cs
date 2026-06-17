@@ -9,13 +9,36 @@ public class BlockedTimeSlotService
 {
     private readonly GentleBookDbContext _context;
     private readonly ILogger<BlockedTimeSlotService> _logger;
+    private readonly ITenantContext _tenantContext;
 
     public BlockedTimeSlotService(
         GentleBookDbContext context,
-        ILogger<BlockedTimeSlotService> logger)
+        ILogger<BlockedTimeSlotService> logger,
+        ITenantContext tenantContext)
     {
         _context = context;
         _logger = logger;
+        _tenantContext = tenantContext;
+    }
+
+    private bool TryRequireTenant(out Guid tenantId)
+    {
+        tenantId = _tenantContext.TenantId ?? Guid.Empty;
+        return _tenantContext.TenantId.HasValue;
+    }
+
+    private async Task<Guid?> ResolveTenantIdAsync(Guid? employeeId = null)
+    {
+        if (_tenantContext.TenantId.HasValue)
+            return _tenantContext.TenantId.Value;
+
+        if (!employeeId.HasValue)
+            return null;
+
+        return await _context.Employees
+            .Where(e => e.Id == employeeId.Value)
+            .Select(e => (Guid?)e.TenantId)
+            .FirstOrDefaultAsync();
     }
 
     // ── READ ──────────────────────────────────────────────────────
@@ -30,11 +53,15 @@ public class BlockedTimeSlotService
         DateOnly endDate,
         Guid? employeeId = null)
     {
+        var tenantId = await ResolveTenantIdAsync(employeeId);
+        if (!tenantId.HasValue)
+            return new List<BlockedTimeSlotDto>();
+
         var query = _context.BlockedTimeSlots
-            .Where(b => b.BlockDate >= startDate && b.BlockDate <= endDate);
+            .Where(b => b.TenantId == tenantId.Value && b.BlockDate >= startDate && b.BlockDate <= endDate);
 
         if (employeeId.HasValue)
-            query = query.Where(b => b.EmployeeId == employeeId.Value);
+            query = query.Where(b => b.EmployeeId == employeeId.Value || b.EmployeeId == null);
 
         var blockedSlots = await query
             .OrderBy(b => b.BlockDate)
@@ -60,8 +87,11 @@ public class BlockedTimeSlotService
     /// </summary>
     public async Task<BlockedTimeSlotDto?> GetBlockedTimeSlotByIdAsync(Guid id)
     {
+        if (!TryRequireTenant(out var tenantId))
+            return null;
+
         var blockedSlot = await _context.BlockedTimeSlots
-            .Where(b => b.Id == id)
+            .Where(b => b.Id == id && b.TenantId == tenantId)
             .Select(b => new BlockedTimeSlotDto(
                 b.Id,
                 b.BlockDate,
@@ -85,6 +115,9 @@ public class BlockedTimeSlotService
     /// </summary>
     public async Task<BlockedTimeSlotDto> CreateBlockedTimeSlotAsync(CreateBlockedTimeSlotDto dto)
     {
+        if (!TryRequireTenant(out var tenantId))
+            throw new InvalidOperationException("TenantId fehlt");
+
         if (!DateOnly.TryParse(dto.BlockDate, out var blockDate))
             throw new ArgumentException("Ungültiges Datumsformat. Verwende YYYY-MM-DD");
 
@@ -103,6 +136,7 @@ public class BlockedTimeSlotService
         // Overlap check — scoped to same employee (or global slots with no employee)
         var overlapQuery = _context.BlockedTimeSlots
             .Where(b =>
+                b.TenantId == tenantId &&
                 b.BlockDate == blockDate &&
                 b.StartTime < endTime &&
                 b.EndTime > startTime);
@@ -118,6 +152,7 @@ public class BlockedTimeSlotService
         // Booking conflict check — scoped to same employee
         var bookingQuery = _context.Bookings
             .Where(b =>
+                b.TenantId == tenantId &&
                 b.BookingDate == blockDate &&
                 b.Status != BookingStatus.Cancelled &&
                 b.StartTime < endTime &&
@@ -138,6 +173,7 @@ public class BlockedTimeSlotService
             EndTime = endTime,
             Reason = dto.Reason,
             EmployeeId = dto.EmployeeId,
+            TenantId = tenantId,
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -157,6 +193,9 @@ public class BlockedTimeSlotService
     /// </summary>
     public async Task<List<BlockedTimeSlotDto>> CreateBlockedDateRangeAsync(CreateBlockedDateRangeDto dto)
     {
+        if (!TryRequireTenant(out var tenantId))
+            throw new InvalidOperationException("TenantId fehlt");
+
         if (!DateOnly.TryParse(dto.FromDate, out var fromDate))
             throw new ArgumentException("Ungültiges Startdatum-Format. Verwende YYYY-MM-DD");
 
@@ -186,6 +225,7 @@ public class BlockedTimeSlotService
             // Overlap check for this day — scoped to same employee
             var overlapQuery = _context.BlockedTimeSlots
                 .Where(b =>
+                    b.TenantId == tenantId &&
                     b.BlockDate == currentDate &&
                     b.StartTime < endTime &&
                     b.EndTime > startTime);
@@ -201,6 +241,7 @@ public class BlockedTimeSlotService
             // Booking conflict check — scoped to same employee
             var bookingQuery = _context.Bookings
                 .Where(b =>
+                    b.TenantId == tenantId &&
                     b.BookingDate == currentDate &&
                     b.Status != BookingStatus.Cancelled &&
                     b.StartTime < endTime &&
@@ -221,6 +262,7 @@ public class BlockedTimeSlotService
                 EndTime = endTime,
                 Reason = dto.Reason,
                 EmployeeId = dto.EmployeeId,
+                TenantId = tenantId,
                 CreatedAt = DateTime.UtcNow,
             };
 
@@ -248,7 +290,10 @@ public class BlockedTimeSlotService
     public async Task<BlockedTimeSlotDto> UpdateBlockedTimeSlotAsync(
         Guid id, UpdateBlockedTimeSlotDto dto)
     {
-        var blockedSlot = await _context.BlockedTimeSlots.FindAsync(id);
+        if (!TryRequireTenant(out var tenantId))
+            throw new InvalidOperationException("TenantId fehlt");
+
+        var blockedSlot = await _context.BlockedTimeSlots.FirstOrDefaultAsync(b => b.Id == id && b.TenantId == tenantId);
         if (blockedSlot == null)
             throw new ArgumentException("Blockierter Zeitslot nicht gefunden");
 
@@ -271,6 +316,7 @@ public class BlockedTimeSlotService
         var overlapQuery = _context.BlockedTimeSlots
             .Where(b =>
                 b.Id != id &&
+                b.TenantId == tenantId &&
                 b.BlockDate == blockDate &&
                 b.StartTime < endTime &&
                 b.EndTime > startTime);
@@ -286,6 +332,7 @@ public class BlockedTimeSlotService
         // Booking conflict check — scoped to same employee
         var bookingQuery = _context.Bookings
             .Where(b =>
+                b.TenantId == tenantId &&
                 b.BookingDate == blockDate &&
                 b.Status != BookingStatus.Cancelled &&
                 b.StartTime < endTime &&
@@ -320,7 +367,10 @@ public class BlockedTimeSlotService
     /// </summary>
     public async Task DeleteBlockedTimeSlotAsync(Guid id)
     {
-        var blockedSlot = await _context.BlockedTimeSlots.FindAsync(id);
+        if (!TryRequireTenant(out var tenantId))
+            throw new InvalidOperationException("TenantId fehlt");
+
+        var blockedSlot = await _context.BlockedTimeSlots.FirstOrDefaultAsync(b => b.Id == id && b.TenantId == tenantId);
         if (blockedSlot == null)
             throw new ArgumentException("Blockierter Zeitslot nicht gefunden");
 
