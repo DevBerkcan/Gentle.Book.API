@@ -53,6 +53,7 @@ public class EmailService
 
         var emailLog = new EmailLog
         {
+            TenantId = booking.TenantId,
             BookingId = bookingId,
             EmailType = EmailType.Confirmation,
             RecipientEmail = booking.Customer.Email,
@@ -115,6 +116,7 @@ public class EmailService
     {
         var emailLog = new EmailLog
         {
+            TenantId = booking.TenantId,
             BookingId = booking.Id,
             EmailType = EmailType.Confirmation,
             RecipientEmail = customer.Email,
@@ -181,6 +183,7 @@ public class EmailService
     {
         var emailLog = new EmailLog
         {
+            TenantId = booking.TenantId,
             BookingId = booking.Id,
             EmailType = EmailType.Cancellation,
             RecipientEmail = customer.Email,
@@ -255,6 +258,7 @@ public class EmailService
 
         var emailLog = new EmailLog
         {
+            TenantId = booking.TenantId,
             BookingId = bookingId,
             EmailType = EmailType.Reminder,
             RecipientEmail = booking.Customer.Email,

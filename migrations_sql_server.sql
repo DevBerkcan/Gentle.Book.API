@@ -171,7 +171,7 @@ GO
 CREATE UNIQUE INDEX [IX_BusinessHours_DayOfWeek] ON [BusinessHours] ([DayOfWeek]);
 GO
 
-CREATE UNIQUE INDEX [IX_Customers_Email] ON [Customers] ([Email]);
+CREATE INDEX [IX_Customers_TenantId_Email] ON [Customers] ([TenantId], [Email]) WHERE [Email] IS NOT NULL AND [Email] <> '';
 GO
 
 CREATE INDEX [IX_Customers_Phone] ON [Customers] ([Phone]);
@@ -192,4 +192,3 @@ GO
 
 COMMIT;
 GO
-

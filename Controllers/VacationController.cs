@@ -77,15 +77,21 @@ public class VacationController : ControllerBase
         if (employee == null)
             return NotFound(new { message = "Mitarbeiter nicht gefunden" });
 
-        if (DateOnly.Parse(dto.StartDate) > DateOnly.Parse(dto.EndDate))
+        if (!DateOnly.TryParse(dto.StartDate, out var startDate))
+            return BadRequest(new { message = "Ungültiges Startdatum" });
+
+        if (!DateOnly.TryParse(dto.EndDate, out var endDate))
+            return BadRequest(new { message = "Ungültiges Enddatum" });
+
+        if (startDate > endDate)
             return BadRequest(new { message = "Startdatum muss vor Enddatum liegen" });
 
         var vacation = new EmployeeVacation
         {
             TenantId = tenantId.Value,
             EmployeeId = dto.EmployeeId,
-            StartDate = DateOnly.Parse(dto.StartDate),
-            EndDate = DateOnly.Parse(dto.EndDate),
+            StartDate = startDate,
+            EndDate = endDate,
             Type = dto.Type ?? "Vacation",
             Note = dto.Note,
         };
@@ -112,11 +118,17 @@ public class VacationController : ControllerBase
         var vacation = await _db.EmployeeVacations.FirstOrDefaultAsync(v => v.Id == id);
         if (vacation == null) return NotFound();
 
-        if (DateOnly.Parse(dto.StartDate) > DateOnly.Parse(dto.EndDate))
+        if (!DateOnly.TryParse(dto.StartDate, out var startDate))
+            return BadRequest(new { message = "Ungültiges Startdatum" });
+
+        if (!DateOnly.TryParse(dto.EndDate, out var endDate))
+            return BadRequest(new { message = "Ungültiges Enddatum" });
+
+        if (startDate > endDate)
             return BadRequest(new { message = "Startdatum muss vor Enddatum liegen" });
 
-        vacation.StartDate = DateOnly.Parse(dto.StartDate);
-        vacation.EndDate = DateOnly.Parse(dto.EndDate);
+        vacation.StartDate = startDate;
+        vacation.EndDate = endDate;
         vacation.Type = dto.Type ?? vacation.Type;
         vacation.Note = dto.Note;
 

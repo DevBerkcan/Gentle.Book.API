@@ -32,19 +32,25 @@ public class BookingService
             throw new ArgumentException("Service nicht gefunden oder inaktiv");
 
         // 2. Parse date and time
-        var bookingDate = DateOnly.Parse(dto.BookingDate);
-        var startTime = TimeOnly.Parse(dto.StartTime);
+        if (!DateOnly.TryParse(dto.BookingDate, out var bookingDate))
+            throw new ArgumentException("Ungültiges Datumsformat");
+
+        if (!TimeOnly.TryParse(dto.StartTime, out var startTime))
+            throw new ArgumentException("Ungültiges Zeitformat");
+
         var endTime = startTime.AddMinutes(service.DurationMinutes);
 
         if (bookingDate < DateOnly.FromDateTime(DateTime.UtcNow.Date))
             throw new InvalidOperationException("Termine in der Vergangenheit können nicht gebucht werden.");
+
+        var tenantId = service.TenantId;
 
         // 3. Check slot availability inside a serializable transaction to prevent race conditions
         await using var tx = await _context.Database
             .BeginTransactionAsync(IsolationLevel.RepeatableRead);
 
         var isSlotAvailable = await IsSlotAvailableAsync(
-            bookingDate, startTime, endTime, dto.EmployeeId);
+            tenantId, bookingDate, startTime, endTime, dto.EmployeeId);
 
         if (!isSlotAvailable)
             throw new InvalidOperationException("Dieser Zeitslot ist bereits gebucht");
@@ -68,16 +74,17 @@ public class BookingService
 
         if (email != null)
             customer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.Email != null && c.Email == email);
+                .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Email != null && c.Email == email);
 
         if (customer == null && phone != null)
             customer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.Phone != null && c.Phone == phone);
+                .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Phone != null && c.Phone == phone);
 
         if (customer == null)
         {
             customer = new Customer
             {
+                TenantId = tenantId,
                 FirstName = dto.Customer.FirstName,
                 LastName = dto.Customer.LastName,
                 Email = email,
@@ -107,6 +114,7 @@ public class BookingService
         var booking = new Booking
         {
             Id = Guid.NewGuid(),
+            TenantId = tenantId,
             CustomerId = customer.Id,
             ServiceId = service.Id,
             EmployeeId = employee?.Id,
@@ -143,6 +151,7 @@ public class BookingService
                 _context.EmailLogs.Add(new EmailLog
                 {
                     Id = Guid.NewGuid(),
+                    TenantId = tenantId,
                     BookingId = booking.Id,
                     RecipientEmail = customer.Email,
                     EmailType = EmailType.Confirmation,
@@ -159,6 +168,7 @@ public class BookingService
                 _context.EmailLogs.Add(new EmailLog
                 {
                     Id = Guid.NewGuid(),
+                    TenantId = tenantId,
                     BookingId = booking.Id,
                     RecipientEmail = customer.Email,
                     EmailType = EmailType.Confirmation,
@@ -273,6 +283,7 @@ public class BookingService
 
                 _context.EmailLogs.Add(new EmailLog
                 {
+                    TenantId = booking.TenantId,
                     BookingId = booking.Id,
                     RecipientEmail = booking.Customer.Email,
                     EmailType = EmailType.Cancellation,
@@ -291,6 +302,7 @@ public class BookingService
 
                 _context.EmailLogs.Add(new EmailLog
                 {
+                    TenantId = booking.TenantId,
                     BookingId = booking.Id,
                     RecipientEmail = booking.Customer.Email,
                     EmailType = EmailType.Cancellation,
@@ -355,6 +367,7 @@ public class BookingService
 
             _context.EmailLogs.Add(new EmailLog
             {
+                TenantId = booking.TenantId,
                 BookingId = booking.Id,
                 RecipientEmail = booking.Customer.Email,
                 EmailType = EmailType.Confirmation,
@@ -373,6 +386,7 @@ public class BookingService
 
             _context.EmailLogs.Add(new EmailLog
             {
+                TenantId = booking.TenantId,
                 BookingId = booking.Id,
                 RecipientEmail = booking.Customer.Email,
                 EmailType = EmailType.Confirmation,
@@ -389,6 +403,7 @@ public class BookingService
     // ── Private helpers ───────────────────────────────────────────
 
     private async Task<bool> IsSlotAvailableAsync(
+        Guid tenantId,
         DateOnly date,
         TimeOnly startTime,
         TimeOnly endTime,
@@ -400,6 +415,7 @@ public class BookingService
             // Check for conflicting bookings for this specific employee
             var hasBookingConflict = await _context.Bookings
                 .AnyAsync(b =>
+                    b.TenantId == tenantId &&
                     b.BookingDate == date &&
                     b.EmployeeId == employeeId.Value &&
                     b.Status != BookingStatus.Cancelled &&
@@ -412,6 +428,7 @@ public class BookingService
             // Check for blocked slots for this specific employee
             var hasBlockedConflict = await _context.BlockedTimeSlots
                 .AnyAsync(bs =>
+                    bs.TenantId == tenantId &&
                     bs.BlockDate == date &&
                     bs.EmployeeId == employeeId.Value &&
                     bs.StartTime < endTime &&
@@ -424,7 +441,7 @@ public class BookingService
         else
         {
             var activeEmployees = await _context.Employees
-                .Where(e => e.IsActive)
+                .Where(e => e.TenantId == tenantId && e.IsActive)
                 .Select(e => e.Id)
                 .ToListAsync();
 
@@ -433,6 +450,7 @@ public class BookingService
                 // Check bookings for this employee
                 var hasBookingConflict = await _context.Bookings
                     .AnyAsync(b =>
+                        b.TenantId == tenantId &&
                         b.BookingDate == date &&
                         b.EmployeeId == empId &&
                         b.Status != BookingStatus.Cancelled &&
@@ -445,6 +463,7 @@ public class BookingService
                 // Check blocked slots for this employee
                 var hasBlockedConflict = await _context.BlockedTimeSlots
                     .AnyAsync(bs =>
+                        bs.TenantId == tenantId &&
                         bs.BlockDate == date &&
                         bs.EmployeeId == empId &&
                         bs.StartTime < endTime &&

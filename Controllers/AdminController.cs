@@ -36,6 +36,8 @@ public class AdminController : ControllerBase
 
     // ── Helper to get current employee from JWT ──────────────────
     private Guid? GetCurrentEmployeeId() => JwtService.GetEmployeeId(User);
+    private bool IsTenantAdmin() => JwtService.GetRole(User) == "TenantAdmin";
+    private Guid? GetEmployeeScope() => IsTenantAdmin() ? null : GetCurrentEmployeeId();
 
     /// <summary>
     /// Get dashboard overview with today's bookings, next booking, and statistics
@@ -44,7 +46,7 @@ public class AdminController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<DashboardOverviewDto>> GetDashboard()
     {
-        var employeeId = GetCurrentEmployeeId();
+        var employeeId = GetEmployeeScope();
         var dashboard = await _adminService.GetDashboardOverviewAsync(employeeId);
         return Ok(dashboard);
     }
@@ -93,7 +95,7 @@ public class AdminController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<DashboardStatisticsDto>> GetStatistics()
     {
-        var employeeId = GetCurrentEmployeeId();
+        var employeeId = GetEmployeeScope();
         var statistics = await _adminService.GetDashboardStatisticsAsync(employeeId);
         return Ok(statistics);
     }
@@ -114,7 +116,7 @@ public class AdminController : ControllerBase
         [FromQuery] int pageSize = 20,
         [FromQuery] bool all = false)
     {
-        var currentEmployeeId = GetCurrentEmployeeId();
+        var currentEmployeeId = GetEmployeeScope();
 
         // If all=true, show all bookings (no filter)
         // Otherwise show only current employee's bookings
@@ -168,7 +170,7 @@ public class AdminController : ControllerBase
     {
         try
         {
-            var employeeId = GetCurrentEmployeeId();
+            var employeeId = GetEmployeeScope();
             var result = await _manualBookingService.CheckEmailConflictAsync(email, firstName, lastName, employeeId);
             return Ok(result);
         }

@@ -31,6 +31,8 @@ public class BookingsController : ControllerBase
     // ── Helpers ───────────────────────────────────────────────────
 
     private Guid? GetCurrentEmployeeId() => JwtService.GetEmployeeId(User);
+    private bool IsTenantAdmin() => JwtService.GetRole(User) == "TenantAdmin";
+    private Guid? GetEmployeeScope() => IsTenantAdmin() ? null : GetCurrentEmployeeId();
 
     // ─────────────────────────────────────────────────────────────
     // PUBLIC ENDPOINTS
@@ -138,7 +140,7 @@ public class BookingsController : ControllerBase
     public async Task<ActionResult<List<BookingResponseDto>>> GetAllBookings(
         [FromQuery] bool all = false)
     {
-        var employeeId = all ? null : GetCurrentEmployeeId();
+        var employeeId = all ? null : GetEmployeeScope();
         var bookings = await _bookingService.GetAllBookingsAsync(employeeId);
         return Ok(bookings);
     }
@@ -232,7 +234,7 @@ public class BookingsController : ControllerBase
         if (booking == null)
                 return NotFound(new { message = "Buchung nicht gefunden" });
 
-        var empId = GetCurrentEmployeeId();
+        var empId = GetEmployeeScope();
         if (empId != null && booking.Employee?.Id != empId)
                 return Forbid(); 
 

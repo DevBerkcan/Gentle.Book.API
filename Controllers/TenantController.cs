@@ -240,6 +240,38 @@ public class TenantController : ControllerBase
 
         foreach (var item in dto)
         {
+            if (item.DayOfWeek < 0 || item.DayOfWeek > 6)
+                return BadRequest(new { message = "Ungültiger Wochentag" });
+
+            if (!TimeOnly.TryParse(item.OpenTime ?? "09:00", out var openTime))
+                return BadRequest(new { message = "Ungültige Öffnungszeit" });
+
+            if (!TimeOnly.TryParse(item.CloseTime ?? "18:00", out var closeTime))
+                return BadRequest(new { message = "Ungültige Schließzeit" });
+
+            TimeOnly? breakStartTime = null;
+            TimeOnly? breakEndTime = null;
+
+            if (!string.IsNullOrWhiteSpace(item.BreakStartTime))
+            {
+                if (!TimeOnly.TryParse(item.BreakStartTime, out var parsedBreakStart))
+                    return BadRequest(new { message = "Ungültiger Pausenbeginn" });
+                breakStartTime = parsedBreakStart;
+            }
+
+            if (!string.IsNullOrWhiteSpace(item.BreakEndTime))
+            {
+                if (!TimeOnly.TryParse(item.BreakEndTime, out var parsedBreakEnd))
+                    return BadRequest(new { message = "Ungültiges Pausenende" });
+                breakEndTime = parsedBreakEnd;
+            }
+
+            if (item.IsOpen && closeTime <= openTime)
+                return BadRequest(new { message = "Schließzeit muss nach der Öffnungszeit liegen" });
+
+            if (breakStartTime.HasValue && breakEndTime.HasValue && breakEndTime.Value <= breakStartTime.Value)
+                return BadRequest(new { message = "Pausenende muss nach dem Pausenbeginn liegen" });
+
             var existing = await _db.BusinessHours
                 .FirstOrDefaultAsync(bh => bh.DayOfWeek == (DayOfWeek)item.DayOfWeek);
 
@@ -250,10 +282,10 @@ public class TenantController : ControllerBase
             }
 
             existing.IsOpen = item.IsOpen;
-            existing.OpenTime = TimeOnly.Parse(item.OpenTime ?? "09:00");
-            existing.CloseTime = TimeOnly.Parse(item.CloseTime ?? "18:00");
-            existing.BreakStartTime = string.IsNullOrEmpty(item.BreakStartTime) ? null : TimeOnly.Parse(item.BreakStartTime);
-            existing.BreakEndTime = string.IsNullOrEmpty(item.BreakEndTime) ? null : TimeOnly.Parse(item.BreakEndTime);
+            existing.OpenTime = openTime;
+            existing.CloseTime = closeTime;
+            existing.BreakStartTime = breakStartTime;
+            existing.BreakEndTime = breakEndTime;
         }
 
         await _db.SaveChangesAsync();

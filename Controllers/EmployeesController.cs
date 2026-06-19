@@ -209,6 +209,18 @@ public class EmployeesController : ControllerBase
 
         foreach (var item in dto)
         {
+            if (item.DayOfWeek < 0 || item.DayOfWeek > 6)
+                return BadRequest(new { message = "Ungültiger Wochentag" });
+
+            if (!TimeOnly.TryParse(item.StartTime ?? "09:00", out var startTime))
+                return BadRequest(new { message = "Ungültige Startzeit" });
+
+            if (!TimeOnly.TryParse(item.EndTime ?? "18:00", out var endTime))
+                return BadRequest(new { message = "Ungültige Endzeit" });
+
+            if (item.IsWorkingDay && endTime <= startTime)
+                return BadRequest(new { message = "Endzeit muss nach der Startzeit liegen" });
+
             var existing = await _db.EmployeeSchedules
                 .FirstOrDefaultAsync(s => s.EmployeeId == id && s.TenantId == tenantId.Value && s.DayOfWeek == (DayOfWeek)item.DayOfWeek);
 
@@ -224,8 +236,8 @@ public class EmployeesController : ControllerBase
             }
 
             existing.IsWorkingDay = item.IsWorkingDay;
-            existing.StartTime = TimeOnly.Parse(item.StartTime ?? "09:00");
-            existing.EndTime = TimeOnly.Parse(item.EndTime ?? "18:00");
+            existing.StartTime = startTime;
+            existing.EndTime = endTime;
         }
 
         await _db.SaveChangesAsync();

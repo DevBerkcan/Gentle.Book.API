@@ -26,6 +26,9 @@ public class ManualBookingService
 
     public async Task<ManualBookingResponseDto> CreateManualBookingAsync(CreateManualBookingDto dto)
     {
+        var tenantId = _tenantContext.TenantId
+            ?? throw new InvalidOperationException("TenantId fehlt");
+
         // Validate required fields
         if (string.IsNullOrWhiteSpace(dto.FirstName))
             throw new ArgumentException("Vorname ist erforderlich");
@@ -50,7 +53,7 @@ public class ManualBookingService
         var endTime = startTime.AddMinutes(service.DurationMinutes);
 
         // Check if slot is available
-        var isAvailable = await IsSlotAvailableAsync(bookingDate, startTime, endTime, dto.EmployeeId);
+        var isAvailable = await IsSlotAvailableAsync(tenantId, bookingDate, startTime, endTime, dto.EmployeeId);
         if (!isAvailable)
             throw new InvalidOperationException("Dieser Zeitslot ist nicht verfügbar");
 
@@ -69,7 +72,7 @@ public class ManualBookingService
         var booking = new Booking
         {
             Id = Guid.NewGuid(),
-            TenantId = _tenantContext.TenantId!.Value,
+            TenantId = tenantId,
             CustomerId = customer.Id,
             ServiceId = service.Id,
             EmployeeId = employee?.Id,
@@ -112,6 +115,7 @@ public class ManualBookingService
                 _context.EmailLogs.Add(new EmailLog
                 {
                     Id = Guid.NewGuid(),
+                    TenantId = booking.TenantId,
                     BookingId = booking.Id,
                     RecipientEmail = customer.Email,
                     EmailType = EmailType.Confirmation,
@@ -157,14 +161,18 @@ public class ManualBookingService
     // In ManualBookingService.cs
     public async Task<EmailConflictCheckDto> CheckEmailConflictAsync(string email, string firstName, string lastName, Guid? employeeId)
     {
-        if (string.IsNullOrWhiteSpace(email) || !employeeId.HasValue)
+        var tenantId = _tenantContext.TenantId;
+        if (string.IsNullOrWhiteSpace(email) || !tenantId.HasValue)
         {
             return new EmailConflictCheckDto { HasConflict = false };
         }
 
+        var normalizedEmail = email.Trim().ToLower();
         var existingCustomer = await _context.Customers
-            .FirstOrDefaultAsync(c => c.Email != null && c.Email.ToLower() == email.ToLower()
-                && c.EmployeeId == employeeId.Value);
+            .FirstOrDefaultAsync(c => c.TenantId == tenantId.Value
+                && c.Email != null
+                && c.Email.ToLower() == normalizedEmail
+                && (!employeeId.HasValue || c.EmployeeId == employeeId.Value));
 
         if (existingCustomer == null)
         {
@@ -228,6 +236,9 @@ public class ManualBookingService
 
     private async Task<Customer> FindOrCreateCustomer(CreateManualBookingDto dto, Guid? employeeId)
     {
+        var tenantId = _tenantContext.TenantId
+            ?? throw new InvalidOperationException("TenantId fehlt");
+
         // Normalize: treat empty/whitespace as null so unique indexes work correctly
         var email = string.IsNullOrWhiteSpace(dto.Email) ? null : dto.Email.Trim();
         var phone = string.IsNullOrWhiteSpace(dto.Phone) ? null : dto.Phone.Trim();
@@ -236,35 +247,40 @@ public class ManualBookingService
 
         Customer? customer = null;
 
-        // 1. Find by email (within the same employee's customers)
-        if (email != null && employeeId.HasValue)
+        // 1. Find by email (tenant-wide for admins, employee-scoped for employees)
+        if (email != null)
         {
             customer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.Email != null && c.Email.ToLower() == email.ToLower()
-                    && c.EmployeeId == employeeId.Value);
+                .FirstOrDefaultAsync(c => c.TenantId == tenantId
+                    && c.Email != null
+                    && c.Email.ToLower() == email.ToLower()
+                    && (!employeeId.HasValue || c.EmployeeId == employeeId.Value));
 
             if (customer != null)
                 _logger.LogInformation("Found existing customer by email: {Email} for employee {EmployeeId}", email, employeeId);
         }
 
-        // 2. Find by phone (within the same employee's customers)
-        if (customer == null && phone != null && employeeId.HasValue)
+        // 2. Find by phone (tenant-wide for admins, employee-scoped for employees)
+        if (customer == null && phone != null)
         {
             customer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.Phone == phone && c.EmployeeId == employeeId.Value);
+                .FirstOrDefaultAsync(c => c.TenantId == tenantId
+                    && c.Phone == phone
+                    && (!employeeId.HasValue || c.EmployeeId == employeeId.Value));
 
             if (customer != null)
                 _logger.LogInformation("Found existing customer by phone: {Phone} for employee {EmployeeId}", phone, employeeId);
         }
 
-        // 3. Find by name (within the same employee's customers)
-        if (customer == null && employeeId.HasValue)
+        // 3. Find by name (tenant-wide for admins, employee-scoped for employees)
+        if (customer == null)
         {
             customer = await _context.Customers
                 .FirstOrDefaultAsync(c =>
+                    c.TenantId == tenantId &&
                     c.FirstName.ToLower() == firstName.ToLower() &&
                     c.LastName.ToLower() == lastName.ToLower() &&
-                    c.EmployeeId == employeeId.Value);
+                    (!employeeId.HasValue || c.EmployeeId == employeeId.Value));
 
             if (customer != null)
                 _logger.LogInformation("Found existing customer by name: {FirstName} {LastName} for employee {EmployeeId}",
@@ -282,7 +298,10 @@ public class ManualBookingService
             if (email != null && customer.Email != email)
             {
                 var emailTaken = await _context.Customers
-                    .AnyAsync(c => c.Email == email && c.EmployeeId == employeeId && c.Id != customer.Id);
+                    .AnyAsync(c => c.TenantId == tenantId
+                        && c.Email == email
+                        && (!employeeId.HasValue || c.EmployeeId == employeeId.Value)
+                        && c.Id != customer.Id);
 
                 if (!emailTaken)
                     customer.Email = email;
@@ -292,7 +311,10 @@ public class ManualBookingService
             if (phone != null && customer.Phone != phone)
             {
                 var phoneTaken = await _context.Customers
-                    .AnyAsync(c => c.Phone == phone && c.EmployeeId == employeeId && c.Id != customer.Id);
+                    .AnyAsync(c => c.TenantId == tenantId
+                        && c.Phone == phone
+                        && (!employeeId.HasValue || c.EmployeeId == employeeId.Value)
+                        && c.Id != customer.Id);
 
                 if (!phoneTaken)
                     customer.Phone = phone;
@@ -311,7 +333,7 @@ public class ManualBookingService
             customer = new Customer
             {
                 Id = Guid.NewGuid(),
-                TenantId = _tenantContext.TenantId!.Value,
+                TenantId = tenantId,
                 FirstName = firstName,
                 LastName = lastName,
                 Email = email,   // null if not provided
@@ -332,6 +354,7 @@ public class ManualBookingService
     }
 
     private async Task<bool> IsSlotAvailableAsync(
+        Guid tenantId,
         DateOnly date,
         TimeOnly startTime,
         TimeOnly endTime,
@@ -343,6 +366,7 @@ public class ManualBookingService
             // Check for conflicting bookings for this specific employee
             var hasBookingConflict = await _context.Bookings
                 .AnyAsync(b =>
+                    b.TenantId == tenantId &&
                     b.BookingDate == date &&
                     b.EmployeeId == employeeId.Value &&
                     b.Status != BookingStatus.Cancelled &&
@@ -355,6 +379,7 @@ public class ManualBookingService
             // Check for blocked slots for this specific employee
             var hasBlockedConflict = await _context.BlockedTimeSlots
                 .AnyAsync(bs =>
+                    bs.TenantId == tenantId &&
                     bs.BlockDate == date &&
                     bs.EmployeeId == employeeId.Value &&
                     bs.StartTime < endTime &&
@@ -367,7 +392,7 @@ public class ManualBookingService
         else
         {
             var activeEmployees = await _context.Employees
-                .Where(e => e.IsActive)
+                .Where(e => e.TenantId == tenantId && e.IsActive)
                 .Select(e => e.Id)
                 .ToListAsync();
 
@@ -376,6 +401,7 @@ public class ManualBookingService
                 // Check bookings for this employee
                 var hasBookingConflict = await _context.Bookings
                     .AnyAsync(b =>
+                        b.TenantId == tenantId &&
                         b.BookingDate == date &&
                         b.EmployeeId == empId &&
                         b.Status != BookingStatus.Cancelled &&
@@ -388,6 +414,7 @@ public class ManualBookingService
                 // Check blocked slots for this employee
                 var hasBlockedConflict = await _context.BlockedTimeSlots
                     .AnyAsync(bs =>
+                        bs.TenantId == tenantId &&
                         bs.BlockDate == date &&
                         bs.EmployeeId == empId &&
                         bs.StartTime < endTime &&

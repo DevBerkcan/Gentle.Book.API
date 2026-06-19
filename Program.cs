@@ -339,6 +339,23 @@ using (var scope = app.Services.CreateScope())
             IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'ConsentGivenAt')
                 ALTER TABLE Customers ADD ConsentGivenAt datetime2 NULL;
 
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Customers') AND name = 'EmployeeId' AND is_nullable = 0)
+            BEGIN
+                IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Customers_EmployeeId' AND object_id = OBJECT_ID('Customers'))
+                    DROP INDEX IX_Customers_EmployeeId ON Customers;
+
+                ALTER TABLE Customers ALTER COLUMN EmployeeId uniqueidentifier NULL;
+
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Customers_EmployeeId' AND object_id = OBJECT_ID('Customers'))
+                    CREATE INDEX IX_Customers_EmployeeId ON Customers(EmployeeId);
+            END
+
+            IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Customers_Email' AND object_id = OBJECT_ID('Customers'))
+                DROP INDEX IX_Customers_Email ON Customers;
+
+            IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Customers_TenantId_Email' AND object_id = OBJECT_ID('Customers'))
+                CREATE INDEX IX_Customers_TenantId_Email ON Customers(TenantId, Email) WHERE Email IS NOT NULL AND Email <> '';
+
             IF NOT EXISTS (SELECT 1 FROM sys.objects WHERE object_id = OBJECT_ID('EmployeeVacations') AND type = 'U')
             BEGIN
                 CREATE TABLE EmployeeVacations (

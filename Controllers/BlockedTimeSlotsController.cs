@@ -32,9 +32,10 @@ public class BlockedTimeSlotsController : ControllerBase
 
     private bool IsAdminRequest()
     {
-        var secret = _config["AdminBootstrapSecret"]
-            ?? throw new InvalidOperationException("AdminBootstrapSecret is not configured");
-        return Request.Headers.TryGetValue("X-Admin-Secret", out var val) && val == secret;
+        var secret = _config["AdminBootstrapSecret"];
+        return !string.IsNullOrWhiteSpace(secret)
+            && Request.Headers.TryGetValue("X-Admin-Secret", out var val)
+            && val == secret;
     }
 
     [HttpGet]

@@ -2,6 +2,7 @@
 using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace GentleBook.Api.Controllers;
 
@@ -31,9 +32,10 @@ public class CustomersController : ControllerBase
 
     private bool IsAdminRequest()
     {
-        var secret = _config["AdminBootstrapSecret"]
-            ?? throw new InvalidOperationException("AdminBootstrapSecret is not configured");
-        return Request.Headers.TryGetValue("X-Admin-Secret", out var val) && val == secret;
+        var secret = _config["AdminBootstrapSecret"];
+        return !string.IsNullOrWhiteSpace(secret)
+            && Request.Headers.TryGetValue("X-Admin-Secret", out var val)
+            && val == secret;
     }
 
     /// <summary>
@@ -106,6 +108,15 @@ public class CustomersController : ControllerBase
         catch (InvalidOperationException ex)
         {
             return Conflict(new { message = ex.Message });
+        }
+        catch (DbUpdateException ex) when (
+            ex.InnerException?.Message.Contains("IX_Customers_Email", StringComparison.OrdinalIgnoreCase) == true ||
+            ex.InnerException?.Message.Contains("IX_Customers_TenantId_Email", StringComparison.OrdinalIgnoreCase) == true ||
+            ex.InnerException?.Message.Contains("duplicate", StringComparison.OrdinalIgnoreCase) == true ||
+            ex.InnerException?.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            _logger.LogWarning(ex, "CreateCustomer duplicate constraint failed");
+            return Conflict(new { message = "Ein Kunde mit dieser E-Mail existiert bereits oder die Datenbank nutzt noch einen alten Kunden-E-Mail-Index." });
         }
         catch (Exception ex)
         {
