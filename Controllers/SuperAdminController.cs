@@ -20,13 +20,15 @@ public class SuperAdminController : ControllerBase
     private readonly IConfiguration _config;
     private readonly EmailService _emailService;
     private readonly ILogger<SuperAdminController> _logger;
+    private readonly JwtService _jwt;
 
-    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger)
+    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt)
     {
         _db = db;
         _config = config;
         _emailService = emailService;
         _logger = logger;
+        _jwt = jwt;
     }
 
     private IActionResult ForbidIfNotSuperAdmin()
@@ -1045,6 +1047,139 @@ public class SuperAdminController : ControllerBase
 
         return Ok(sorted);
     }
+
+    // ── Impersonate ───────────────────────────────────────────────────────────
+
+    /// <summary>Generate a TenantAdmin JWT for the first admin of the given tenant (Superadmin only).</summary>
+    [HttpPost("tenants/{tenantId:guid}/impersonate")]
+    public async Task<IActionResult> ImpersonateTenant(Guid tenantId)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var tenant = await _db.Tenants.FindAsync(tenantId);
+        if (tenant == null) return NotFound(new { message = "System nicht gefunden" });
+        if (!tenant.IsActive) return BadRequest(new { message = "System ist deaktiviert" });
+
+        var adminUser = await _db.PlatformUsers
+            .Where(u => u.TenantId == tenantId && u.Role == PlatformRole.TenantAdmin)
+            .OrderBy(u => u.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (adminUser == null)
+            return NotFound(new { message = "Kein Admin-User für dieses System gefunden" });
+
+        var token = _jwt.GenerateTenantAdminToken(adminUser.Id, adminUser.Email, tenant.Id, tenant.Slug);
+
+        _logger.LogInformation("SuperAdmin impersonated tenant {TenantId} ({TenantName}) as {Email}", tenantId, tenant.Name, adminUser.Email);
+
+        return Ok(new
+        {
+            access_token = token,
+            tenant_slug = tenant.Slug,
+            tenant_name = tenant.Name,
+            user_email = adminUser.Email,
+            user_id = adminUser.Id,
+        });
+    }
+
+    // GET /api/superadmin/subscription-requests
+    [HttpGet("subscription-requests")]
+    public async Task<IActionResult> GetSubscriptionRequests([FromQuery] string? status = null)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var query = _db.SubscriptionRequests
+            .Include(r => r.Tenant)
+            .AsQueryable();
+
+        if (!string.IsNullOrEmpty(status))
+            query = query.Where(r => r.Status == status);
+
+        var requests = await query
+            .OrderByDescending(r => r.Status == "Pending")
+            .ThenByDescending(r => r.CreatedAt)
+            .Select(r => new
+            {
+                r.Id,
+                r.RequestedPlan,
+                r.ContactEmail,
+                r.Status,
+                r.Note,
+                r.CreatedAt,
+                r.ProcessedAt,
+                TenantId = r.TenantId,
+                TenantName = r.Tenant.Name,
+                TenantSlug = r.Tenant.Slug,
+            })
+            .ToListAsync();
+
+        var pendingCount = requests.Count(r => r.Status == "Pending");
+
+        return Ok(new { data = requests, pendingCount });
+    }
+
+    // POST /api/superadmin/subscription-requests/{id}/activate
+    [HttpPost("subscription-requests/{id:guid}/activate")]
+    public async Task<IActionResult> ActivateSubscriptionRequest(Guid id, [FromBody] ActivateRequestDto? dto = null)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var request = await _db.SubscriptionRequests
+            .Include(r => r.Tenant)
+            .FirstOrDefaultAsync(r => r.Id == id);
+
+        if (request == null) return NotFound(new { message = "Anfrage nicht gefunden" });
+        if (request.Status != "Pending") return BadRequest(new { message = "Anfrage ist nicht mehr offen" });
+
+        var plan = request.RequestedPlan switch
+        {
+            "Starter" => SubscriptionPlan.Starter,
+            "Professional" => SubscriptionPlan.Professional,
+            "Agency" => SubscriptionPlan.Agency,
+            _ => (SubscriptionPlan?)null,
+        };
+
+        if (plan == null) return BadRequest(new { message = "Unbekannter Plan" });
+
+        var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == request.TenantId);
+        if (sub != null)
+        {
+            sub.Plan = plan.Value;
+            sub.Status = SubscriptionStatus.Active;
+            sub.CurrentPeriodStart = DateTime.UtcNow;
+            sub.CurrentPeriodEnd = DateTime.UtcNow.AddMonths(1);
+            sub.CancelledAt = null;
+        }
+
+        request.Status = "Activated";
+        request.ProcessedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("SuperAdmin activated plan {Plan} for tenant {TenantId}", request.RequestedPlan, request.TenantId);
+
+        return Ok(new { message = $"Plan {request.RequestedPlan} für {request.Tenant.Name} aktiviert." });
+    }
+
+    // POST /api/superadmin/subscription-requests/{id}/decline
+    [HttpPost("subscription-requests/{id:guid}/decline")]
+    public async Task<IActionResult> DeclineSubscriptionRequest(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var request = await _db.SubscriptionRequests.FindAsync(id);
+        if (request == null) return NotFound(new { message = "Anfrage nicht gefunden" });
+        if (request.Status != "Pending") return BadRequest(new { message = "Anfrage ist nicht mehr offen" });
+
+        request.Status = "Declined";
+        request.ProcessedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation("SuperAdmin declined subscription request {Id}", id);
+
+        return Ok(new { message = "Anfrage abgelehnt." });
+    }
 }
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
@@ -1089,4 +1224,5 @@ public record UpdateTenantSettingsDto(
 
 public record CreateTenantUserDto(string Email, string? Password, string FirstName, string LastName, bool? SendWelcomeEmail = true);
 public record ExtendTrialDto(int Days);
+public record ActivateRequestDto(string? Note);
 public record ChangePlanDto(string Plan);

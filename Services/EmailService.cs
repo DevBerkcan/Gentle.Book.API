@@ -2037,25 +2037,36 @@ GentleBook · support@gentlegroup.de";
                             <p style="font-size:16px;color:{urgencyText};margin:4px 0 0;font-weight:600">Tag{(daysLeft == 1 ? "" : "en")}</p>
                           </div>
 
-                          <!-- Pricing card -->
-                          <div style="background:linear-gradient(135deg,#1e1e1e 0%,#2c2c2c 100%);border-radius:16px;padding:28px;margin:0 0 28px">
-                            <p style="color:rgba(255,255,255,0.5);font-size:12px;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.08em">Ihr Upgrade-Paket</p>
-                            <div style="display:flex;align-items:baseline;gap:4px;margin:0 0 4px">
-                              <span style="font-size:48px;font-weight:900;color:#C09995;line-height:1">€49,99</span>
-                              <span style="font-size:18px;color:rgba(255,255,255,0.5);font-weight:500">/Monat</span>
-                            </div>
-                            <div style="display:inline-block;background:#C09995;color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;margin:8px 0 20px">
-                              inkl. Support &amp; Wartung
-                            </div>
-                            <table cellpadding="0" cellspacing="0" style="width:100%">
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Unbegrenzte Buchungen</td></tr>
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Mehrere Mitarbeiter-Konten</td></tr>
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Automatische E-Mail-Bestätigungen</td></tr>
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Professionelle Buchungsseite</td></tr>
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Priority Support &amp; Wartung</td></tr>
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Alle zukünftigen Updates</td></tr>
-                            </table>
-                          </div>
+                          <!-- Pricing plans -->
+                          <p style="font-size:13px;font-weight:700;color:#374151;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Wählen Sie Ihren Plan</p>
+                          <table cellpadding="0" cellspacing="0" style="width:100%;border-spacing:0;margin:0 0 28px">
+                            <tr>
+                              <td style="width:33%;padding:4px">
+                                <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center">
+                                  <p style="font-size:11px;font-weight:700;color:#6b7280;margin:0 0 4px;text-transform:uppercase">Starter</p>
+                                  <p style="font-size:28px;font-weight:900;color:#1f2937;margin:0;line-height:1">€29</p>
+                                  <p style="font-size:11px;color:#9ca3af;margin:2px 0 8px">/Monat</p>
+                                  <p style="font-size:11px;color:#6b7280;margin:0">2 Mitarbeiter</p>
+                                </div>
+                              </td>
+                              <td style="width:33%;padding:4px">
+                                <div style="background:#017172;border:1px solid #015f60;border-radius:12px;padding:16px;text-align:center">
+                                  <p style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);margin:0 0 4px;text-transform:uppercase">Professional ⭐</p>
+                                  <p style="font-size:28px;font-weight:900;color:#fff;margin:0;line-height:1">€59</p>
+                                  <p style="font-size:11px;color:rgba(255,255,255,0.6);margin:2px 0 8px">/Monat</p>
+                                  <p style="font-size:11px;color:rgba(255,255,255,0.8);margin:0">10 Mitarbeiter</p>
+                                </div>
+                              </td>
+                              <td style="width:33%;padding:4px">
+                                <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center">
+                                  <p style="font-size:11px;font-weight:700;color:#d97706;margin:0 0 4px;text-transform:uppercase">Business</p>
+                                  <p style="font-size:28px;font-weight:900;color:#1f2937;margin:0;line-height:1">€99</p>
+                                  <p style="font-size:11px;color:#9ca3af;margin:2px 0 8px">/Monat</p>
+                                  <p style="font-size:11px;color:#6b7280;margin:0">Unlimited</p>
+                                </div>
+                              </td>
+                            </tr>
+                          </table>
 
                           <!-- CTAs -->
                           <table cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 24px">
@@ -2067,16 +2078,16 @@ GentleBook · support@gentlegroup.de";
                                 </a>
                               </td>
                               <td style="padding-left:8px;width:50%">
-                                <a href="mailto:support@gentlegroup.de?subject=Upgrade GentleBook - {tenantSlug}"
-                                   style="display:block;background:#1e1e1e;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;border:1px solid #444">
-                                  ✉️ E-Mail senden
+                                <a href="{subscriptionUrl}"
+                                   style="display:block;background:#017172;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center">
+                                  Plan anfragen
                                 </a>
                               </td>
                             </tr>
                           </table>
 
                           <p style="font-size:13px;color:#9ca3af;text-align:center;margin:0">
-                            Oder besuchen Sie direkt Ihre <a href="{subscriptionUrl}" style="color:#C09995;text-decoration:none;font-weight:600">Abonnement-Seite</a>
+                            Direkt zur <a href="{subscriptionUrl}" style="color:#017172;text-decoration:none;font-weight:600">Abonnement-Seite</a>
                           </p>
                         </td></tr>
 
@@ -2102,8 +2113,10 @@ GentleBook · support@gentlegroup.de";
 
                 Ihr Testzeitraum endet in {daysLeft} Tag{(daysLeft == 1 ? "" : "en")}.
 
-                UPGRADE-PAKET: €49,99 / Monat
-                inkl. Support & Wartung
+                UNSERE PLÄNE:
+                Starter       €29/Monat — 2 Mitarbeiter
+                Professional  €59/Monat — 10 Mitarbeiter (empfohlen)
+                Business      €99/Monat — Unbegrenzte Mitarbeiter
 
                 Was Sie erhalten:
                 ✓ Unbegrenzte Buchungen
@@ -2181,29 +2194,39 @@ GentleBook · support@gentlegroup.de";
                             vielen Dank, dass Sie GentleBook getestet haben! Ihr kostenloser Testzeitraum ist leider abgelaufen.
                           </p>
                           <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 28px">
-                            Um Ihr Buchungssystem weiter zu nutzen und keine Kundentermine zu verpassen, upgraden Sie jetzt —
-                            für nur <strong style="color:#C09995">€49,99 pro Monat</strong> inkl. Support &amp; Wartung.
+                            Um Ihr Buchungssystem weiter zu nutzen und keine Kundentermine zu verpassen, wählen Sie jetzt Ihren Plan — ab <strong style="color:#017172">€29 pro Monat</strong>.
                           </p>
 
-                          <!-- Pricing card -->
-                          <div style="background:linear-gradient(135deg,#1e1e1e 0%,#2c2c2c 100%);border-radius:16px;padding:28px;margin:0 0 28px">
-                            <p style="color:rgba(255,255,255,0.5);font-size:12px;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.08em">GentleBook Pro</p>
-                            <div style="margin:0 0 4px">
-                              <span style="font-size:48px;font-weight:900;color:#C09995;line-height:1">€49,99</span>
-                              <span style="font-size:18px;color:rgba(255,255,255,0.5);font-weight:500">/Monat</span>
-                            </div>
-                            <div style="display:inline-block;background:#C09995;color:#fff;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;margin:8px 0 20px">
-                              inkl. Support &amp; Wartung
-                            </div>
-                            <table cellpadding="0" cellspacing="0" style="width:100%">
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Unbegrenzte Buchungen</td></tr>
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Mehrere Mitarbeiter-Konten</td></tr>
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Automatische E-Mail-Bestätigungen</td></tr>
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Professionelle Buchungsseite</td></tr>
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Priority Support &amp; Wartung</td></tr>
-                              <tr><td style="padding:6px 0;color:rgba(255,255,255,0.8);font-size:14px">✓&nbsp; Alle zukünftigen Updates</td></tr>
-                            </table>
-                          </div>
+                          <!-- Pricing plans -->
+                          <p style="font-size:13px;font-weight:700;color:#374151;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Wählen Sie Ihren Plan</p>
+                          <table cellpadding="0" cellspacing="0" style="width:100%;border-spacing:0;margin:0 0 28px">
+                            <tr>
+                              <td style="width:33%;padding:4px">
+                                <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center">
+                                  <p style="font-size:11px;font-weight:700;color:#6b7280;margin:0 0 4px;text-transform:uppercase">Starter</p>
+                                  <p style="font-size:28px;font-weight:900;color:#1f2937;margin:0;line-height:1">€29</p>
+                                  <p style="font-size:11px;color:#9ca3af;margin:2px 0 8px">/Monat</p>
+                                  <p style="font-size:11px;color:#6b7280;margin:0">2 Mitarbeiter</p>
+                                </div>
+                              </td>
+                              <td style="width:33%;padding:4px">
+                                <div style="background:#017172;border:1px solid #015f60;border-radius:12px;padding:16px;text-align:center">
+                                  <p style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);margin:0 0 4px;text-transform:uppercase">Professional ⭐</p>
+                                  <p style="font-size:28px;font-weight:900;color:#fff;margin:0;line-height:1">€59</p>
+                                  <p style="font-size:11px;color:rgba(255,255,255,0.6);margin:2px 0 8px">/Monat</p>
+                                  <p style="font-size:11px;color:rgba(255,255,255,0.8);margin:0">10 Mitarbeiter</p>
+                                </div>
+                              </td>
+                              <td style="width:33%;padding:4px">
+                                <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center">
+                                  <p style="font-size:11px;font-weight:700;color:#d97706;margin:0 0 4px;text-transform:uppercase">Business</p>
+                                  <p style="font-size:28px;font-weight:900;color:#1f2937;margin:0;line-height:1">€99</p>
+                                  <p style="font-size:11px;color:#9ca3af;margin:2px 0 8px">/Monat</p>
+                                  <p style="font-size:11px;color:#6b7280;margin:0">Unlimited</p>
+                                </div>
+                              </td>
+                            </tr>
+                          </table>
 
                           <!-- CTAs -->
                           <table cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 24px">
@@ -2215,16 +2238,16 @@ GentleBook · support@gentlegroup.de";
                                 </a>
                               </td>
                               <td style="padding-left:8px;width:50%">
-                                <a href="mailto:support@gentlegroup.de?subject=Upgrade GentleBook - {tenantSlug}"
-                                   style="display:block;background:#1e1e1e;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;border:1px solid #444">
-                                  ✉️ E-Mail senden
+                                <a href="{subscriptionUrl}"
+                                   style="display:block;background:#017172;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center">
+                                  Plan anfragen
                                 </a>
                               </td>
                             </tr>
                           </table>
 
                           <p style="font-size:13px;color:#9ca3af;text-align:center;margin:0">
-                            Mehr Infos: <a href="{subscriptionUrl}" style="color:#C09995;text-decoration:none;font-weight:600">Abonnement-Seite</a>
+                            Mehr Infos: <a href="{subscriptionUrl}" style="color:#017172;text-decoration:none;font-weight:600">Abonnement-Seite</a>
                           </p>
                         </td></tr>
 
@@ -2250,7 +2273,12 @@ GentleBook · support@gentlegroup.de";
 
                 vielen Dank für Ihren Test! Leider ist Ihr Testzeitraum abgelaufen.
 
-                UPGRADE: €49,99 / Monat – inkl. Support & Wartung
+                UNSERE PLÄNE:
+                Starter       €29/Monat — 2 Mitarbeiter
+                Professional  €59/Monat — 10 Mitarbeiter (empfohlen)
+                Business      €99/Monat — Unbegrenzte Mitarbeiter
+
+                Was Sie erhalten:
                 ✓ Unbegrenzte Buchungen
                 ✓ Mehrere Mitarbeiter-Konten
                 ✓ Automatische E-Mail-Bestätigungen
@@ -2281,6 +2309,201 @@ GentleBook · support@gentlegroup.de";
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send trial expired email to {Email}", recipientEmail);
+        }
+    }
+
+    public async Task SendSubscriptionRequestConfirmationAsync(string toEmail, string firstName, string planName, string tenantName)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.FromEmail));
+            message.To.Add(MailboxAddress.Parse(toEmail));
+            message.Subject = $"Plan-Anfrage erhalten – {planName}";
+
+            var planPrice = planName switch { "Starter" => "€29", "Professional" => "€59", "Agency" => "€99", _ => "" };
+
+            var html = $"""
+                <!DOCTYPE html>
+                <html lang="de">
+                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+                  <table cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:32px auto">
+                    <tr><td>
+                      <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+
+                        <!-- Header -->
+                        <tr><td style="background:linear-gradient(135deg,#017172 0%,#015f60 100%);padding:28px 32px;text-align:center">
+                          <p style="font-size:22px;font-weight:800;color:#fff;margin:0;letter-spacing:-0.5px">✨ GentleBook</p>
+                          <p style="font-size:12px;color:rgba(255,255,255,0.7);margin:4px 0 0">Buchungssystem</p>
+                        </td></tr>
+
+                        <!-- Body -->
+                        <tr><td style="background:#fff;padding:36px 32px;border:1px solid #e5e7eb;border-top:none">
+                          <p style="font-size:16px;color:#1e1e1e;margin:0 0 8px;font-weight:600">Hallo {firstName},</p>
+                          <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 24px">
+                            wir haben Ihre Anfrage für den <strong style="color:#017172">{planName}-Plan</strong> für <strong>{tenantName}</strong> erhalten.
+                            Wir aktivieren Ihren Plan innerhalb von 24 Stunden und benachrichtigen Sie per E-Mail.
+                          </p>
+
+                          <!-- Requested plan box -->
+                          <div style="background:#f0fdfc;border:1px solid #99f6e4;border-radius:12px;padding:20px 24px;margin:0 0 24px;text-align:center">
+                            <p style="font-size:12px;font-weight:700;color:#0f766e;margin:0 0 4px;text-transform:uppercase">Angefragter Plan</p>
+                            <p style="font-size:32px;font-weight:900;color:#017172;margin:0;line-height:1">{planName}</p>
+                            <p style="font-size:18px;color:#0f766e;margin:4px 0 0;font-weight:600">{planPrice} / Monat</p>
+                          </div>
+
+                          <p style="font-size:13px;color:#9ca3af;line-height:1.6;margin:0">
+                            Bei Fragen schreiben Sie uns auf
+                            <a href="https://wa.me/491754701892" style="color:#017172;font-weight:600;text-decoration:none">WhatsApp</a> oder
+                            <a href="mailto:support@gentlegroup.de" style="color:#017172;font-weight:600;text-decoration:none">support@gentlegroup.de</a>.
+                          </p>
+                        </td></tr>
+
+                        <!-- Footer -->
+                        <tr><td style="background:#f9fafb;border-radius:0 0 16px 16px;padding:16px 32px;text-align:center;border:1px solid #e5e7eb;border-top:none">
+                          <p style="margin:0;color:#9ca3af;font-size:12px">
+                            &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
+                            <a href="mailto:support@gentlegroup.de" style="color:#017172;text-decoration:none">support@gentlegroup.de</a>
+                          </p>
+                        </td></tr>
+
+                      </table>
+                    </td></tr>
+                  </table>
+                </body>
+                </html>
+                """;
+
+            var text = $"""
+                Plan-Anfrage erhalten – {planName}
+                ===================================
+                Hallo {firstName},
+
+                wir haben Ihre Anfrage für den {planName}-Plan ({planPrice}/Monat)
+                für {tenantName} erhalten.
+
+                Aktivierung innerhalb von 24 Stunden.
+                Bei Fragen: support@gentlegroup.de
+
+                © {DateTime.UtcNow.Year} GentleGroup
+                """;
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Subscription request confirmation sent to {Email}", toEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send subscription request confirmation to {Email}", toEmail);
+        }
+    }
+
+    public async Task SendSubscriptionRequestNotificationAsync(string planName, string tenantName, string contactEmail, string tenantSlug)
+    {
+        try
+        {
+            var superadminEmail = "berkcan@gentle-webdesign.com";
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook System", _emailOptions.FromEmail));
+            message.To.Add(MailboxAddress.Parse(superadminEmail));
+            message.Subject = $"🔔 Neue Abo-Anfrage: {tenantName} → {planName}";
+
+            var adminUrl = $"{FrontendUrl}/superadmin/requests";
+            var planPrice = planName switch { "Starter" => "€29", "Professional" => "€59", "Agency" => "€99", _ => "" };
+
+            var html = $"""
+                <!DOCTYPE html>
+                <html lang="de">
+                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+                  <table cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:32px auto">
+                    <tr><td>
+                      <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+
+                        <!-- Header -->
+                        <tr><td style="background:linear-gradient(135deg,#017172 0%,#015f60 100%);padding:28px 32px;text-align:center">
+                          <p style="font-size:22px;font-weight:800;color:#fff;margin:0">🔔 Neue Abo-Anfrage</p>
+                          <p style="font-size:12px;color:rgba(255,255,255,0.7);margin:4px 0 0">GentleBook Superadmin</p>
+                        </td></tr>
+
+                        <!-- Body -->
+                        <tr><td style="background:#fff;padding:36px 32px;border:1px solid #e5e7eb;border-top:none">
+                          <p style="font-size:15px;color:#1e1e1e;margin:0 0 20px">
+                            <strong>{tenantName}</strong> hat eine Anfrage für den <strong style="color:#017172">{planName}-Plan</strong> gesendet.
+                          </p>
+
+                          <table cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 24px">
+                            <tr>
+                              <td style="padding:8px 0;font-size:13px;color:#6b7280;width:120px">System:</td>
+                              <td style="padding:8px 0;font-size:13px;color:#1e1e1e;font-weight:600">{tenantName} ({tenantSlug})</td>
+                            </tr>
+                            <tr>
+                              <td style="padding:8px 0;font-size:13px;color:#6b7280">Plan:</td>
+                              <td style="padding:8px 0;font-size:13px;color:#017172;font-weight:700">{planName} — {planPrice}/Monat</td>
+                            </tr>
+                            <tr>
+                              <td style="padding:8px 0;font-size:13px;color:#6b7280">Kontakt:</td>
+                              <td style="padding:8px 0;font-size:13px;color:#1e1e1e">{contactEmail}</td>
+                            </tr>
+                          </table>
+
+                          <a href="{adminUrl}"
+                             style="display:block;background:#017172;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;margin:0 0 16px">
+                            Anfrage im Superadmin verwalten →
+                          </a>
+
+                          <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0">
+                            Direkt zum Dashboard: <a href="{adminUrl}" style="color:#017172;text-decoration:none">{adminUrl}</a>
+                          </p>
+                        </td></tr>
+
+                        <!-- Footer -->
+                        <tr><td style="background:#f9fafb;border-radius:0 0 16px 16px;padding:16px 32px;text-align:center;border:1px solid #e5e7eb;border-top:none">
+                          <p style="margin:0;color:#9ca3af;font-size:12px">GentleBook Automatische Benachrichtigung &middot; {DateTime.UtcNow:dd.MM.yyyy HH:mm} UTC</p>
+                        </td></tr>
+
+                      </table>
+                    </td></tr>
+                  </table>
+                </body>
+                </html>
+                """;
+
+            var text = $"""
+                Neue Abo-Anfrage: {tenantName} → {planName}
+                ============================================
+                System: {tenantName} ({tenantSlug})
+                Plan:   {planName} — {planPrice}/Monat
+                Kontakt: {contactEmail}
+
+                Verwalten: {adminUrl}
+
+                GentleBook Automatische Benachrichtigung
+                """;
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Subscription request notification sent to superadmin for tenant {TenantSlug}", tenantSlug);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send subscription request notification for tenant {TenantSlug}", tenantSlug);
         }
     }
 }

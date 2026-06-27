@@ -38,6 +38,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<TenantLink> TenantLinks { get; set; }
     public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
     public DbSet<EmployeeVacation> EmployeeVacations { get; set; }
+    public DbSet<SubscriptionRequest> SubscriptionRequests { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -316,6 +317,22 @@ public class GentleBookDbContext : DbContext
                   .HasForeignKey(e => e.TenantId)
                   .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(e => new { e.TenantId, e.DisplayOrder });
+        });
+
+        // ── SubscriptionRequest ───────────────────────────────
+        modelBuilder.Entity<SubscriptionRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.RequestedPlan).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.ContactEmail).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(20).HasDefaultValue("Pending");
+            entity.Property(e => e.Note).HasMaxLength(500);
+            entity.HasOne(e => e.Tenant)
+                  .WithMany()
+                  .HasForeignKey(e => e.TenantId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.TenantId, e.Status });
+            entity.HasIndex(e => e.CreatedAt);
         });
     }
 }

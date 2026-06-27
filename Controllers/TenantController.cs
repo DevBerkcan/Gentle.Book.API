@@ -353,6 +353,85 @@ public class TenantController : ControllerBase
         });
     }
 
+    // POST /api/tenant/subscription-request
+    [HttpPost("subscription-request")]
+    public async Task<IActionResult> RequestSubscription([FromBody] SubscriptionRequestDto dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+
+        var existing = await _db.SubscriptionRequests
+            .FirstOrDefaultAsync(r => r.TenantId == tenantId && r.Status == "Pending");
+        if (existing != null)
+            return BadRequest(new { message = "Es gibt bereits eine offene Anfrage für dieses System." });
+
+        var validPlans = new[] { "Starter", "Professional", "Agency" };
+        if (!validPlans.Contains(dto.Plan))
+            return BadRequest(new { message = "Ungültiger Plan." });
+
+        var tenant = await _db.Tenants.FindAsync(tenantId);
+        var email = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+                 ?? User.FindFirst("email")?.Value
+                 ?? dto.ContactEmail;
+
+        var request = new SubscriptionRequest
+        {
+            TenantId = tenantId,
+            RequestedPlan = dto.Plan,
+            ContactEmail = email ?? "",
+            Note = dto.Note,
+        };
+
+        _db.SubscriptionRequests.Add(request);
+        await _db.SaveChangesAsync();
+
+        var firstName = User.FindFirst("given_name")?.Value
+                     ?? User.FindFirst("name")?.Value
+                     ?? "Kunde";
+
+        try
+        {
+            await _emailService.SendSubscriptionRequestConfirmationAsync(email ?? "", firstName, dto.Plan, tenant?.Name ?? "Ihr System");
+            await _emailService.SendSubscriptionRequestNotificationAsync(dto.Plan, tenant?.Name ?? tenantId.ToString(), email ?? "", tenant?.Slug ?? "");
+        }
+        catch { /* E-Mails sind nicht geschäftskritisch */ }
+
+        return Ok(new { message = "Anfrage erfolgreich gesendet. Wir aktivieren Ihren Plan innerhalb von 24 Stunden.", requestId = request.Id });
+    }
+
+    // GET /api/tenant/subscription-request/status
+    [HttpGet("subscription-request/status")]
+    public async Task<IActionResult> GetSubscriptionRequestStatus()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+
+        var latest = await _db.SubscriptionRequests
+            .Where(r => r.TenantId == tenantId)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (latest == null)
+            return Ok(new { hasPendingRequest = false, request = (object?)null });
+
+        return Ok(new
+        {
+            hasPendingRequest = latest.Status == "Pending",
+            request = new
+            {
+                latest.Id,
+                latest.RequestedPlan,
+                latest.Status,
+                latest.CreatedAt,
+                latest.ProcessedAt,
+            }
+        });
+    }
+
     // POST /api/tenant/support
     [HttpPost("support")]
     public async Task<IActionResult> SendSupportMessage([FromBody] SupportMessageRequest dto)
@@ -394,6 +473,7 @@ public class TenantController : ControllerBase
 }
 
 public record SupportMessageRequest(string Subject, string Message);
+public record SubscriptionRequestDto(string Plan, string ContactEmail, string? Note);
 
 public record UpdateBusinessHoursItemDto(int DayOfWeek, bool IsOpen, string? OpenTime, string? CloseTime, string? BreakStartTime, string? BreakEndTime);
 
