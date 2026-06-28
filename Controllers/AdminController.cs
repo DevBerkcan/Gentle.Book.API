@@ -332,6 +332,36 @@ public class AdminController : ControllerBase
         return val;
     }
 
+    /// <summary>Get recent cancellation notifications for this tenant (last 14 days).</summary>
+    [HttpGet("notifications")]
+    public async Task<IActionResult> GetNotifications()
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-14);
+
+        var cancelled = await _db.Bookings
+            .Include(b => b.Customer)
+            .Include(b => b.Service)
+            .Include(b => b.Employee)
+            .Where(b => b.Status == BookingStatus.Cancelled && b.CancelledAt >= cutoff)
+            .OrderByDescending(b => b.CancelledAt)
+            .Take(30)
+            .Select(b => new
+            {
+                b.Id,
+                Type = "cancellation",
+                CustomerName = b.Customer != null ? b.Customer.FullName : "Unbekannt",
+                ServiceName  = b.Service != null ? b.Service.Name : "–",
+                EmployeeName = b.Employee != null ? b.Employee.Name : (string?)null,
+                BookingDate  = b.BookingDate,
+                StartTime    = b.StartTime,
+                CancelledAt  = b.CancelledAt,
+                Reason       = b.CancellationReason,
+            })
+            .ToListAsync();
+
+        return Ok(new { notifications = cancelled, count = cancelled.Count });
+    }
+
     /// <summary>Resend booking confirmation email.</summary>
     [HttpPost("bookings/{id}/resend-confirmation")]
     public async Task<IActionResult> ResendConfirmation(Guid id)
