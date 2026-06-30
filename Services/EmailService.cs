@@ -2317,7 +2317,7 @@ GentleBook · support@gentlegroup.de";
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.FromEmail));
+            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
             message.To.Add(MailboxAddress.Parse(toEmail));
             message.Subject = $"Plan-Anfrage erhalten – {planName}";
 
@@ -2413,7 +2413,7 @@ GentleBook · support@gentlegroup.de";
             var superadminEmail = "berkcan@gentle-webdesign.com";
 
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook System", _emailOptions.FromEmail));
+            message.From.Add(new MailboxAddress("GentleBook System", _emailOptions.SenderEmail));
             message.To.Add(MailboxAddress.Parse(superadminEmail));
             message.Subject = $"🔔 Neue Abo-Anfrage: {tenantName} → {planName}";
 
