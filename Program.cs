@@ -149,22 +149,28 @@ builder.Services.AddSingleton<IHostedService, HangfireJobScheduler>();
 builder.Services.AddRateLimiter(options =>
 {
     // Brute-force protection: max 8 login attempts per IP per minute
-    options.AddFixedWindowLimiter("auth-limit", o =>
-    {
-        o.Window = TimeSpan.FromMinutes(1);
-        o.PermitLimit = 8;
-        o.QueueLimit = 0;
-        o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-    });
+    options.AddPolicy("auth-limit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 8,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
 
-    // Booking spam protection: max 10 bookings per IP per 10 minutes
-    options.AddFixedWindowLimiter("booking-limit", o =>
-    {
-        o.Window = TimeSpan.FromMinutes(10);
-        o.PermitLimit = 10;
-        o.QueueLimit = 0;
-        o.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-    });
+    // Booking spam protection: max 20 bookings per IP per 10 minutes
+    options.AddPolicy("booking-limit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(10),
+                PermitLimit = 20,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
 
     options.RejectionStatusCode = 429;
     options.OnRejected = async (ctx, ct) =>

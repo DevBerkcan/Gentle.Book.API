@@ -19,13 +19,15 @@ public class TenantController : ControllerBase
     private readonly ITenantContext _tenantContext;
     private readonly EmailService _emailService;
     private readonly ILogger<TenantController> _logger;
+    private readonly IWebHostEnvironment _env;
 
-    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger)
+    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env)
     {
         _db = db;
         _tenantContext = tenantContext;
         _emailService = emailService;
         _logger = logger;
+        _env = env;
     }
 
     private IActionResult? RequireTenantAdmin()
@@ -171,7 +173,7 @@ public class TenantController : ControllerBase
         var ext = Path.GetExtension(logo.FileName).ToLower();
         var tenantId = _tenantContext.TenantId!.Value;
         var fileName = $"{tenantId}{ext}";
-        var uploadDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "logos");
+        var uploadDir = Path.Combine(_env.WebRootPath, "uploads", "logos");
 
         if (!Directory.Exists(uploadDir))
             Directory.CreateDirectory(uploadDir);

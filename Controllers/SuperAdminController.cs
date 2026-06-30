@@ -21,14 +21,16 @@ public class SuperAdminController : ControllerBase
     private readonly EmailService _emailService;
     private readonly ILogger<SuperAdminController> _logger;
     private readonly JwtService _jwt;
+    private readonly IWebHostEnvironment _env;
 
-    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt)
+    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt, IWebHostEnvironment env)
     {
         _db = db;
         _config = config;
         _emailService = emailService;
         _logger = logger;
         _jwt = jwt;
+        _env = env;
     }
 
     private IActionResult ForbidIfNotSuperAdmin()
@@ -314,6 +316,7 @@ public class SuperAdminController : ControllerBase
 
             await _db.TenantSettings.Where(s => s.TenantId == id).ExecuteDeleteAsync();
             await _db.Subscriptions.Where(s => s.TenantId == id).ExecuteDeleteAsync();
+            await _db.SubscriptionRequests.IgnoreQueryFilters().Where(r => r.TenantId == id).ExecuteDeleteAsync();
             await _db.Employees.IgnoreQueryFilters().Where(e => e.TenantId == id).ExecuteDeleteAsync();
 
             _db.Tenants.Remove(tenant);
@@ -489,7 +492,7 @@ public class SuperAdminController : ControllerBase
 
         var ext = Path.GetExtension(logo.FileName).ToLower();
         var fileName = $"{id}{ext}";
-        var uploadDir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "logos");
+        var uploadDir = Path.Combine(_env.WebRootPath, "uploads", "logos");
         if (!Directory.Exists(uploadDir)) Directory.CreateDirectory(uploadDir);
 
         var filePath = Path.Combine(uploadDir, fileName);
