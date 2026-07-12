@@ -205,6 +205,36 @@ public class TenantController : ControllerBase
         return Ok(new { logoUrl });
     }
 
+    // DELETE /api/tenant/logo
+    [HttpDelete("logo")]
+    public async Task<IActionResult> DeleteLogo()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (settings == null || string.IsNullOrEmpty(settings.LogoUrl))
+            return Ok(new { message = "Kein Logo vorhanden." });
+
+        // Delete file from disk
+        if (!string.IsNullOrEmpty(settings.LogoUrl))
+        {
+            var filePath = Path.Combine(_env.WebRootPath, settings.LogoUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            if (System.IO.File.Exists(filePath))
+            {
+                try { System.IO.File.Delete(filePath); }
+                catch (Exception ex) { _logger.LogWarning(ex, "Could not delete logo file {Path}", filePath); }
+            }
+        }
+
+        settings.LogoUrl = null;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new { message = "Logo gelöscht." });
+    }
+
     // GET /api/tenant/business-hours
     [HttpGet("business-hours")]
     public async Task<IActionResult> GetBusinessHours()

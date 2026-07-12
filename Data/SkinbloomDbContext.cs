@@ -39,6 +39,8 @@ public class GentleBookDbContext : DbContext
     public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
     public DbSet<EmployeeVacation> EmployeeVacations { get; set; }
     public DbSet<SubscriptionRequest> SubscriptionRequests { get; set; }
+    public DbSet<EmployeeNote> EmployeeNotes { get; set; }
+    public DbSet<WaitlistEntry> WaitlistEntries { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -58,6 +60,7 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<TenantLink>().HasQueryFilter(tl => CurrentTenantId == null || tl.TenantId == CurrentTenantId);
         modelBuilder.Entity<EmployeeSchedule>().HasQueryFilter(es => CurrentTenantId == null || es.TenantId == CurrentTenantId);
         modelBuilder.Entity<EmployeeVacation>().HasQueryFilter(ev => CurrentTenantId == null || ev.TenantId == CurrentTenantId);
+        modelBuilder.Entity<EmployeeNote>().HasQueryFilter(en => CurrentTenantId == null || en.TenantId == CurrentTenantId);
 
         // ── Tenant ────────────────────────────────────────────
         modelBuilder.Entity<Tenant>(entity =>

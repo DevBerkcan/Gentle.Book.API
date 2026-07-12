@@ -11,13 +11,16 @@ public class BookingService
     private readonly GentleBookDbContext _context;
     private readonly ILogger<BookingService> _logger;
     private readonly EmailService _emailService;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public BookingService(
         GentleBookDbContext context,
         ILogger<BookingService> logger,
-        EmailService emailService)
+        EmailService emailService,
+        IServiceScopeFactory scopeFactory)
     {
         _context = context;
+        _scopeFactory = scopeFactory;
         _logger = logger;
         _emailService = emailService;
     }
@@ -140,43 +143,16 @@ public class BookingService
             "Booking created: {BookingId} for customer {Email} on {Date} at {Time}, employee: {EmployeeId}",
             booking.Id, customer.Email, bookingDate, startTime, employee?.Id);
 
-        // 9. Send confirmation email
+        // 9. Send confirmation email — EmailService handles the EmailLog internally
         if (!string.IsNullOrEmpty(customer.Email))
         {
             try
             {
                 await _emailService.SendBookingConfirmationAsync(booking.Id);
-                booking.ConfirmationSentAt = DateTime.UtcNow;
-
-                _context.EmailLogs.Add(new EmailLog
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    BookingId = booking.Id,
-                    RecipientEmail = customer.Email,
-                    EmailType = EmailType.Confirmation,
-                    SentAt = DateTime.UtcNow,
-                    Status = EmailStatus.Sent,
-                });
-                await _context.SaveChangesAsync();
-                _logger.LogInformation("Confirmation email sent to {Email}", customer.Email);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to send confirmation email to {Email}", customer.Email);
-
-                _context.EmailLogs.Add(new EmailLog
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    BookingId = booking.Id,
-                    RecipientEmail = customer.Email,
-                    EmailType = EmailType.Confirmation,
-                    SentAt = null,
-                    Status = EmailStatus.Failed,
-                    ErrorMessage = ex.Message,
-                });
-                await _context.SaveChangesAsync();
+                _logger.LogError(ex, "Confirmation email failed for booking {BookingId}", booking.Id);
             }
         }
 
@@ -314,7 +290,61 @@ public class BookingService
             }
         }
 
+        // Notify waitlist entries for the same date + service + employee
+        _ = Task.Run(() => NotifyWaitlistAsync(booking));
+
         return new CancelBookingResponseDto(true, "Termin erfolgreich storniert", emailSent);
+    }
+
+    private async Task NotifyWaitlistAsync(Booking booking)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+            var emailService = scope.ServiceProvider.GetRequiredService<EmailService>();
+
+            var waitlist = await db.WaitlistEntries
+                .Where(w =>
+                    w.TenantId == booking.TenantId &&
+                    w.Status == WaitlistStatus.Pending &&
+                    w.ServiceId == booking.ServiceId &&
+                    w.PreferredDate == booking.BookingDate)
+                .Include(w => w.Service)
+                .ToListAsync();
+
+            if (waitlist.Count == 0) return;
+
+            var tenantSettings = await db.TenantSettings
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
+
+            var tenant = await db.Tenants.AsNoTracking()
+                .FirstOrDefaultAsync(t => t.Id == booking.TenantId);
+
+            var tenantName  = tenantSettings?.CompanyName ?? tenant?.Name ?? "Buchungssystem";
+            var tenantSlug  = tenant?.Slug ?? "";
+            var logoUrl     = emailService.GetAbsoluteLogoUrl(tenantSettings?.LogoUrl);
+            var color       = tenantSettings?.PrimaryColor ?? "#6355E4";
+            var serviceName = waitlist.FirstOrDefault()?.Service?.Name ?? "Ihrem Service";
+
+            foreach (var entry in waitlist)
+            {
+                await emailService.SendWaitlistNotificationAsync(
+                    entry.Email, entry.FirstName, entry.LastName,
+                    serviceName, booking.BookingDate, tenantSlug,
+                    tenantName, logoUrl, color);
+
+                entry.Status     = WaitlistStatus.Notified;
+                entry.NotifiedAt = DateTime.UtcNow;
+            }
+
+            await db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to notify waitlist for booking {BookingId}", booking.Id);
+        }
     }
 
     // ── CONFIRM ───────────────────────────────────────────────────

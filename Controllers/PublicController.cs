@@ -72,6 +72,7 @@ public class PublicController : ControllerBase
                 LogoUrl = tenant.Settings?.LogoUrl,
                 LinktreeStyle = tenant.Settings?.LinktreeStyle ?? "gradient",
                 LinktreeConfig = tenant.Settings?.LinktreeConfig,
+                Address = tenant.Settings?.Address,
             });
         }
         catch (Exception ex)

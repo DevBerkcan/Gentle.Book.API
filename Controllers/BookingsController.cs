@@ -86,6 +86,11 @@ public class BookingsController : ControllerBase
             _logger.LogWarning(ex, "Booking conflict or validation error");
             return Conflict(new { message = ex.Message });
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unhandled error creating booking");
+            return StatusCode(500, new { message = "Buchung konnte nicht erstellt werden. Bitte erneut versuchen." });
+        }
     }
 
     /// <summary>

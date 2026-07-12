@@ -47,9 +47,10 @@ public class EmailService
             throw new ArgumentException("Booking not found");
         }
 
-        var tenantName1 = booking.Tenant?.Settings?.CompanyName ?? booking.Tenant?.Name ?? "Buchungssystem";
-        var tenantLogo1 = booking.Tenant?.Settings?.LogoUrl;
-        var currency1 = booking.Tenant?.Settings?.DefaultCurrency ?? "EUR";
+        var tenantName1    = booking.Tenant?.Settings?.CompanyName ?? booking.Tenant?.Name ?? "Buchungssystem";
+        var tenantLogo1    = GetAbsoluteLogoUrl(booking.Tenant?.Settings?.LogoUrl);
+        var primaryColor1  = booking.Tenant?.Settings?.PrimaryColor ?? "#6355E4";
+        var currency1      = booking.Tenant?.Settings?.DefaultCurrency ?? "EUR";
 
         var emailLog = new EmailLog
         {
@@ -74,7 +75,7 @@ public class EmailService
             var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
             var cancellationUrl = $"{frontendBase}/booking/cancel/{cancellationToken}";
 
-            builder.HtmlBody = GetConfirmationEmailHtml(booking, cancellationUrl, tenantName1, tenantLogo1, currency1);
+            builder.HtmlBody = GetConfirmationEmailHtml(booking, cancellationUrl, tenantName1, tenantLogo1, currency1, primaryColor1);
             builder.TextBody = GetConfirmationEmailText(booking, cancellationUrl, tenantName1, currency1);
 
             message.Body = builder.ToMessageBody();
@@ -95,7 +96,7 @@ public class EmailService
             var (adminEmail1, adminName1) = await GetTenantAdminEmailAsync(booking.TenantId);
             await SendInternalNotificationAsync(
                 $"Neue Buchung: {booking.Customer.FullName} – {booking.Service.Name} am {booking.BookingDate:dd.MM.yyyy}",
-                GetInternalBookingNotificationHtml(booking, booking.Customer, booking.Service),
+                GetInternalBookingNotificationHtml(booking, booking.Customer, booking.Service, tenantName1, tenantLogo1, primaryColor1),
                 GetInternalBookingNotificationText(booking, booking.Customer, booking.Service),
                 adminEmail1, adminName1
             );
@@ -128,10 +129,11 @@ public class EmailService
         try
         {
             var message = new MimeMessage();
-            var tenantSettings2 = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
-            var tenantName2 = tenantSettings2?.CompanyName ?? "Buchungssystem";
-            var tenantLogo2 = tenantSettings2?.LogoUrl;
-            var currency2 = tenantSettings2?.DefaultCurrency ?? "EUR";
+            var tenantSettings2  = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
+            var tenantName2      = tenantSettings2?.CompanyName ?? "Buchungssystem";
+            var tenantLogo2      = GetAbsoluteLogoUrl(tenantSettings2?.LogoUrl);
+            var primaryColor2    = tenantSettings2?.PrimaryColor ?? "#6355E4";
+            var currency2        = tenantSettings2?.DefaultCurrency ?? "EUR";
 
             message.From.Add(new MailboxAddress(tenantName2, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(customer.FullName, customer.Email));
@@ -142,7 +144,7 @@ public class EmailService
             var frontendBase2 = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
             var cancellationUrl = $"{frontendBase2}/booking/cancel/{cancellationToken}";
 
-            builder.HtmlBody = GetConfirmationReceiptHtml(booking, customer, service, cancellationUrl, tenantName2, tenantLogo2, currency2);
+            builder.HtmlBody = GetConfirmationReceiptHtml(booking, customer, service, cancellationUrl, tenantName2, tenantLogo2, currency2, primaryColor2);
             builder.TextBody = GetConfirmationReceiptText(booking, customer, service, cancellationUrl, tenantName2, currency2);
 
             message.Body = builder.ToMessageBody();
@@ -162,7 +164,7 @@ public class EmailService
             var (adminEmail2, adminName2) = await GetTenantAdminEmailAsync(booking.TenantId);
             await SendInternalNotificationAsync(
                 $"Buchung bestätigt: {customer.FullName} – {service.Name} am {booking.BookingDate:dd.MM.yyyy}",
-                GetInternalBookingNotificationHtml(booking, customer, service),
+                GetInternalBookingNotificationHtml(booking, customer, service, tenantName2, tenantLogo2, primaryColor2),
                 GetInternalBookingNotificationText(booking, customer, service),
                 adminEmail2, adminName2
             );
@@ -195,9 +197,10 @@ public class EmailService
         {
             var message = new MimeMessage();
 
-            var tenantSettings3 = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
-            var tenantName3 = tenantSettings3?.CompanyName ?? "Buchungssystem";
-            var tenantLogo3 = tenantSettings3?.LogoUrl;
+            var tenantSettings3  = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
+            var tenantName3      = tenantSettings3?.CompanyName ?? "Buchungssystem";
+            var tenantLogo3      = GetAbsoluteLogoUrl(tenantSettings3?.LogoUrl);
+            var primaryColor3    = tenantSettings3?.PrimaryColor ?? "#6355E4";
 
             emailLog.Subject = $"Ihre Stornierung – {tenantName3}";
 
@@ -207,7 +210,7 @@ public class EmailService
 
             var builder = new BodyBuilder();
 
-            builder.HtmlBody = GetCancellationEmailHtml(booking, customer, service, tenantName3, tenantLogo3);
+            builder.HtmlBody = GetCancellationEmailHtml(booking, customer, service, tenantName3, tenantLogo3, primaryColor3);
             builder.TextBody = GetCancellationEmailText(booking, customer, service, tenantName3);
 
             message.Body = builder.ToMessageBody();
@@ -227,7 +230,7 @@ public class EmailService
             var (adminEmail3, adminName3) = await GetTenantAdminEmailAsync(booking.TenantId);
             await SendInternalNotificationAsync(
                 $"Stornierung: {customer.FullName} – {service.Name} am {booking.BookingDate:dd.MM.yyyy}",
-                GetInternalCancellationNotificationHtml(booking, customer, service),
+                GetInternalCancellationNotificationHtml(booking, customer, service, tenantName3, tenantLogo3, primaryColor3),
                 GetInternalCancellationNotificationText(booking, customer, service),
                 adminEmail3, adminName3
             );
@@ -271,8 +274,9 @@ public class EmailService
         {
             var message = new MimeMessage();
 
-            var tenantName4 = booking.Tenant?.Settings?.CompanyName ?? booking.Tenant?.Name ?? "Buchungssystem";
-            var tenantLogo4 = booking.Tenant?.Settings?.LogoUrl;
+            var tenantName4   = booking.Tenant?.Settings?.CompanyName ?? booking.Tenant?.Name ?? "Buchungssystem";
+            var tenantLogo4   = GetAbsoluteLogoUrl(booking.Tenant?.Settings?.LogoUrl);
+            var primaryColor4 = booking.Tenant?.Settings?.PrimaryColor ?? "#6355E4";
 
             message.From.Add(new MailboxAddress(tenantName4, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(booking.Customer.FullName, booking.Customer.Email));
@@ -283,7 +287,7 @@ public class EmailService
             var frontendBase3 = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
             var cancellationUrl = $"{frontendBase3}/booking/cancel/{cancellationToken}";
 
-            builder.HtmlBody = GetReminderEmailHtml(booking, cancellationUrl, tenantName4, tenantLogo4);
+            builder.HtmlBody = GetReminderEmailHtml(booking, cancellationUrl, tenantName4, tenantLogo4, primaryColor4);
             builder.TextBody = GetReminderEmailText(booking, cancellationUrl, tenantName4);
 
             message.Body = builder.ToMessageBody();
@@ -319,9 +323,10 @@ public class EmailService
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.TenantId == tenantId);
 
-        var tenantName = tenantSettings?.CompanyName ?? "Buchungssystem";
-        var tenantLogo = tenantSettings?.LogoUrl;
-        var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
+        var tenantName    = tenantSettings?.CompanyName ?? "Buchungssystem";
+        var tenantLogo    = GetAbsoluteLogoUrl(tenantSettings?.LogoUrl);
+        var primaryColorW = tenantSettings?.PrimaryColor ?? "#6355E4";
+        var frontendBase  = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
         var verifyUrl = $"{frontendBase}/verify-email?token={customer.EmailVerificationToken}";
 
         var subject = $"Willkommen bei {tenantName} – Bitte bestätigen Sie Ihre E-Mail";
@@ -354,7 +359,7 @@ public class EmailService
                     <div class='cancel-text'>
                         Klicken Sie auf den Button, um Ihre E-Mail-Adresse zu bestätigen und Ihre Einwilligung zur Datenspeicherung zu erteilen.
                     </div>
-                    <a href='{verifyUrl}' style='display: inline-block; background: linear-gradient(135deg, #C09995 0%, #A87B77 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>
+                    <a href='{verifyUrl}' style='display: inline-block; background: linear-gradient(135deg, {primaryColorW} 0%, {DarkenHex(primaryColorW)} 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>
                         E-Mail bestätigen
                     </a>
                     <p style='color: var(--text-secondary); font-size: 13px; margin-top: 16px;'>
@@ -371,7 +376,7 @@ public class EmailService
 
             var builder = new BodyBuilder
             {
-                HtmlBody = GetBaseEmailTemplate(subject, content, tenantName, tenantLogo),
+                HtmlBody = GetBaseEmailTemplate(subject, content, tenantName, tenantLogo, primaryColorW),
                 TextBody = $@"{tenantName.ToUpperInvariant()} – WILLKOMMEN
 
 Hallo {customer.FirstName},
@@ -410,6 +415,67 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
 
         _context.EmailLogs.Add(emailLog);
         await _context.SaveChangesAsync();
+    }
+
+    /// <summary>Notifies a waitlist customer that a slot has opened up.</summary>
+    public async Task SendWaitlistNotificationAsync(
+        string toEmail, string toFirstName, string toLastName,
+        string serviceName, DateOnly date, string tenantSlug,
+        string tenantName, string? tenantLogoUrl, string primaryColor)
+    {
+        try
+        {
+            var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl)
+                ? _emailOptions.BaseUrl
+                : _emailOptions.FrontendUrl;
+            var bookingUrl = $"{frontendBase}/booking/{tenantSlug}/book";
+
+            var content = $@"
+                <div class='greeting'>Hallo {toFirstName},</div>
+                <p style='color: var(--text-secondary); margin-bottom: 24px;'>
+                    gute Neuigkeit! Ein Termin bei <strong>{tenantName}</strong> ist wieder frei geworden.
+                </p>
+                <div class='booking-card'>
+                    <div class='booking-title'>Freier Termin</div>
+                    <div class='detail-row'>
+                        <span class='detail-label'>Service</span>
+                        <span class='detail-value'>{serviceName}</span>
+                    </div>
+                    <div class='detail-row'>
+                        <span class='detail-label'>Datum</span>
+                        <span class='detail-value'>{date:dd.MM.yyyy}</span>
+                    </div>
+                </div>
+                <div class='cancel-section'>
+                    <div class='cancel-title'>Jetzt buchen!</div>
+                    <div class='cancel-text'>Bitte schnell sein – Termine werden nach dem Prinzip „Wer zuerst kommt, mahlt zuerst" vergeben.</div>
+                    <a href='{bookingUrl}' style='display: inline-block; background: linear-gradient(135deg, {primaryColor} 0%, {DarkenHex(primaryColor)} 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>
+                        Termin jetzt buchen
+                    </a>
+                </div>";
+
+            var html = GetBaseEmailTemplate("Termin verfügbar!", content, tenantName, tenantLogoUrl, primaryColor);
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(tenantName, _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress($"{toFirstName} {toLastName}", toEmail));
+            message.Subject = $"Termin verfügbar – {tenantName}";
+
+            var builder = new BodyBuilder { HtmlBody = html };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, MailKit.Security.SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Waitlist notification sent to {Email}", toEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send waitlist notification to {Email}", toEmail);
+        }
     }
 
     #region Internal Notifications
@@ -469,7 +535,7 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
         }
     }
 
-    private string GetInternalBookingNotificationHtml(Booking booking, Customer customer, Service service)
+    private string GetInternalBookingNotificationHtml(Booking booking, Customer customer, Service service, string tenantName = "GentleBook", string? tenantLogoUrl = null, string primaryColor = "#6355E4")
     {
         return $@"<!DOCTYPE html>
 <html lang='de'>
@@ -479,10 +545,10 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
 </head>
 <body style='font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px; margin: 0;'>
     <div style='max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
-        <div style='background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); padding: 30px; text-align: center; border-bottom: 3px solid #C09995;'>
-            <p style='color: #C09995; font-size: 32px; margin: 0 0 10px 0;'>✧</p>
+        <div style='background: linear-gradient(135deg, #14162B 0%, #1e2240 50%, #14162B 100%); padding: 30px; text-align: center; border-bottom: 3px solid {primaryColor};'>
+            {(tenantLogoUrl != null ? $"<img src='{tenantLogoUrl}' alt='{tenantName}' style='max-height:50px;max-width:160px;object-fit:contain;margin-bottom:10px;'/><br/>" : $"<p style='color: {primaryColor}; font-size: 32px; margin: 0 0 10px 0;'>✧</p>")}
             <h1 style='color: #ffffff; font-size: 20px; margin: 0 0 6px 0;'>Neue Buchung eingegangen</h1>
-            <p style='color: #C09995; font-size: 13px; margin: 0; letter-spacing: 1px; text-transform: uppercase;'>GentleBook Buchungssystem</p>
+            <p style='color: {primaryColor}; font-size: 13px; margin: 0; letter-spacing: 1px; text-transform: uppercase;'>{tenantName}</p>
         </div>
         <div style='padding: 30px;'>
             <table style='width: 100%; border-collapse: collapse;'>
@@ -516,7 +582,7 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
                 </tr>
                 <tr>
                     <td style='padding: 12px 15px; font-weight: bold; color: #64748b; border: 1px solid #e2e8f0; font-size: 14px;'>Preis</td>
-                    <td style='padding: 12px 15px; color: #C09995; border: 1px solid #e2e8f0; font-size: 16px; font-weight: 700;'>{service.Price:0.00} CHF</td>
+                    <td style='padding: 12px 15px; color: {primaryColor}; border: 1px solid #e2e8f0; font-size: 16px; font-weight: 700;'>{service.Price:0.00} CHF</td>
                 </tr>
                 <tr style='background-color: #f8f9fa;'>
                     <td style='padding: 12px 15px; font-weight: bold; color: #64748b; border: 1px solid #e2e8f0; font-size: 14px;'>Status</td>
@@ -532,9 +598,9 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
                 Diese Nachricht wurde automatisch vom GentleBook Buchungssystem generiert.
             </p>
         </div>
-        <div style='background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 100%); padding: 20px; text-align: center; border-top: 3px solid #C09995;'>
-            <p style='color: #C09995; font-size: 18px; margin: 0 0 8px 0;'>✧</p>
-            <p style='color: #ffffff; font-size: 13px; font-weight: 700; margin: 0 0 4px 0;'>GentleBook</p>
+        <div style='background: linear-gradient(135deg, #14162B 0%, #1e2240 100%); padding: 20px; text-align: center; border-top: 3px solid {primaryColor};'>
+            <p style='color: {primaryColor}; font-size: 18px; margin: 0 0 8px 0;'>✧</p>
+            <p style='color: #ffffff; font-size: 13px; font-weight: 700; margin: 0 0 4px 0;'>{tenantName}</p>
             <p style='color: #a3a3a3; font-size: 12px; margin: 0;'>GentleBook – Online Buchungssystem</p>
         </div>
     </div>
@@ -562,7 +628,7 @@ Status:   Bestätigt
 Diese Nachricht wurde automatisch generiert.";
     }
 
-    private string GetInternalCancellationNotificationHtml(Booking booking, Customer customer, Service service)
+    private string GetInternalCancellationNotificationHtml(Booking booking, Customer customer, Service service, string tenantName = "GentleBook", string? tenantLogoUrl = null, string primaryColor = "#6355E4")
     {
         return $@"<!DOCTYPE html>
 <html lang='de'>
@@ -572,10 +638,10 @@ Diese Nachricht wurde automatisch generiert.";
 </head>
 <body style='font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px; margin: 0;'>
     <div style='max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
-        <div style='background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); padding: 30px; text-align: center; border-bottom: 3px solid #C09995;'>
-            <p style='color: #C09995; font-size: 32px; margin: 0 0 10px 0;'>✧</p>
+        <div style='background: linear-gradient(135deg, #14162B 0%, #1e2240 50%, #14162B 100%); padding: 30px; text-align: center; border-bottom: 3px solid {primaryColor};'>
+            {(tenantLogoUrl != null ? $"<img src='{tenantLogoUrl}' alt='{tenantName}' style='max-height:50px;max-width:160px;object-fit:contain;margin-bottom:10px;'/><br/>" : $"<p style='color: {primaryColor}; font-size: 32px; margin: 0 0 10px 0;'>✧</p>")}
             <h1 style='color: #ffffff; font-size: 20px; margin: 0 0 6px 0;'>Buchung storniert</h1>
-            <p style='color: #C09995; font-size: 13px; margin: 0; letter-spacing: 1px; text-transform: uppercase;'>GentleBook Buchungssystem</p>
+            <p style='color: {primaryColor}; font-size: 13px; margin: 0; letter-spacing: 1px; text-transform: uppercase;'>{tenantName}</p>
         </div>
         <div style='padding: 30px;'>
             <table style='width: 100%; border-collapse: collapse;'>
@@ -621,9 +687,9 @@ Diese Nachricht wurde automatisch generiert.";
                 Diese Nachricht wurde automatisch vom GentleBook Buchungssystem generiert.
             </p>
         </div>
-        <div style='background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 100%); padding: 20px; text-align: center; border-top: 3px solid #C09995;'>
-            <p style='color: #C09995; font-size: 18px; margin: 0 0 8px 0;'>✧</p>
-            <p style='color: #ffffff; font-size: 13px; font-weight: 700; margin: 0 0 4px 0;'>GentleBook</p>
+        <div style='background: linear-gradient(135deg, #14162B 0%, #1e2240 100%); padding: 20px; text-align: center; border-top: 3px solid {primaryColor};'>
+            <p style='color: {primaryColor}; font-size: 18px; margin: 0 0 8px 0;'>✧</p>
+            <p style='color: #ffffff; font-size: 13px; font-weight: 700; margin: 0 0 4px 0;'>{tenantName}</p>
             <p style='color: #a3a3a3; font-size: 12px; margin: 0;'>GentleBook – Online Buchungssystem</p>
         </div>
     </div>
@@ -757,15 +823,42 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 
     #endregion
 
+    #region Helpers
+
+    public string? GetAbsoluteLogoUrl(string? logoUrl)
+    {
+        if (logoUrl == null) return null;
+        if (logoUrl.StartsWith("http")) return logoUrl;
+        var origin = new Uri(_emailOptions.BaseUrl).GetLeftPart(UriPartial.Authority);
+        return $"{origin}{logoUrl}";
+    }
+
+    private static string DarkenHex(string hex, double factor = 0.15)
+    {
+        try
+        {
+            hex = hex.TrimStart('#');
+            if (hex.Length == 3) hex = string.Concat(hex.Select(c => $"{c}{c}"));
+            int r = Math.Max(0, (int)(Convert.ToInt32(hex.Substring(0, 2), 16) * (1 - factor)));
+            int g = Math.Max(0, (int)(Convert.ToInt32(hex.Substring(2, 2), 16) * (1 - factor)));
+            int b = Math.Max(0, (int)(Convert.ToInt32(hex.Substring(4, 2), 16) * (1 - factor)));
+            return $"#{r:X2}{g:X2}{b:X2}";
+        }
+        catch { return hex.StartsWith('#') ? hex : $"#{hex}"; }
+    }
+
+    #endregion
+
     #region Email Templates
 
-    private string GetBaseEmailTemplate(string title, string content, string tenantName = "GentleBook", string? tenantLogoUrl = null)
+    private string GetBaseEmailTemplate(string title, string content, string tenantName = "GentleBook", string? tenantLogoUrl = null, string primaryColor = "#6355E4")
     {
+        var darkenedColor = DarkenHex(primaryColor);
         var headerContent = tenantLogoUrl != null
-            ? $@"<img src='{tenantLogoUrl}' alt='{tenantName}' style='max-height:60px; max-width:200px; object-fit:contain; margin-bottom:12px;' /><br/><p style='color: #C09995; font-size: 14px; margin: 0; letter-spacing: 1px; text-transform: uppercase; opacity: 0.9;'>{tenantName}</p>"
-            : $@"<div style='color: #C09995; font-size: 44px; font-weight: 300; margin-bottom: 16px; line-height: 1;'>✧</div>
-            <p style='color: #C09995; font-size: 26px; font-weight: 600; margin: 0 0 8px 0; letter-spacing: 0.5px; font-family: Arial, sans-serif;'>{tenantName}</p>
-            <p style='color: #C09995; font-size: 14px; margin: 0; letter-spacing: 1px; text-transform: uppercase; opacity: 0.9;'>Ihre Premium Beauty-Experience</p>";
+            ? $@"<img src='{tenantLogoUrl}' alt='{tenantName}' style='max-height:60px; max-width:200px; object-fit:contain; margin-bottom:12px;' /><br/><p style='color: {primaryColor}; font-size: 14px; margin: 0; letter-spacing: 1px; text-transform: uppercase; opacity: 0.9;'>{tenantName}</p>"
+            : $@"<div style='color: {primaryColor}; font-size: 44px; font-weight: 300; margin-bottom: 16px; line-height: 1;'>✧</div>
+            <p style='color: {primaryColor}; font-size: 26px; font-weight: 600; margin: 0 0 8px 0; letter-spacing: 0.5px; font-family: Arial, sans-serif;'>{tenantName}</p>
+            <p style='color: {primaryColor}; font-size: 14px; margin: 0; letter-spacing: 1px; text-transform: uppercase; opacity: 0.9;'>Online Buchungssystem</p>";
         return $@"<!DOCTYPE html>
 <html lang='de'>
 <head>
@@ -796,11 +889,11 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
             --text-primary: #1e293b;
             --text-secondary: #64748b;
             --border-color: #e2e8f0;
-            --accent-light: #f8f0ef;
-            --accent-primary: #C09995;
-            --accent-dark: #A87B77;
-            --button-gradient-start: #C09995;
-            --button-gradient-end: #A87B77;
+            --accent-light: #f8f8ff;
+            --accent-primary: {primaryColor};
+            --accent-dark: {darkenedColor};
+            --button-gradient-start: {primaryColor};
+            --button-gradient-end: {darkenedColor};
             --success-bg: #d4edda;
             --success-text: #155724;
             --success-border: #c3e6cb;
@@ -811,7 +904,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
             --info-text: #1e40af;
             --info-border: #3b82f6;
         }}
-        
+
         @media (prefers-color-scheme: dark) {{
             :root {{
                 --bg-primary: #1a1a1a;
@@ -820,10 +913,10 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 --text-secondary: #a3a3a3;
                 --border-color: #404040;
                 --accent-light: #2d2d2d;
-                --accent-primary: #C09995;
-                --accent-dark: #A87B77;
-                --button-gradient-start: #C09995;
-                --button-gradient-end: #A87B77;
+                --accent-primary: {primaryColor};
+                --accent-dark: {darkenedColor};
+                --button-gradient-start: {primaryColor};
+                --button-gradient-end: {darkenedColor};
                 --success-bg: #1e3a2a;
                 --success-text: #a3e9a3;
                 --success-border: #2d5a2d;
@@ -846,21 +939,21 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
         }}
         
         .header {{
-            background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%);
+            background: linear-gradient(135deg, #14162B 0%, #1e2240 50%, #14162B 100%);
             padding: 40px 30px;
             text-align: center;
-            border-bottom: 3px solid #C09995;
+            border-bottom: 3px solid {primaryColor};
         }}
-        
+
         .header-logo {{
-            color: #C09995;
+            color: {primaryColor};
             font-size: 44px;
             font-weight: 300;
             margin-bottom: 16px;
             display: block;
             line-height: 1;
         }}
-        
+
         .header h1 {{
             color: #ffffff;
             font-size: 26px;
@@ -868,9 +961,9 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
             margin: 0 0 8px 0;
             letter-spacing: 0.5px;
         }}
-        
+
         .header p {{
-            color: #C09995;
+            color: {primaryColor};
             font-size: 14px;
             margin: 0;
             letter-spacing: 1px;
@@ -1019,17 +1112,17 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
         
         .button-outline {{
             background: transparent;
-            color: #C09995 !important;
-            border: 2px solid #C09995;
+            color: {primaryColor} !important;
+            border: 2px solid {primaryColor};
             box-shadow: none;
         }}
-        
+
         .footer {{
-            background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 100%);
+            background: linear-gradient(135deg, #14162B 0%, #1e2240 100%);
             padding: 30px;
             text-align: center;
             font-size: 14px;
-            border-top: 3px solid #C09995;
+            border-top: 3px solid {primaryColor};
         }}
         
         .footer-brand {{
@@ -1057,7 +1150,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
         }}
         
         .footer-links a {{
-            color: #C09995;
+            color: {primaryColor};
             text-decoration: none;
             margin: 0 10px;
             font-size: 12px;
@@ -1101,16 +1194,16 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 </head>
 <body>
     <div class='container'>
-        <div style='background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); padding: 40px 30px; text-align: center; border-bottom: 3px solid #C09995;'>
+        <div style='background: linear-gradient(135deg, #14162B 0%, #1e2240 50%, #14162B 100%); padding: 40px 30px; text-align: center; border-bottom: 3px solid {primaryColor};'>
             {headerContent}
         </div>
-        
+
         <div class='content'>
             {content}
         </div>
-        
+
         <div class='footer'>
-            <div style='color: #C09995; font-size: 22px; margin-bottom: 12px;'>✧</div>
+            <div style='color: {primaryColor}; font-size: 22px; margin-bottom: 12px;'>✧</div>
             <div class='footer-brand'>{tenantName}</div>
             <div class='footer-links'>
                 <a href='{_emailOptions.BaseUrl}/datenschutz'>Datenschutz</a>
@@ -1126,7 +1219,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 </html>";
     }
 
-    private string GetConfirmationEmailHtml(Booking booking, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null, string currency = "EUR")
+    private string GetConfirmationEmailHtml(Booking booking, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null, string currency = "EUR", string primaryColor = "#6355E4")
     {
         var content = $@"
             <div class='greeting'>
@@ -1170,17 +1263,17 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 <div class='cancel-text'>
                     Falls Sie Ihren Termin nicht wahrnehmen können, stornieren Sie diesen bitte rechtzeitig.
                 </div>
-                <a href='{cancellationUrl}' style='display: inline-block; background: linear-gradient(135deg, #C09995 0%, #A87B77 100%); color: #000000; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,2,3,0.15);'>Termin stornieren
+                <a href='{cancellationUrl}' style='display: inline-block; background: linear-gradient(135deg, {primaryColor} 0%, {DarkenHex(primaryColor)} 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>Termin stornieren
                 </a>
                 <p style='color: var(--text-secondary); font-size: 12px; margin-top: 15px;'>
                     Die Stornierung ist bis 24 Stunden vor dem Termin kostenlos möglich.
                 </p>
             </div>";
 
-        return GetBaseEmailTemplate("Ihre Buchungsbestätigung", content, tenantName, tenantLogoUrl);
+        return GetBaseEmailTemplate("Ihre Buchungsbestätigung", content, tenantName, tenantLogoUrl, primaryColor);
     }
 
-    private string GetConfirmationReceiptHtml(Booking booking, Customer customer, Service service, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null, string currency = "EUR")
+    private string GetConfirmationReceiptHtml(Booking booking, Customer customer, Service service, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null, string currency = "EUR", string primaryColor = "#6355E4")
     {
         var content = $@"
             <div class='greeting'>
@@ -1228,19 +1321,19 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 <v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word'
                     href='{cancellationUrl}'
                     style='height:48px;v-text-anchor:middle;width:220px;' arcsize='50%'
-                    strokecolor='#C09995' strokeweight='2pt' filled='f'>
+                    strokecolor='{primaryColor}' strokeweight='2pt' filled='f'>
                     <w:anchorlock/>
-                    <center style='color:#C09995;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;'>Termin stornieren</center>
+                    <center style='color:{primaryColor};font-family:Arial,sans-serif;font-size:16px;font-weight:bold;'>Termin stornieren</center>
                 </v:roundrect>
                 <![endif]--><!--[if !mso]><!-->
-                <a href='{cancellationUrl}' style='display:inline-block;background:transparent;border:2px solid #C09995;border-radius:40px;color:#000000;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;padding:12px 30px;text-decoration:none;'>Termin stornieren</a>
+                <a href='{cancellationUrl}' style='display:inline-block;background:transparent;border:2px solid {primaryColor};border-radius:40px;color:{primaryColor};font-family:Arial,sans-serif;font-size:16px;font-weight:bold;padding:12px 30px;text-decoration:none;'>Termin stornieren</a>
                 <!--<![endif]-->
             </div>";
 
-        return GetBaseEmailTemplate("Buchung bestätigt", content, tenantName, tenantLogoUrl);
+        return GetBaseEmailTemplate("Buchung bestätigt", content, tenantName, tenantLogoUrl, primaryColor);
     }
 
-    private string GetCancellationEmailHtml(Booking booking, Customer customer, Service service, string tenantName = "GentleBook", string? tenantLogoUrl = null)
+    private string GetCancellationEmailHtml(Booking booking, Customer customer, Service service, string tenantName = "GentleBook", string? tenantLogoUrl = null, string primaryColor = "#6355E4")
     {
         var content = $@"
             <div class='greeting'>
@@ -1285,14 +1378,14 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 <div class='cancel-text'>
                     Wir freuen uns, Sie bald wieder bei uns begrüßen zu dürfen.
                 </div>
-                <a href='{FrontendUrl}' style='display: inline-block; background: linear-gradient(135deg, #3c3d3c, #A87B77 100%); color: #000000; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>Neuen Termin buchen
+                <a href='{FrontendUrl}' style='display: inline-block; background: linear-gradient(135deg, {primaryColor} 0%, {DarkenHex(primaryColor)} 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>Neuen Termin buchen
                 </a>
             </div>";
 
-        return GetBaseEmailTemplate("Termin storniert", content, tenantName, tenantLogoUrl);
+        return GetBaseEmailTemplate("Termin storniert", content, tenantName, tenantLogoUrl, primaryColor);
     }
 
-    private string GetReminderEmailHtml(Booking booking, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null)
+    private string GetReminderEmailHtml(Booking booking, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null, string primaryColor = "#6355E4")
     {
         var content = $@"
             <div class='greeting'>
@@ -1344,16 +1437,16 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                 <v:roundrect xmlns:v='urn:schemas-microsoft-com:vml' xmlns:w='urn:schemas-microsoft-com:office:word'
                     href='{cancellationUrl}'
                     style='height:48px;v-text-anchor:middle;width:220px;' arcsize='50%'
-                    strokecolor='#C09995' strokeweight='2pt' filled='f'>
+                    strokecolor='{primaryColor}' strokeweight='2pt' filled='f'>
                     <w:anchorlock/>
-                    <center style='color:#C09995;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;'>Termin stornieren</center>
+                    <center style='color:{primaryColor};font-family:Arial,sans-serif;font-size:16px;font-weight:bold;'>Termin stornieren</center>
                 </v:roundrect>
                 <![endif]--><!--[if !mso]><!-->
-                <a href='{cancellationUrl}' style='display:inline-block;background:transparent;border:2px solid #3c3d3c;border-radius:40px;color:#000000;font-family:Arial,sans-serif;font-size:16px;font-weight:bold;padding:12px 30px;text-decoration:none;'>Termin stornieren</a>
+                <a href='{cancellationUrl}' style='display:inline-block;background:transparent;border:2px solid {primaryColor};border-radius:40px;color:{primaryColor};font-family:Arial,sans-serif;font-size:16px;font-weight:bold;padding:12px 30px;text-decoration:none;'>Termin stornieren</a>
                 <!--<![endif]-->
             </div>";
 
-        return GetBaseEmailTemplate("Terminerinnerung", content, tenantName, tenantLogoUrl);
+        return GetBaseEmailTemplate("Terminerinnerung", content, tenantName, tenantLogoUrl, primaryColor);
     }
 
     #endregion
@@ -2095,7 +2188,7 @@ GentleBook · support@gentlegroup.de";
                         <tr><td style="background:#1e1e1e;border-radius:0 0 16px 16px;padding:20px 32px;text-align:center">
                           <p style="margin:0;color:#666;font-size:12px">
                             &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
-                            <a href="mailto:support@gentlegroup.de" style="color:#C09995;text-decoration:none">support@gentlegroup.de</a>
+                            <a href="mailto:support@gentlegroup.de" style="color:#6355E4;text-decoration:none">support@gentlegroup.de</a>
                           </p>
                         </td></tr>
 
@@ -2255,7 +2348,7 @@ GentleBook · support@gentlegroup.de";
                         <tr><td style="background:#1e1e1e;border-radius:0 0 16px 16px;padding:20px 32px;text-align:center">
                           <p style="margin:0;color:#666;font-size:12px">
                             &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
-                            <a href="mailto:support@gentlegroup.de" style="color:#C09995;text-decoration:none">support@gentlegroup.de</a>
+                            <a href="mailto:support@gentlegroup.de" style="color:#6355E4;text-decoration:none">support@gentlegroup.de</a>
                           </p>
                         </td></tr>
 
