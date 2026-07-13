@@ -12,16 +12,13 @@ public class BlockedTimeSlotsController : ControllerBase
 {
     private readonly BlockedTimeSlotService _blockedTimeSlotService;
     private readonly ILogger<BlockedTimeSlotsController> _logger;
-    private readonly IConfiguration _config;
 
     public BlockedTimeSlotsController(
         BlockedTimeSlotService blockedTimeSlotService,
-        ILogger<BlockedTimeSlotsController> logger,
-        IConfiguration config)
+        ILogger<BlockedTimeSlotsController> logger)
     {
         _blockedTimeSlotService = blockedTimeSlotService;
         _logger = logger;
-        _config = config;
     }
 
     private Guid? GetCurrentEmployeeId()
@@ -30,13 +27,7 @@ public class BlockedTimeSlotsController : ControllerBase
         return role is "TenantAdmin" or "SuperAdmin" ? null : JwtService.GetEmployeeId(User);
     }
 
-    private bool IsAdminRequest()
-    {
-        var secret = _config["AdminBootstrapSecret"];
-        return !string.IsNullOrWhiteSpace(secret)
-            && Request.Headers.TryGetValue("X-Admin-Secret", out var val)
-            && val == secret;
-    }
+    private bool IsAdminRequest() => JwtService.GetRole(User) is "TenantAdmin" or "SuperAdmin";
 
     [HttpGet]
     public async Task<ActionResult<List<BlockedTimeSlotDto>>> GetBlockedTimeSlots(
@@ -44,7 +35,7 @@ public class BlockedTimeSlotsController : ControllerBase
         [FromQuery] DateTime? endDate,
         [FromQuery] bool all = false)
     {
-        var employeeId = IsAdminRequest() && all ? null : GetCurrentEmployeeId();
+        var employeeId = (all && IsAdminRequest()) ? null : GetCurrentEmployeeId();
 
         var blockedSlots = await _blockedTimeSlotService.GetBlockedTimeSlotsAsync(
             DateOnly.FromDateTime(startDate ?? DateTime.MinValue),

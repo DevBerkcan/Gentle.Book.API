@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using System.Threading.RateLimiting;
 
@@ -70,17 +71,28 @@ builder.Services
     {
         options.MapInboundClaims = false; // Keep "role" as "role", don't remap to ClaimTypes.Role
         // Accept tokens signed with either the tenant secret or the SuperAdmin secret
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKeyResolver = (token, securityToken, kid, parameters) =>
+var tenantSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
+            var superAdminSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(superAdminSecret));
+
+            options.TokenValidationParameters = new TokenValidationParameters
             {
-                var keys = new List<SecurityKey>
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKeyResolver = (token, securityToken, kid, parameters) =>
                 {
-                    new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
-                    new SymmetricSecurityKey(Encoding.UTF8.GetBytes(superAdminSecret))
-                };
-                return keys;
+                    try
+                    {
+                        var jwtToken = new JwtSecurityTokenHandler().ReadJwtToken(token);
+                        return jwtToken.Issuer switch
+                        {
+                            var issuer when issuer == superAdminIssuer => new[] { superAdminSigningKey },
+                            var issuer when issuer == jwtIssuer => new[] { tenantSigningKey },
+                            _ => Array.Empty<SecurityKey>()
+                        };
+                    }
+                    catch
+                    {
+                        return Array.Empty<SecurityKey>();
+                    }
             },
             ValidateIssuer = true,
             ValidIssuers = new[] { jwtIssuer, superAdminIssuer },

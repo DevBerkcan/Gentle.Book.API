@@ -41,7 +41,7 @@ public class TenantMiddleware
         // SuperAdmin: no tenant restriction
         if (roleClaimValue == "SuperAdmin")
         {
-            tenantContext.Set(null, null, isSuperAdmin: true);
+            tenantContext.Set(null, null, isSuperAdmin: true, role: roleClaimValue);
             await _next(context);
             return;
         }
@@ -57,7 +57,7 @@ public class TenantMiddleware
             return;
         }
 
-        tenantContext.Set(tenantId, tenantSlugClaim);
+        tenantContext.Set(tenantId, tenantSlugClaim, role: roleClaimValue);
 
         // Validate tenant is active and subscription allows access
         var subscription = await db.Subscriptions

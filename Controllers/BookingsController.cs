@@ -137,7 +137,7 @@ public class BookingsController : ControllerBase
 
     /// <summary>
     /// Get all bookings — scoped to the authenticated employee.
-    /// Pass X-Admin-Secret header + ?all=true to retrieve all employees' bookings.
+    /// TenantAdmin and SuperAdmin can request the full tenant scope.
     /// </summary>
     [HttpGet]
     [Authorize]

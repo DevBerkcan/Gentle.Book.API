@@ -7,20 +7,23 @@ public interface ITenantContext
 {
     Guid? TenantId { get; }
     string? TenantSlug { get; }
+    string? Role { get; }
     bool IsSuperAdmin { get; }
-    void Set(Guid? tenantId, string? tenantSlug, bool isSuperAdmin = false);
+    void Set(Guid? tenantId, string? tenantSlug, bool isSuperAdmin = false, string? role = null);
 }
 
 public class TenantContext : ITenantContext
 {
     public Guid? TenantId { get; private set; }
     public string? TenantSlug { get; private set; }
+    public string? Role { get; private set; }
     public bool IsSuperAdmin { get; private set; }
 
-    public void Set(Guid? tenantId, string? tenantSlug, bool isSuperAdmin = false)
+    public void Set(Guid? tenantId, string? tenantSlug, bool isSuperAdmin = false, string? role = null)
     {
         TenantId = tenantId;
         TenantSlug = tenantSlug;
         IsSuperAdmin = isSuperAdmin;
+        Role = role;
     }
 }

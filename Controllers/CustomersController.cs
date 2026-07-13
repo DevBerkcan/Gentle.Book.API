@@ -13,16 +13,13 @@ public class CustomersController : ControllerBase
 {
     private readonly CustomerService _customerService;
     private readonly ILogger<CustomersController> _logger;
-    private readonly IConfiguration _config;
 
     public CustomersController(
         CustomerService customerService,
-        ILogger<CustomersController> logger,
-        IConfiguration config)
+        ILogger<CustomersController> logger)
     {
         _customerService = customerService;
         _logger = logger;
-        _config = config;
     }
 
     // ── Helpers ───────────────────────────────────────────────────
@@ -30,13 +27,9 @@ public class CustomersController : ControllerBase
 
     private bool IsTenantAdmin() => JwtService.GetRole(User) == "TenantAdmin";
 
-    private bool IsAdminRequest()
-    {
-        var secret = _config["AdminBootstrapSecret"];
-        return !string.IsNullOrWhiteSpace(secret)
-            && Request.Headers.TryGetValue("X-Admin-Secret", out var val)
-            && val == secret;
-    }
+    private bool IsSuperAdmin() => JwtService.IsSuperAdmin(User);
+
+    private bool IsAdminRequest() => IsTenantAdmin() || IsSuperAdmin();
 
     /// <summary>
     /// Get all customers. TenantAdmin sees all tenant customers; employees see their own.
@@ -49,8 +42,8 @@ public class CustomersController : ControllerBase
         [FromQuery] int pageSize = 20,
         [FromQuery] bool all = false)
     {
-        // TenantAdmin sees all customers (no employee filter); employees see only their own
-        Guid? filterEmployeeId = (IsTenantAdmin() || IsAdminRequest()) ? null : GetCurrentEmployeeId();
+        // TenantAdmin and SuperAdmin see all customers; employees see only their own
+        Guid? filterEmployeeId = (IsTenantAdmin() || IsSuperAdmin()) ? null : GetCurrentEmployeeId();
 
         var result = await _customerService.GetCustomersAsync(filterEmployeeId, search, page, pageSize);
         return Ok(result);
@@ -66,7 +59,7 @@ public class CustomersController : ControllerBase
     public async Task<ActionResult<CustomerDetailDto>> GetCustomer(Guid id)
     {
         var employeeId = GetCurrentEmployeeId();
-        var isAdmin = IsTenantAdmin() || IsAdminRequest();
+        var isAdmin = IsAdminRequest();
 
         var customer = await _customerService.GetCustomerByIdAsync(id, employeeId, isAdmin);
 
@@ -142,7 +135,7 @@ public class CustomersController : ControllerBase
             return BadRequest(new { message = "Vor- und Nachname sind erforderlich" });
 
         var employeeId = GetCurrentEmployeeId();
-        var isAdmin = IsTenantAdmin() || IsAdminRequest();
+        var isAdmin = IsAdminRequest();
 
         try
         {
@@ -170,7 +163,7 @@ public class CustomersController : ControllerBase
     public async Task<IActionResult> DeleteCustomer(Guid id)
     {
         var employeeId = GetCurrentEmployeeId();
-        var isAdmin = IsTenantAdmin() || IsAdminRequest();
+        var isAdmin = IsAdminRequest();
 
         try
         {

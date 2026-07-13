@@ -97,7 +97,7 @@ public class WaitlistController : ControllerBase
     private IActionResult? RequireAdmin()
     {
         var role = _tenantContext.Role;
-        if (role != "Owner" && role != "Admin")
+        if (role != "Owner" && role != "Admin" && role != "TenantAdmin")
             return Forbid();
         return null;
     }

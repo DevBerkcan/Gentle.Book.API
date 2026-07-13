@@ -448,7 +448,7 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
                 </div>
                 <div class='cancel-section'>
                     <div class='cancel-title'>Jetzt buchen!</div>
-                    <div class='cancel-text'>Bitte schnell sein – Termine werden nach dem Prinzip „Wer zuerst kommt, mahlt zuerst" vergeben.</div>
+                    <div class='cancel-text'>Bitte schnell sein – Termine werden nach dem Prinzip „Wer zuerst kommt, mahlt zuerst“ vergeben.</div>
                     <a href='{bookingUrl}' style='display: inline-block; background: linear-gradient(135deg, {primaryColor} 0%, {DarkenHex(primaryColor)} 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>
                         Termin jetzt buchen
                     </a>
