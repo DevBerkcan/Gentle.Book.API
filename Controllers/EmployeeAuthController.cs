@@ -67,10 +67,16 @@ public class EmployeeAuthController : ControllerBase
     }
 
     [HttpPost("set-password")]
-    [AllowAnonymous]
+    [Authorize]
     public async Task<IActionResult> SetPassword([FromBody] SetPasswordRequest request)
     {
-        var (success, message, errorMessage) = await _authService.SetPasswordAsync(request);
+        // Only a TenantAdmin may set employee passwords, and only within the own tenant.
+        var role = JwtService.GetRole(User);
+        var tenantId = JwtService.GetTenantId(User);
+        if (role != "TenantAdmin" || tenantId == null)
+            return Forbid();
+
+        var (success, message, errorMessage) = await _authService.SetPasswordAsync(request, tenantId.Value);
 
         if (!success)
         {

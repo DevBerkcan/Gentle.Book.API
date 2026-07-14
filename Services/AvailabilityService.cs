@@ -74,12 +74,42 @@ public class AvailabilityService
             service.DurationMinutes
         );
 
+        // Erkläre WARUM keine Zeiten frei sind, statt nur eine leere Liste zu liefern
+        string? message = null;
+        if (employeeId.HasValue && availableSlots.All(s => !s.IsAvailable))
+        {
+            message = await BuildEmployeeUnavailableMessageAsync(date, employeeId.Value);
+        }
+
         return new AvailabilityResponseDto(
             date.ToString("yyyy-MM-dd"),
             serviceId,
             service.DurationMinutes,
-            availableSlots
+            availableSlots,
+            message
         );
+    }
+
+    /// <summary>
+    /// Builds a human-readable reason why an employee has no free slots on a date.
+    /// </summary>
+    private async Task<string?> BuildEmployeeUnavailableMessageAsync(DateOnly date, Guid employeeId)
+    {
+        var isOnVacation = await _context.EmployeeVacations
+            .AnyAsync(v => v.EmployeeId == employeeId && v.StartDate <= date && v.EndDate >= date);
+        if (isOnVacation)
+            return "Der ausgewählte Mitarbeiter ist an diesem Tag abwesend (Urlaub/Abwesenheit).";
+
+        var schedule = await _context.EmployeeSchedules
+            .FirstOrDefaultAsync(s => s.EmployeeId == employeeId && s.DayOfWeek == date.DayOfWeek);
+
+        if (schedule != null && !schedule.IsWorkingDay)
+            return "Der ausgewählte Mitarbeiter arbeitet laut Arbeitszeiten an diesem Wochentag nicht.";
+
+        if (schedule != null)
+            return $"Keine freien Zeiten: Der Mitarbeiter arbeitet an diesem Tag von {schedule.StartTime:HH\\:mm} bis {schedule.EndTime:HH\\:mm} Uhr — alle passenden Zeiten sind belegt, blockiert oder liegen außerhalb der Öffnungszeiten.";
+
+        return "Alle Zeiten an diesem Tag sind bereits belegt oder blockiert.";
     }
 
     /// <summary>
@@ -162,10 +192,10 @@ public class AvailabilityService
         if (existingBooking)
             return false;
 
-        // Check for blocked slots for this employee
+        // Check for blocked slots: employee-specific OR studio-wide (EmployeeId == null)
         var isBlocked = await _context.BlockedTimeSlots
             .AnyAsync(bs => bs.BlockDate == date &&
-                           bs.EmployeeId == employeeId &&
+                           (bs.EmployeeId == employeeId || bs.EmployeeId == null) &&
                            bs.StartTime < endTime &&
                            bs.EndTime > startTime);
 
@@ -346,10 +376,11 @@ public class AvailabilityService
             .Select(b => new { b.StartTime, b.EndTime })
             .ToListAsync();
 
-        // Get all blocked slots for this employee on this date
+        // Get all blocked slots for this employee on this date,
+        // including studio-wide blocks (EmployeeId == null) created by the admin
         var employeeBlocked = await _context.BlockedTimeSlots
             .Where(bs => bs.BlockDate == date &&
-                        bs.EmployeeId == employeeId)
+                        (bs.EmployeeId == employeeId || bs.EmployeeId == null))
             .Select(bs => new { bs.StartTime, bs.EndTime })
             .ToListAsync();
 

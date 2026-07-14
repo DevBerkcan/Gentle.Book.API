@@ -455,12 +455,12 @@ public class BookingService
             if (hasBookingConflict)
                 return false;
 
-            // Check for blocked slots for this specific employee
+            // Check for blocked slots: employee-specific OR studio-wide (EmployeeId == null)
             var hasBlockedConflict = await _context.BlockedTimeSlots
                 .AnyAsync(bs =>
                     bs.TenantId == tenantId &&
                     bs.BlockDate == date &&
-                    bs.EmployeeId == employeeId.Value &&
+                    (bs.EmployeeId == employeeId.Value || bs.EmployeeId == null) &&
                     bs.StartTime < endTime &&
                     bs.EndTime > startTime);
 
@@ -490,12 +490,12 @@ public class BookingService
                 if (hasBookingConflict)
                     continue;
 
-                // Check blocked slots for this employee
+                // Check blocked slots: employee-specific OR studio-wide (EmployeeId == null)
                 var hasBlockedConflict = await _context.BlockedTimeSlots
                     .AnyAsync(bs =>
                         bs.TenantId == tenantId &&
                         bs.BlockDate == date &&
-                        bs.EmployeeId == empId &&
+                        (bs.EmployeeId == empId || bs.EmployeeId == null) &&
                         bs.StartTime < endTime &&
                         bs.EndTime > startTime);
 

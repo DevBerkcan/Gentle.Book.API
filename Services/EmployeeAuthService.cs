@@ -30,19 +30,34 @@ public class EmployeeAuthService
             string.IsNullOrWhiteSpace(request.Password))
             return (false, null, "Benutzername und Passwort sind erforderlich");
 
-        var employee = await _context.Employees
-            .Include(e => e.Tenant)
+        // Usernames are only unique per tenant, so the same username can exist in
+        // multiple tenants. Load all candidates, disambiguate via password check and
+        // prefer a tenant whose subscription still allows access.
+        var candidates = await _context.Employees
+            .Include(e => e.Tenant).ThenInclude(t => t.Subscription)
             .Where(e => e.IsActive && e.Tenant.IsActive && e.Username == request.Username.Trim().ToLower())
-            .FirstOrDefaultAsync();
+            .ToListAsync();
 
-        bool passwordOk = employee != null
-            && !string.IsNullOrEmpty(employee.PasswordHash)
-            && BCrypt.Net.BCrypt.Verify(request.Password, employee.PasswordHash);
+        var matching = candidates
+            .Where(e => !string.IsNullOrEmpty(e.PasswordHash)
+                     && BCrypt.Net.BCrypt.Verify(request.Password, e.PasswordHash))
+            .ToList();
 
-        if (!passwordOk || employee == null)
+        if (matching.Count == 0)
         {
             _logger.LogWarning("Failed login attempt for username: {Username}", request.Username);
             return (false, null, "Ungültiger Benutzername oder Passwort");
+        }
+
+        var employee = matching.FirstOrDefault(e => e.Tenant.Subscription?.IsAccessAllowed == true)
+                    ?? matching[0];
+
+        // Same check as the TenantAdmin login: block expired tenants at login time
+        // instead of letting the employee in and failing on the first API call.
+        if (employee.Tenant.Subscription == null || !employee.Tenant.Subscription.IsAccessAllowed)
+        {
+            _logger.LogWarning("Employee login blocked (subscription inactive) for TenantId={TenantId}", employee.TenantId);
+            return (false, null, "Die Testphase Ihres Studios ist abgelaufen. Bitte wenden Sie sich an Ihren Administrator.");
         }
 
         var token = _jwt.GenerateEmployeeToken(
@@ -131,14 +146,14 @@ public class EmployeeAuthService
         return (true, "Passwort erfolgreich geändert", null);
     }
 
-    public async Task<(bool Success, string? Message, string? ErrorMessage)> SetPasswordAsync(SetPasswordRequest request)
+    public async Task<(bool Success, string? Message, string? ErrorMessage)> SetPasswordAsync(SetPasswordRequest request, Guid tenantId)
     {
         if (string.IsNullOrWhiteSpace(request.Username) ||
             string.IsNullOrWhiteSpace(request.Password))
             return (false, null, "Benutzername und Passwort erforderlich");
 
         var employee = await _context.Employees
-            .FirstOrDefaultAsync(e => e.Username == request.Username.Trim().ToLower());
+            .FirstOrDefaultAsync(e => e.TenantId == tenantId && e.Username == request.Username.Trim().ToLower());
 
         if (employee == null)
             return (false, null, "Mitarbeiter nicht gefunden");

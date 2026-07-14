@@ -413,6 +413,35 @@ using (var scope = app.Services.CreateScope())
                 CREATE INDEX IX_EmployeeNotes_TenantId ON EmployeeNotes(TenantId);
                 CREATE INDEX IX_EmployeeNotes_EmployeeId ON EmployeeNotes(EmployeeId);
             END
+
+            IF OBJECT_ID(N'WaitlistEntries', N'U') IS NULL
+            BEGIN
+                CREATE TABLE WaitlistEntries (
+                    Id uniqueidentifier NOT NULL DEFAULT NEWID(),
+                    TenantId uniqueidentifier NOT NULL,
+                    ServiceId uniqueidentifier NULL,
+                    EmployeeId uniqueidentifier NULL,
+                    PreferredDate date NULL,
+                    FirstName nvarchar(max) NOT NULL,
+                    LastName nvarchar(max) NOT NULL,
+                    Email nvarchar(max) NOT NULL,
+                    Phone nvarchar(max) NULL,
+                    Notes nvarchar(max) NULL,
+                    Status int NOT NULL CONSTRAINT DF_WaitlistEntries_Status DEFAULT 0,
+                    CreatedAt datetime2 NOT NULL CONSTRAINT DF_WaitlistEntries_CreatedAt DEFAULT SYSUTCDATETIME(),
+                    NotifiedAt datetime2 NULL,
+                    CONSTRAINT PK_WaitlistEntries PRIMARY KEY (Id),
+                    CONSTRAINT FK_WaitlistEntries_Tenants_TenantId FOREIGN KEY (TenantId)
+                        REFERENCES Tenants(Id) ON DELETE CASCADE,
+                    CONSTRAINT FK_WaitlistEntries_Services_ServiceId FOREIGN KEY (ServiceId)
+                        REFERENCES Services(Id),
+                    CONSTRAINT FK_WaitlistEntries_Employees_EmployeeId FOREIGN KEY (EmployeeId)
+                        REFERENCES Employees(Id)
+                );
+                CREATE INDEX IX_WaitlistEntries_TenantId ON WaitlistEntries(TenantId);
+                CREATE INDEX IX_WaitlistEntries_ServiceId ON WaitlistEntries(ServiceId);
+                CREATE INDEX IX_WaitlistEntries_EmployeeId ON WaitlistEntries(EmployeeId);
+            END
         ");
         Console.WriteLine("[SCHEMA-FALLBACK] OK");
     }
