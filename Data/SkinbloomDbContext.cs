@@ -258,6 +258,25 @@ public class GentleBookDbContext : DbContext
             entity.Ignore(e => e.DayName);
         });
 
+        // ── EmployeeNote ───────────────────────────────────────
+        modelBuilder.Entity<EmployeeNote>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.EmployeeName).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Subject).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Message).IsRequired().HasMaxLength(4000);
+            entity.HasOne(e => e.Tenant)
+                  .WithMany()
+                  .HasForeignKey(e => e.TenantId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Employee)
+                  .WithMany()
+                  .HasForeignKey(e => e.EmployeeId)
+                  .OnDelete(DeleteBehavior.NoAction);
+            entity.HasIndex(e => e.TenantId);
+            entity.HasIndex(e => e.EmployeeId);
+        });
+
         // ── BlockedTimeSlot ───────────────────────────────────
         modelBuilder.Entity<BlockedTimeSlot>(entity =>
         {

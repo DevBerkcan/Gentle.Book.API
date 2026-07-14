@@ -392,6 +392,27 @@ using (var scope = app.Services.CreateScope())
                 CREATE INDEX IX_EmployeeVacations_EmployeeId ON EmployeeVacations(EmployeeId);
                 CREATE INDEX IX_EmployeeVacations_TenantId ON EmployeeVacations(TenantId);
             END
+
+            IF OBJECT_ID(N'EmployeeNotes', N'U') IS NULL
+            BEGIN
+                CREATE TABLE EmployeeNotes (
+                    Id int IDENTITY(1,1) NOT NULL,
+                    TenantId uniqueidentifier NOT NULL,
+                    EmployeeId uniqueidentifier NOT NULL,
+                    EmployeeName nvarchar(200) NOT NULL,
+                    Subject nvarchar(200) NOT NULL,
+                    Message nvarchar(4000) NOT NULL,
+                    IsRead bit NOT NULL CONSTRAINT DF_EmployeeNotes_IsRead DEFAULT 0,
+                    CreatedAt datetime2 NOT NULL CONSTRAINT DF_EmployeeNotes_CreatedAt DEFAULT SYSUTCDATETIME(),
+                    CONSTRAINT PK_EmployeeNotes PRIMARY KEY (Id),
+                    CONSTRAINT FK_EmployeeNotes_Tenants_TenantId FOREIGN KEY (TenantId)
+                        REFERENCES Tenants(Id) ON DELETE CASCADE,
+                    CONSTRAINT FK_EmployeeNotes_Employees_EmployeeId FOREIGN KEY (EmployeeId)
+                        REFERENCES Employees(Id) ON DELETE NO ACTION
+                );
+                CREATE INDEX IX_EmployeeNotes_TenantId ON EmployeeNotes(TenantId);
+                CREATE INDEX IX_EmployeeNotes_EmployeeId ON EmployeeNotes(EmployeeId);
+            END
         ");
         Console.WriteLine("[SCHEMA-FALLBACK] OK");
     }
