@@ -36,8 +36,16 @@ public class AdminController : ControllerBase
 
     // ── Helper to get current employee from JWT ──────────────────
     private Guid? GetCurrentEmployeeId() => JwtService.GetEmployeeId(User);
-    private bool IsTenantAdmin() => JwtService.GetRole(User) == "TenantAdmin";
-    private Guid? GetEmployeeScope() => IsTenantAdmin() ? null : GetCurrentEmployeeId();
+    private bool HasTenantWideAccess()
+        => JwtService.GetRole(User) is "TenantAdmin" or "SuperAdmin";
+    private Guid? GetEmployeeScope() => HasTenantWideAccess() ? null : GetCurrentEmployeeId();
+
+    private async Task<bool> CanAccessBookingAsync(Guid bookingId)
+    {
+        var employeeId = GetEmployeeScope();
+        return !employeeId.HasValue || await _db.Bookings
+            .AnyAsync(b => b.Id == bookingId && b.EmployeeId == employeeId.Value);
+    }
 
     /// <summary>
     /// Get dashboard overview with today's bookings, next booking, and statistics
@@ -120,7 +128,7 @@ public class AdminController : ControllerBase
 
         // If all=true, show all bookings (no filter)
         // Otherwise show only current employee's bookings
-        Guid? employeeId = all ? null : currentEmployeeId;
+        Guid? employeeId = all && HasTenantWideAccess() ? null : currentEmployeeId;
 
         var filter = new BookingFilterDto(
             status,
@@ -148,6 +156,9 @@ public class AdminController : ControllerBase
         Guid id,
         [FromBody] UpdateBookingStatusDto dto)
     {
+        if (!await CanAccessBookingAsync(id))
+            return Forbid();
+
         try
         {
             var booking = await _adminService.UpdateBookingStatusAsync(id, dto);
@@ -200,6 +211,10 @@ public class AdminController : ControllerBase
     {
         try
         {
+            var employeeId = GetEmployeeScope();
+            if (employeeId.HasValue)
+                dto = dto with { EmployeeId = employeeId.Value };
+
             var booking = await _manualBookingService.CreateManualBookingAsync(dto);
 
             return CreatedAtAction(
@@ -233,6 +248,9 @@ public class AdminController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ManualBookingResponseDto>> GetManualBooking(Guid id)
     {
+        if (!await CanAccessBookingAsync(id))
+            return Forbid();
+
         var booking = await _manualBookingService.GetManualBookingByIdAsync(id);
 
         if (booking == null)
@@ -254,6 +272,9 @@ public class AdminController : ControllerBase
         Guid id,
         [FromBody] DeleteBookingDto? dto = null)
     {
+        if (!await CanAccessBookingAsync(id))
+            return Forbid();
+
         try
         {
             var result = await _adminService.DeleteBookingAsync(id, dto?.Reason);
@@ -284,6 +305,10 @@ public class AdminController : ControllerBase
             .Include(b => b.Service)
             .Include(b => b.Employee)
             .AsQueryable();
+
+        var employeeId = GetEmployeeScope();
+        if (employeeId.HasValue)
+            query = query.Where(b => b.EmployeeId == employeeId.Value);
 
         if (!string.IsNullOrEmpty(status))
             query = query.Where(b => b.Status.ToString() == status);
@@ -338,11 +363,17 @@ public class AdminController : ControllerBase
     {
         var cutoff = DateTime.UtcNow.AddDays(-14);
 
-        var cancelled = await _db.Bookings
+        var employeeId = GetEmployeeScope();
+        var cancelledQuery = _db.Bookings
             .Include(b => b.Customer)
             .Include(b => b.Service)
             .Include(b => b.Employee)
-            .Where(b => b.Status == BookingStatus.Cancelled && b.CancelledAt >= cutoff)
+            .Where(b => b.Status == BookingStatus.Cancelled && b.CancelledAt >= cutoff);
+
+        if (employeeId.HasValue)
+            cancelledQuery = cancelledQuery.Where(b => b.EmployeeId == employeeId.Value);
+
+        var cancelled = await cancelledQuery
             .OrderByDescending(b => b.CancelledAt)
             .Take(30)
             .Select(b => new
@@ -366,6 +397,9 @@ public class AdminController : ControllerBase
     [HttpPost("bookings/{id}/resend-confirmation")]
     public async Task<IActionResult> ResendConfirmation(Guid id)
     {
+        if (!await CanAccessBookingAsync(id))
+            return Forbid();
+
         var booking = await _db.Bookings
             .Include(b => b.Customer)
             .Include(b => b.Service)

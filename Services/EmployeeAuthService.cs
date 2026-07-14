@@ -31,7 +31,8 @@ public class EmployeeAuthService
             return (false, null, "Benutzername und Passwort sind erforderlich");
 
         var employee = await _context.Employees
-            .Where(e => e.IsActive && e.Username == request.Username.Trim().ToLower())
+            .Include(e => e.Tenant)
+            .Where(e => e.IsActive && e.Tenant.IsActive && e.Username == request.Username.Trim().ToLower())
             .FirstOrDefaultAsync();
 
         bool passwordOk = employee != null
@@ -44,8 +45,13 @@ public class EmployeeAuthService
             return (false, null, "Ungültiger Benutzername oder Passwort");
         }
 
-        var token = _jwt.GenerateToken(
-            employee.Id, employee.Name, employee.Username!, employee.Role);
+        var token = _jwt.GenerateEmployeeToken(
+            employee.Id,
+            employee.Name,
+            employee.Username!,
+            employee.Role,
+            employee.TenantId,
+            employee.Tenant.Slug);
 
         _logger.LogInformation("Employee {Name} logged in successfully", employee.Name);
 
@@ -59,7 +65,11 @@ public class EmployeeAuthService
                 employee.Name,
                 employee.Username,
                 employee.Role,
-                employee.Specialty
+                employee.Specialty,
+                employee.Location,
+                employee.TenantId,
+                TenantSlug = employee.Tenant.Slug,
+                TenantName = employee.Tenant.Name
             }
         };
 
@@ -74,7 +84,18 @@ public class EmployeeAuthService
 
         var employee = await _context.Employees
             .Where(e => e.Id == employeeId && e.IsActive)
-            .Select(e => new { e.Id, e.Name, e.Username, e.Role, e.Specialty })
+            .Select(e => new
+            {
+                e.Id,
+                e.Name,
+                e.Username,
+                e.Role,
+                e.Specialty,
+                e.Location,
+                e.TenantId,
+                TenantSlug = e.Tenant.Slug,
+                TenantName = e.Tenant.Name
+            })
             .FirstOrDefaultAsync();
 
         if (employee == null)
