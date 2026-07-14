@@ -18,16 +18,27 @@ public class EmployeesController : ControllerBase
     private readonly EmployeeService _employeeService;
     private readonly GentleBookDbContext _db;
     private readonly IConfiguration _config;
+    private readonly AuditService _audit;
 
-    public EmployeesController(EmployeeService employeeService, GentleBookDbContext db, IConfiguration config)
+    public EmployeesController(EmployeeService employeeService, GentleBookDbContext db, IConfiguration config, AuditService audit)
     {
         _employeeService = employeeService;
         _db = db;
         _config = config;
+        _audit = audit;
     }
 
     // ── Helper to get current employee ────────────────────────────
     private Guid? GetCurrentEmployeeId() => JwtService.GetEmployeeId(User);
+
+    // Mutating employee management is TenantAdmin-only.
+    private IActionResult? RequireTenantAdmin()
+    {
+        var role = JwtService.GetRole(User);
+        if (role != "TenantAdmin" && role != "SuperAdmin")
+            return StatusCode(403, new { message = "Nur Administratoren dürfen Mitarbeiter verwalten." });
+        return null;
+    }
 
     // ── GET /api/employees ────────────────────────────────────────
     // Updated to support service filtering
@@ -96,6 +107,9 @@ public class EmployeesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateEmployeeRequest request)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         // Plan-Limit prüfen
         var tenantContext = HttpContext.RequestServices.GetRequiredService<ITenantContext>();
         var tenantId = tenantContext.TenantId;
@@ -119,6 +133,9 @@ public class EmployeesController : ControllerBase
         if (!success)
             return BadRequest(new { message = errorMessage });
 
+        await _audit.LogAsync("employee.created", "Employee", ((dynamic)employee!).Id.ToString(),
+            $"Mitarbeiter \"{request.Name}\" angelegt");
+
         return CreatedAtAction(nameof(GetById), new { id = ((dynamic)employee).Id }, employee);
     }
 
@@ -126,6 +143,9 @@ public class EmployeesController : ControllerBase
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateEmployeeRequest request)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var (success, employee, errorMessage) = await _employeeService.UpdateAsync(id, request);
 
         if (!success)
@@ -142,6 +162,9 @@ public class EmployeesController : ControllerBase
     [HttpPatch("{id:guid}/toggle-active")]
     public async Task<IActionResult> ToggleActive(Guid id)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var (success, result, errorMessage, warning) = await _employeeService.ToggleActiveAsync(id);
 
         if (!success)
@@ -157,6 +180,9 @@ public class EmployeesController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var (success, errorMessage) = await _employeeService.DeleteAsync(id);
 
         if (!success)
@@ -166,13 +192,20 @@ public class EmployeesController : ControllerBase
             return Conflict(new { message = errorMessage });
         }
 
+        await _audit.LogAsync("employee.deleted", "Employee", id.ToString(), "Mitarbeiter gelöscht");
+
         return NoContent();
     }
 
     // ── GET /api/employees/{id}/schedule ─────────────────────────
+    // TenantAdmin sieht alle; ein Mitarbeiter darf nur den eigenen Plan lesen.
     [HttpGet("{id:guid}/schedule")]
     public async Task<IActionResult> GetSchedule(Guid id)
     {
+        var role = JwtService.GetRole(User);
+        if (role != "TenantAdmin" && role != "SuperAdmin" && GetCurrentEmployeeId() != id)
+            return StatusCode(403, new { message = "Kein Zugriff auf diesen Arbeitszeitplan." });
+
         var tenantId = HttpContext.RequestServices.GetRequiredService<ITenantContext>().TenantId;
         if (!tenantId.HasValue) return Unauthorized(new { message = "TenantId fehlt" });
 
@@ -201,6 +234,9 @@ public class EmployeesController : ControllerBase
     [HttpPut("{id:guid}/schedule")]
     public async Task<IActionResult> UpdateSchedule(Guid id, [FromBody] List<UpdateEmployeeScheduleItemDto> dto)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var tenantId = HttpContext.RequestServices.GetRequiredService<ITenantContext>().TenantId;
         if (!tenantId.HasValue) return Unauthorized(new { message = "TenantId fehlt" });
 

@@ -19,19 +19,22 @@ public class AdminController : ControllerBase
     private readonly EmailService _emailService;
     private readonly GentleBookDbContext _db;
     private readonly ILogger<AdminController> _logger;
+    private readonly AuditService _audit;
 
     public AdminController(
         AdminService adminService,
         ILogger<AdminController> logger,
         ManualBookingService manualBookingService,
         EmailService emailService,
-        GentleBookDbContext db)
+        GentleBookDbContext db,
+        AuditService audit)
     {
         _adminService = adminService;
         _logger = logger;
         _manualBookingService = manualBookingService;
         _emailService = emailService;
         _db = db;
+        _audit = audit;
     }
 
     // ── Helper to get current employee from JWT ──────────────────
@@ -162,12 +165,19 @@ public class AdminController : ControllerBase
         try
         {
             var booking = await _adminService.UpdateBookingStatusAsync(id, dto);
+            await _audit.LogAsync("booking.status_changed", "Booking", id.ToString(),
+                $"Status geändert auf {dto.Status} ({booking.BookingNumber})");
             return Ok(booking);
         }
         catch (ArgumentException ex)
         {
             _logger.LogWarning(ex, "Invalid request for booking {BookingId}", id);
             return NotFound(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Invalid status transition for booking {BookingId}", id);
+            return BadRequest(new { message = ex.Message });
         }
     }
 

@@ -48,6 +48,30 @@ public class BookingService
 
         var tenantId = service.TenantId;
 
+        // 2b. Tenant must be active and have a valid trial/subscription.
+        // Anonymous requests bypass TenantMiddleware, so this is enforced here:
+        // expired or deactivated tenants must not accept new bookings.
+        var tenantActive = await _context.Tenants.AnyAsync(t => t.Id == tenantId && t.IsActive);
+        if (!tenantActive)
+            throw new InvalidOperationException("Dieses Buchungssystem ist derzeit nicht verfügbar.");
+
+        var subscription = await _context.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (subscription == null || !subscription.IsAccessAllowed)
+            throw new InvalidOperationException("Online-Buchungen sind für dieses Studio derzeit nicht möglich. Bitte kontaktieren Sie das Studio direkt.");
+
+        // 2c. Plan limit: bookings per calendar month (Trial 100, Starter 200, Pro/Business unbegrenzt)
+        var planLimits = GentleBook.Api.Configuration.PlanLimits.Get(subscription.Plan);
+        if (!GentleBook.Api.Configuration.PlanLimits.IsUnlimited(planLimits.MaxBookingsPerMonth))
+        {
+            var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var monthCount = await _context.Bookings.CountAsync(b =>
+                b.TenantId == tenantId &&
+                b.CreatedAt >= monthStart &&
+                b.Status != BookingStatus.Cancelled);
+            if (monthCount >= planLimits.MaxBookingsPerMonth)
+                throw new InvalidOperationException("Das monatliche Buchungskontingent dieses Studios ist ausgeschöpft. Bitte kontaktieren Sie das Studio direkt.");
+        }
+
         // 3. Check slot availability inside a serializable transaction to prevent race conditions
         await using var tx = await _context.Database
             .BeginTransactionAsync(IsolationLevel.RepeatableRead);
@@ -105,12 +129,12 @@ public class BookingService
             customer.UpdatedAt = DateTime.UtcNow;
         }
 
-        // 7. Resolve employee (optional)
+        // 7. Resolve employee (optional) — must belong to the same tenant as the service
         Employee? employee = null;
         if (dto.EmployeeId.HasValue)
         {
             employee = await _context.Employees
-                .FirstOrDefaultAsync(e => e.Id == dto.EmployeeId && e.IsActive);
+                .FirstOrDefaultAsync(e => e.Id == dto.EmployeeId && e.TenantId == tenantId && e.IsActive);
         }
 
         // 8. Create booking
@@ -229,16 +253,18 @@ public class BookingService
         if (booking.Status == BookingStatus.Completed)
             throw new InvalidOperationException("Abgeschlossene Buchungen können nicht storniert werden");
 
+        // Vergangene Termine können vom Kunden nicht mehr storniert werden
+        // (Admins nutzen den separaten Statuswechsel unter /api/admin/bookings).
+        var bookingDateTime = booking.BookingDate.ToDateTime(booking.StartTime);
+        var hoursUntil = (bookingDateTime - DateTime.UtcNow).TotalHours;
+        if (hoursUntil <= 0)
+            throw new InvalidOperationException("Dieser Termin liegt in der Vergangenheit und kann nicht mehr storniert werden.");
+
         // Stornierungsfrist prüfen (falls konfiguriert)
         var settings = await _context.TenantSettings.FirstOrDefaultAsync();
-        if (settings?.CancellationHoursNotice > 0)
-        {
-            var bookingDateTime = booking.BookingDate.ToDateTime(booking.StartTime);
-            var hoursUntil = (bookingDateTime - DateTime.UtcNow).TotalHours;
-            if (hoursUntil < settings.CancellationHoursNotice && hoursUntil > 0)
-                throw new InvalidOperationException(
-                    $"Stornierung ist nur bis {settings.CancellationHoursNotice} Stunden vor dem Termin möglich.");
-        }
+        if (settings?.CancellationHoursNotice > 0 && hoursUntil < settings.CancellationHoursNotice)
+            throw new InvalidOperationException(
+                $"Stornierung ist nur bis {settings.CancellationHoursNotice} Stunden vor dem Termin möglich.");
 
         booking.Status = BookingStatus.Cancelled;
         booking.CancelledAt = DateTime.UtcNow;
@@ -442,15 +468,18 @@ public class BookingService
         // CASE 1: Specific employee requested
         if (employeeId.HasValue)
         {
-            // Check for conflicting bookings for this specific employee
+            // Check for conflicting bookings for this specific employee.
+            // EndTime is extended by the existing booking's BufferTimeMinutes so the
+            // cleanup gap is enforced at booking time (consistent with the slot display).
             var hasBookingConflict = await _context.Bookings
+                .Include(b => b.Service)
                 .AnyAsync(b =>
                     b.TenantId == tenantId &&
                     b.BookingDate == date &&
                     b.EmployeeId == employeeId.Value &&
                     b.Status != BookingStatus.Cancelled &&
                     b.StartTime < endTime &&
-                    b.EndTime > startTime);
+                    b.EndTime.AddMinutes(b.Service.BufferTimeMinutes) > startTime);
 
             if (hasBookingConflict)
                 return false;
@@ -477,15 +506,16 @@ public class BookingService
 
             foreach (var empId in activeEmployees)
             {
-                // Check bookings for this employee
+                // Check bookings for this employee (incl. buffer time after each booking)
                 var hasBookingConflict = await _context.Bookings
+                    .Include(b => b.Service)
                     .AnyAsync(b =>
                         b.TenantId == tenantId &&
                         b.BookingDate == date &&
                         b.EmployeeId == empId &&
                         b.Status != BookingStatus.Cancelled &&
                         b.StartTime < endTime &&
-                        b.EndTime > startTime);
+                        b.EndTime.AddMinutes(b.Service.BufferTimeMinutes) > startTime);
 
                 if (hasBookingConflict)
                     continue;

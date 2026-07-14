@@ -220,11 +220,30 @@ public class EmployeeService
         };
     }
 
+    // SECURITY: Employee.Role is a display-only job title. Reserved authorization
+    // role names must never be stored here (defense in depth on top of the fixed
+    // "Employee" JWT claim in EmployeeAuthService).
+    private static string? ValidateJobTitle(string? role)
+    {
+        if (string.IsNullOrWhiteSpace(role)) return null;
+        var trimmed = role.Trim();
+        if (trimmed.Length > 100)
+            return "Rollenbezeichnung darf maximal 100 Zeichen lang sein";
+        string[] reserved = { "SuperAdmin", "TenantAdmin", "Owner", "Admin", "Employee" };
+        if (reserved.Any(r => string.Equals(r, trimmed, StringComparison.OrdinalIgnoreCase)))
+            return $"\"{trimmed}\" ist eine reservierte Systemrolle und kann nicht als Jobbezeichnung verwendet werden";
+        return null;
+    }
+
     // Keep existing CreateAsync method
     public async Task<(bool Success, object? Employee, string? ErrorMessage)> CreateAsync(CreateEmployeeRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Name))
             return (false, null, "Name ist erforderlich");
+
+        var roleError = ValidateJobTitle(request.Role);
+        if (roleError != null)
+            return (false, null, roleError);
 
         if (!TryRequireTenant(out var tenantId))
             return (false, null, "TenantId fehlt");
@@ -297,6 +316,10 @@ public class EmployeeService
         var employee = await _context.Employees.FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId);
         if (employee == null)
             return (false, null, "Mitarbeiter nicht gefunden");
+
+        var roleError = ValidateJobTitle(request.Role);
+        if (roleError != null)
+            return (false, null, roleError);
 
         if (!string.IsNullOrWhiteSpace(request.Username))
         {

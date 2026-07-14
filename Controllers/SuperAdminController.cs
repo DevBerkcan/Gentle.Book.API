@@ -22,8 +22,9 @@ public class SuperAdminController : ControllerBase
     private readonly ILogger<SuperAdminController> _logger;
     private readonly JwtService _jwt;
     private readonly IWebHostEnvironment _env;
+    private readonly AuditService _audit;
 
-    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt, IWebHostEnvironment env)
+    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt, IWebHostEnvironment env, AuditService audit)
     {
         _db = db;
         _config = config;
@@ -31,6 +32,7 @@ public class SuperAdminController : ControllerBase
         _logger = logger;
         _jwt = jwt;
         _env = env;
+        _audit = audit;
     }
 
     private IActionResult ForbidIfNotSuperAdmin()
@@ -209,7 +211,7 @@ public class SuperAdminController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "SaveChanges failed in CreateTenant");
-            return StatusCode(500, new { message = "DB-Fehler beim Speichern.", detail = ex.Message, inner = ex.InnerException?.Message });
+            return StatusCode(500, new { message = "DB-Fehler beim Speichern." });
         }
 
         // Send welcome email with setup link after save
@@ -227,6 +229,9 @@ public class SuperAdminController : ControllerBase
                 selectedPlan.ToString(),
                 dto.PersonalNote);
         }
+
+        await _audit.LogAsync("tenant.created", "Tenant", tenant.Id.ToString(),
+            $"System \"{tenant.Name}\" ({slug}) angelegt, Plan {selectedPlan}", tenant.Id);
 
         return CreatedAtAction(nameof(GetTenant), new { id = tenant.Id }, new
         {
@@ -264,6 +269,7 @@ public class SuperAdminController : ControllerBase
         tenant.IsActive = true;
         tenant.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        await _audit.LogAsync("tenant.activated", "Tenant", id.ToString(), $"System \"{tenant.Name}\" aktiviert", id);
         return NoContent();
     }
 
@@ -277,6 +283,7 @@ public class SuperAdminController : ControllerBase
         tenant.IsActive = false;
         tenant.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+        await _audit.LogAsync("tenant.deactivated", "Tenant", id.ToString(), $"System \"{tenant.Name}\" deaktiviert", id);
         return NoContent();
     }
 
@@ -327,8 +334,9 @@ public class SuperAdminController : ControllerBase
         {
             await tx.RollbackAsync();
             _logger.LogError(ex, "DeleteTenant failed for {TenantId}", id);
-            return StatusCode(500, new { message = "Löschen fehlgeschlagen.", detail = ex.Message, inner = ex.InnerException?.Message });
+            return StatusCode(500, new { message = "Löschen fehlgeschlagen." });
         }
+        await _audit.LogAsync("tenant.deleted", "Tenant", id.ToString(), $"System \"{tenant.Name}\" ({tenant.Slug}) samt aller Daten gelöscht");
         return NoContent();
     }
 
@@ -433,7 +441,7 @@ public class SuperAdminController : ControllerBase
         {
             await tx.RollbackAsync();
             _logger.LogError(ex, "Maintenance DeleteLeakedEmployee failed for {EmployeeId}", employeeId);
-            return StatusCode(500, new { message = "Mitarbeiter-Bereinigung fehlgeschlagen.", detail = ex.Message, inner = ex.InnerException?.Message });
+            return StatusCode(500, new { message = "Mitarbeiter-Bereinigung fehlgeschlagen." });
         }
     }
 
@@ -599,6 +607,9 @@ public class SuperAdminController : ControllerBase
         subscription.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
+        await _audit.LogAsync("subscription.trial_extended", "Subscription", subscription.Id.ToString(),
+            $"Trial um {dto.Days} Tage verlängert (neu bis {subscription.TrialEndsAt:dd.MM.yyyy})", id);
+
         return Ok(new { subscription.TrialEndsAt, subscription.TrialDaysRemaining });
     }
 
@@ -627,6 +638,9 @@ public class SuperAdminController : ControllerBase
 
         subscription.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+
+        await _audit.LogAsync("subscription.plan_changed", "Subscription", subscription.Id.ToString(),
+            $"Plan geändert auf {newPlan}", id);
 
         var limits = PlanLimits.Get(newPlan);
         return Ok(new
@@ -701,6 +715,15 @@ public class SuperAdminController : ControllerBase
     {
         if (ForbidIfNotSuperAdmin() is { } err) return err;
 
+        // MRR: Summe der Monatspreise aller aktiven Abos (nach Plan)
+        var activePlans = await _db.Subscriptions
+            .Where(s => s.Status == SubscriptionStatus.Active)
+            .GroupBy(s => s.Plan)
+            .Select(g => new { Plan = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        var mrr = activePlans.Sum(p => PlanLimits.Get(p.Plan).MonthlyPrice * p.Count);
+
         var stats = new
         {
             TotalTenants = await _db.Tenants.CountAsync(),
@@ -709,6 +732,13 @@ public class SuperAdminController : ControllerBase
             ActiveSubscriptions = await _db.Subscriptions.CountAsync(s => s.Status == SubscriptionStatus.Active),
             ExpiredTenants = await _db.Subscriptions.CountAsync(s => s.Status == SubscriptionStatus.Expired),
             TotalBookings = await _db.Bookings.IgnoreQueryFilters().CountAsync(),
+            Mrr = mrr,
+            PlanDistribution = activePlans.Select(p => new
+            {
+                Plan = PlanLimits.Get(p.Plan).DisplayName,
+                p.Count,
+                MonthlyPrice = PlanLimits.Get(p.Plan).MonthlyPrice,
+            }),
         };
 
         return Ok(stats);
@@ -1071,9 +1101,14 @@ public class SuperAdminController : ControllerBase
         if (adminUser == null)
             return NotFound(new { message = "Kein Admin-User für dieses System gefunden" });
 
-        var token = _jwt.GenerateTenantAdminToken(adminUser.Id, adminUser.Email, tenant.Id, tenant.Slug);
+        var superAdminEmail = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Email)?.Value
+            ?? User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+            ?? "superadmin";
+        var token = _jwt.GenerateTenantAdminToken(adminUser.Id, adminUser.Email, tenant.Id, tenant.Slug, impersonatedBy: superAdminEmail);
 
-        _logger.LogInformation("SuperAdmin impersonated tenant {TenantId} ({TenantName}) as {Email}", tenantId, tenant.Name, adminUser.Email);
+        _logger.LogInformation("SuperAdmin {SuperAdmin} impersonated tenant {TenantId} ({TenantName}) as {Email}", superAdminEmail, tenantId, tenant.Name, adminUser.Email);
+        await _audit.LogAsync("tenant.impersonated", "Tenant", tenantId.ToString(),
+            $"Impersonation als {adminUser.Email} für System \"{tenant.Name}\"", tenantId);
 
         return Ok(new
         {
@@ -1160,6 +1195,26 @@ public class SuperAdminController : ControllerBase
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("SuperAdmin activated plan {Plan} for tenant {TenantId}", request.RequestedPlan, request.TenantId);
+        await _audit.LogAsync("subscription.request_activated", "SubscriptionRequest", id.ToString(),
+            $"Plan {request.RequestedPlan} für \"{request.Tenant.Name}\" aktiviert", request.TenantId);
+
+        // Kunden benachrichtigen (best effort)
+        try
+        {
+            var admin = await _db.PlatformUsers
+                .Where(u => u.TenantId == request.TenantId && u.Role == PlatformRole.TenantAdmin)
+                .OrderBy(u => u.CreatedAt)
+                .FirstOrDefaultAsync();
+            if (admin != null)
+            {
+                var limits = PlanLimits.Get(plan.Value);
+                await _emailService.SendPlanActivatedEmailAsync(admin.Email, admin.FirstName, limits.DisplayName, limits.MonthlyPrice);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send plan-activated email for tenant {TenantId}", request.TenantId);
+        }
 
         return Ok(new { message = $"Plan {request.RequestedPlan} für {request.Tenant.Name} aktiviert." });
     }
@@ -1180,8 +1235,58 @@ public class SuperAdminController : ControllerBase
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("SuperAdmin declined subscription request {Id}", id);
+        await _audit.LogAsync("subscription.request_declined", "SubscriptionRequest", id.ToString(),
+            $"Plan-Anfrage {request.RequestedPlan} abgelehnt", request.TenantId);
+
+        // Kunden benachrichtigen (best effort)
+        try
+        {
+            var admin = await _db.PlatformUsers
+                .Where(u => u.TenantId == request.TenantId && u.Role == PlatformRole.TenantAdmin)
+                .OrderBy(u => u.CreatedAt)
+                .FirstOrDefaultAsync();
+            if (admin != null)
+                await _emailService.SendPlanDeclinedEmailAsync(admin.Email, admin.FirstName, request.RequestedPlan);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send plan-declined email for request {Id}", id);
+        }
 
         return Ok(new { message = "Anfrage abgelehnt." });
+    }
+
+    // ── Audit-Log ────────────────────────────────────────────────────────
+
+    /// <summary>Paginated audit trail of administrative and security-relevant actions.</summary>
+    [HttpGet("audit-log")]
+    public async Task<IActionResult> GetAuditLog(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        [FromQuery] Guid? tenantId = null,
+        [FromQuery] string? action = null)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        pageSize = Math.Clamp(pageSize, 1, 200);
+        var query = _db.AuditLogs.AsNoTracking().AsQueryable();
+        if (tenantId.HasValue) query = query.Where(a => a.TenantId == tenantId.Value);
+        if (!string.IsNullOrWhiteSpace(action)) query = query.Where(a => a.Action.StartsWith(action));
+
+        var total = await query.CountAsync();
+        var items = await query
+            .OrderByDescending(a => a.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(a => new
+            {
+                a.Id, a.TenantId, a.ActorType, a.ActorName,
+                a.Action, a.EntityType, a.EntityId, a.Details,
+                a.IpAddress, a.CreatedAt,
+            })
+            .ToListAsync();
+
+        return Ok(new { items, totalCount = total, page, pageSize });
     }
 }
 

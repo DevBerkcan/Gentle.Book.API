@@ -20,14 +20,16 @@ public class TenantController : ControllerBase
     private readonly EmailService _emailService;
     private readonly ILogger<TenantController> _logger;
     private readonly IWebHostEnvironment _env;
+    private readonly AuditService _audit;
 
-    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env)
+    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env, AuditService audit)
     {
         _db = db;
         _tenantContext = tenantContext;
         _emailService = emailService;
         _logger = logger;
         _env = env;
+        _audit = audit;
     }
 
     private IActionResult? RequireTenantAdmin()
@@ -149,6 +151,8 @@ public class TenantController : ControllerBase
         settings.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync();
+
+        await _audit.LogAsync("settings.updated", "TenantSettings", settings.Id.ToString(), "Studio-Einstellungen geändert");
 
         return Ok(new { message = "Einstellungen gespeichert" });
     }
@@ -499,7 +503,7 @@ public class TenantController : ControllerBase
         }
         catch (Exception ex)
         {
-            return StatusCode(500, new { message = "E-Mail konnte nicht gesendet werden.", detail = ex.Message });
+            return StatusCode(500, new { message = "E-Mail konnte nicht gesendet werden." });
         }
     }
 }

@@ -145,6 +145,9 @@ builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<TrackingService>();
 builder.Services.AddScoped<ServiceService>();
 builder.Services.AddScoped<EmployeeAuthService>();
+builder.Services.AddScoped<CustomerPortalTokenService>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<AuditService>();
 builder.Services.AddSingleton<SubscriptionService>();
 
 // ── Hangfire ──────────────────────────────────────────────────────────────────
@@ -249,7 +252,12 @@ app.UseMiddleware<TenantMiddleware>();
 // ── Hangfire Jobs ─────────────────────────────────────────────────────────────
 if (app.Environment.IsDevelopment())
 {
-    app.UseHangfireDashboard("/hangfire");
+    // Dashboard nur in Development UND nur für lokale Requests — verhindert
+    // offenen Zugriff, falls Production versehentlich mit Development-Env läuft.
+    app.UseHangfireDashboard("/hangfire", new Hangfire.DashboardOptions
+    {
+        Authorization = new[] { new LocalOnlyDashboardAuthorizationFilter() }
+    });
 }
 
 using (var scope = app.Services.CreateScope())
@@ -442,6 +450,26 @@ using (var scope = app.Services.CreateScope())
                 CREATE INDEX IX_WaitlistEntries_ServiceId ON WaitlistEntries(ServiceId);
                 CREATE INDEX IX_WaitlistEntries_EmployeeId ON WaitlistEntries(EmployeeId);
             END
+
+            IF OBJECT_ID(N'AuditLogs', N'U') IS NULL
+            BEGIN
+                CREATE TABLE AuditLogs (
+                    Id uniqueidentifier NOT NULL DEFAULT NEWID(),
+                    TenantId uniqueidentifier NULL,
+                    ActorType nvarchar(20) NOT NULL DEFAULT 'System',
+                    ActorId uniqueidentifier NULL,
+                    ActorName nvarchar(300) NULL,
+                    Action nvarchar(100) NOT NULL DEFAULT '',
+                    EntityType nvarchar(100) NULL,
+                    EntityId nvarchar(100) NULL,
+                    Details nvarchar(2000) NULL,
+                    IpAddress nvarchar(64) NULL,
+                    CreatedAt datetime2 NOT NULL DEFAULT SYSUTCDATETIME(),
+                    CONSTRAINT PK_AuditLogs PRIMARY KEY (Id)
+                );
+                CREATE INDEX IX_AuditLogs_TenantId_CreatedAt ON AuditLogs(TenantId, CreatedAt);
+                CREATE INDEX IX_AuditLogs_Action ON AuditLogs(Action);
+            END
         ");
         Console.WriteLine("[SCHEMA-FALLBACK] OK");
     }
@@ -452,3 +480,15 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.Run();
+
+/// <summary>Hangfire dashboard: only allow requests from localhost.</summary>
+public class LocalOnlyDashboardAuthorizationFilter : Hangfire.Dashboard.IDashboardAuthorizationFilter
+{
+    public bool Authorize(Hangfire.Dashboard.DashboardContext context)
+    {
+        var remoteIp = context.Request.RemoteIpAddress;
+        return !string.IsNullOrEmpty(remoteIp)
+            && System.Net.IPAddress.TryParse(remoteIp, out var ip)
+            && System.Net.IPAddress.IsLoopback(ip);
+    }
+}

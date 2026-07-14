@@ -41,6 +41,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<SubscriptionRequest> SubscriptionRequests { get; set; }
     public DbSet<EmployeeNote> EmployeeNotes { get; set; }
     public DbSet<WaitlistEntry> WaitlistEntries { get; set; }
+    public DbSet<AuditLog> AuditLogs { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -61,6 +62,21 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<EmployeeSchedule>().HasQueryFilter(es => CurrentTenantId == null || es.TenantId == CurrentTenantId);
         modelBuilder.Entity<EmployeeVacation>().HasQueryFilter(ev => CurrentTenantId == null || ev.TenantId == CurrentTenantId);
         modelBuilder.Entity<EmployeeNote>().HasQueryFilter(en => CurrentTenantId == null || en.TenantId == CurrentTenantId);
+
+        // ── AuditLog (kein Tenant-Filter: SuperAdmin liest plattformweit,
+        //    Schreibzugriffe setzen TenantId explizit) ─────────
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.Property(a => a.ActorType).HasMaxLength(20);
+            entity.Property(a => a.ActorName).HasMaxLength(300);
+            entity.Property(a => a.Action).HasMaxLength(100);
+            entity.Property(a => a.EntityType).HasMaxLength(100);
+            entity.Property(a => a.EntityId).HasMaxLength(100);
+            entity.Property(a => a.Details).HasMaxLength(2000);
+            entity.Property(a => a.IpAddress).HasMaxLength(64);
+            entity.HasIndex(a => new { a.TenantId, a.CreatedAt });
+            entity.HasIndex(a => a.Action);
+        });
 
         // ── Tenant ────────────────────────────────────────────
         modelBuilder.Entity<Tenant>(entity =>

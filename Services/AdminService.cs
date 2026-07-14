@@ -313,6 +313,16 @@ public class AdminService
         );
     }
 
+    private static bool IsValidStatusTransition(BookingStatus from, BookingStatus to) => (from, to) switch
+    {
+        (BookingStatus.Pending,   BookingStatus.Confirmed) => true,
+        (BookingStatus.Pending,   BookingStatus.Cancelled) => true,
+        (BookingStatus.Confirmed, BookingStatus.Completed) => true,
+        (BookingStatus.Confirmed, BookingStatus.Cancelled) => true,
+        (BookingStatus.Confirmed, BookingStatus.NoShow)    => true,
+        _ => false,
+    };
+
     public async Task<BookingListItemDto> UpdateBookingStatusAsync(Guid bookingId, UpdateBookingStatusDto dto)
     {
         var booking = await _context.Bookings
@@ -327,6 +337,13 @@ public class AdminService
             throw new ArgumentException($"Ungültiger Status: {dto.Status}");
 
         var oldStatus = booking.Status;
+
+        // State-Machine: nur fachlich sinnvolle Übergänge zulassen.
+        // Completed/Cancelled/NoShow sind Endzustände.
+        if (oldStatus != newStatus && !IsValidStatusTransition(oldStatus, newStatus))
+            throw new InvalidOperationException(
+                $"Statuswechsel von \"{oldStatus}\" nach \"{newStatus}\" ist nicht zulässig.");
+
         booking.Status = newStatus;
         booking.AdminNotes = dto.AdminNotes;
         booking.UpdatedAt = DateTime.UtcNow;

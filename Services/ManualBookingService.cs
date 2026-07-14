@@ -52,6 +52,21 @@ public class ManualBookingService
 
         var endTime = startTime.AddMinutes(service.DurationMinutes);
 
+        // Plan limit: bookings per calendar month (same enforcement as public bookings)
+        var subscription = await _context.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        var planLimits = GentleBook.Api.Configuration.PlanLimits.Get(subscription?.Plan ?? SubscriptionPlan.Trial);
+        if (!GentleBook.Api.Configuration.PlanLimits.IsUnlimited(planLimits.MaxBookingsPerMonth))
+        {
+            var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            var monthCount = await _context.Bookings.CountAsync(b =>
+                b.TenantId == tenantId &&
+                b.CreatedAt >= monthStart &&
+                b.Status != BookingStatus.Cancelled);
+            if (monthCount >= planLimits.MaxBookingsPerMonth)
+                throw new InvalidOperationException(
+                    $"Ihr Plan erlaubt maximal {planLimits.MaxBookingsPerMonth} Buchungen pro Monat. Bitte upgraden Sie Ihren Plan.");
+        }
+
         // Check if slot is available
         var isAvailable = await IsSlotAvailableAsync(tenantId, bookingDate, startTime, endTime, dto.EmployeeId);
         if (!isAvailable)

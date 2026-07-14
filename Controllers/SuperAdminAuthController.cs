@@ -62,13 +62,23 @@ public class SuperAdminAuthController : ControllerBase
     /// </summary>
     [HttpPost("bootstrap")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth-limit")]
     public async Task<IActionResult> Bootstrap([FromBody] BootstrapDto dto, [FromServices] IConfiguration config)
     {
-        var secret = config["AdminBootstrapSecret"]
-            ?? throw new InvalidOperationException("AdminBootstrapSecret is not configured");
+        // SECURITY: an empty default ("") in appsettings.json must NOT be usable —
+        // otherwise an empty X-Bootstrap-Secret header would pass the comparison.
+        var secret = config["AdminBootstrapSecret"];
+        if (string.IsNullOrWhiteSpace(secret) || secret.Length < 16)
+            return StatusCode(503, new { message = "Bootstrap ist nicht konfiguriert (AdminBootstrapSecret fehlt oder ist zu kurz)." });
 
-        if (!Request.Headers.TryGetValue("X-Bootstrap-Secret", out var val) || val != secret)
+        var provided = Request.Headers.TryGetValue("X-Bootstrap-Secret", out var val) ? val.ToString() : "";
+        var expectedBytes = System.Text.Encoding.UTF8.GetBytes(secret);
+        var providedBytes = System.Text.Encoding.UTF8.GetBytes(provided);
+        if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes))
             return Unauthorized(new { message = "Invalid bootstrap secret." });
+
+        if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 8)
+            return BadRequest(new { message = "Das Passwort muss mindestens 8 Zeichen lang sein." });
 
         var alreadyExists = await _db.PlatformUsers.AnyAsync(u => u.Role == PlatformRole.SuperAdmin);
         if (alreadyExists)

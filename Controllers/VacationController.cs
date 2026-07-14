@@ -21,6 +21,16 @@ public class VacationController : ControllerBase
         _tenantContext = tenantContext;
     }
 
+    // Urlaubsverwaltung ist TenantAdmin-only (nur die Admin-Mitarbeiterseite nutzt sie;
+    // Mitarbeiter pflegen eigene Abwesenheiten über BlockedTimeSlots).
+    private IActionResult? RequireTenantAdmin()
+    {
+        var role = JwtService.GetRole(User);
+        if (role != "TenantAdmin" && role != "SuperAdmin")
+            return StatusCode(403, new { message = "Nur Administratoren dürfen Urlaube verwalten." });
+        return null;
+    }
+
     // GET /api/admin/vacations?employeeId=&year=&month=
     [HttpGet]
     public async Task<IActionResult> GetAll(
@@ -28,6 +38,9 @@ public class VacationController : ControllerBase
         [FromQuery] int? year = null,
         [FromQuery] int? month = null)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var query = _db.EmployeeVacations
             .Include(v => v.Employee)
             .AsQueryable();
@@ -70,6 +83,9 @@ public class VacationController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateVacationDto dto)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var tenantId = _tenantContext.TenantId;
         if (!tenantId.HasValue) return Unauthorized();
 
@@ -115,6 +131,9 @@ public class VacationController : ControllerBase
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] CreateVacationDto dto)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var vacation = await _db.EmployeeVacations.FirstOrDefaultAsync(v => v.Id == id);
         if (vacation == null) return NotFound();
 
@@ -148,6 +167,9 @@ public class VacationController : ControllerBase
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var vacation = await _db.EmployeeVacations.FirstOrDefaultAsync(v => v.Id == id);
         if (vacation == null) return NotFound();
 

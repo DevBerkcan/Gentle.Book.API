@@ -3,7 +3,6 @@ using GentleBook.Api.DTOs;
 using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using GentleBook.Api.Services;
 
 namespace GentleBook.Api.Controllers;
 
@@ -171,6 +170,10 @@ public class ServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> AssignServiceToEmployee([FromBody] AssignServiceToEmployeeDto dto)
     {
+        var role = JwtService.GetRole(User);
+        if (role != "TenantAdmin" && role != "SuperAdmin")
+            return StatusCode(403, new { message = "Nur Administratoren dürfen Service-Zuweisungen ändern." });
+
         try
         {
             var result = await _serviceService.AssignServiceToEmployeeAsync(dto.ServiceId, dto.EmployeeId);
@@ -196,6 +199,10 @@ public class ServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RemoveServiceFromEmployee(Guid serviceId, Guid employeeId)
     {
+        var role = JwtService.GetRole(User);
+        if (role != "TenantAdmin" && role != "SuperAdmin")
+            return StatusCode(403, new { message = "Nur Administratoren dürfen Service-Zuweisungen ändern." });
+
         try
         {
             var result = await _serviceService.RemoveServiceFromEmployeeAsync(serviceId, employeeId);

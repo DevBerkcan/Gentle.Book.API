@@ -1670,6 +1670,224 @@ GentleBook · support@gentlegroup.de";
     }
 
     /// <summary>
+    /// Notifies the TenantAdmin that their requested plan was activated.
+    /// </summary>
+    public async Task SendPlanActivatedEmailAsync(string recipientEmail, string firstName, string planName, decimal monthlyPrice)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = $"Ihr {planName}-Plan ist aktiv – GentleBook";
+
+            var html = $@"<!DOCTYPE html>
+<html lang='de'>
+<head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:520px;margin:0 auto'>
+  <div style='background:linear-gradient(135deg,#16a34a,#22c55e);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+    <div style='width:56px;height:56px;background:rgba(255,255,255,0.2);border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px'>
+      <span style='font-size:28px'>🎉</span>
+    </div>
+    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Ihr Plan ist aktiv!</h1>
+    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
+  </div>
+  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
+    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
+    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
+      Ihr <strong>{planName}</strong>-Plan ({monthlyPrice:0}&nbsp;€/Monat) wurde soeben aktiviert.
+      Alle Funktionen Ihres Plans stehen ab sofort zur Verfügung.
+    </p>
+    <div style='text-align:center;margin:24px 0'>
+      <a href='{FrontendUrl}/admin/subscription' style='background:linear-gradient(135deg,#6355E4,#17A398);color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block'>
+        Abo-Details ansehen →
+      </a>
+    </div>
+    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
+      GentleBook · support@gentlegroup.de
+    </p>
+  </div>
+</div>
+</body>
+</html>";
+
+            var text = $@"Ihr Plan ist aktiv – GentleBook
+
+Hallo {firstName},
+
+Ihr {planName}-Plan ({monthlyPrice:0} €/Monat) wurde soeben aktiviert.
+Alle Funktionen stehen ab sofort zur Verfügung.
+
+{FrontendUrl}/admin/subscription
+
+GentleBook · support@gentlegroup.de";
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Plan-activated email sent to {Email} ({Plan})", recipientEmail, planName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send plan-activated email to {Email}", recipientEmail);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Notifies the TenantAdmin that their plan request was declined.
+    /// </summary>
+    public async Task SendPlanDeclinedEmailAsync(string recipientEmail, string firstName, string planName)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = "Ihre Plan-Anfrage – GentleBook";
+
+            var html = $@"<!DOCTYPE html>
+<html lang='de'>
+<head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:520px;margin:0 auto'>
+  <div style='background:linear-gradient(135deg,#374151,#6b7280);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Zu Ihrer Plan-Anfrage</h1>
+    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
+  </div>
+  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
+    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
+    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
+      Ihre Anfrage für den <strong>{planName}</strong>-Plan konnte leider nicht aktiviert werden.
+      Bitte melden Sie sich bei unserem Support, damit wir gemeinsam eine Lösung finden.
+    </p>
+    <div style='text-align:center;margin:24px 0'>
+      <a href='mailto:support@gentlegroup.de' style='background:#111318;color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block'>
+        Support kontaktieren
+      </a>
+    </div>
+    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
+      GentleBook · support@gentlegroup.de
+    </p>
+  </div>
+</div>
+</body>
+</html>";
+
+            var text = $@"Zu Ihrer Plan-Anfrage – GentleBook
+
+Hallo {firstName},
+
+Ihre Anfrage für den {planName}-Plan konnte leider nicht aktiviert werden.
+Bitte kontaktieren Sie support@gentlegroup.de für eine Lösung.
+
+GentleBook";
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Plan-declined email sent to {Email} ({Plan})", recipientEmail, planName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send plan-declined email to {Email}", recipientEmail);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Sends the "Meine Buchungen" magic link to a customer.
+    /// </summary>
+    public async Task SendMyBookingsLinkAsync(string recipientEmail, string firstName, string portalUrl)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = "Ihre Buchungsübersicht – GentleBook";
+
+            var html = $@"<!DOCTYPE html>
+<html lang='de'>
+<head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:520px;margin:0 auto'>
+  <div style='background:linear-gradient(135deg,#6355E4,#17A398);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+    <div style='width:56px;height:56px;background:rgba(255,255,255,0.2);border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px'>
+      <span style='font-size:28px'>📅</span>
+    </div>
+    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Ihre Buchungsübersicht</h1>
+    <p style='color:rgba(255,255,255,0.7);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
+  </div>
+  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
+    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo{(string.IsNullOrWhiteSpace(firstName) ? "" : $" {firstName}")},</p>
+    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 24px'>
+      Sie haben einen Zugriffslink für Ihre Buchungsübersicht angefordert. Klicken Sie auf den Button, um Ihre Termine zu sehen oder zu stornieren.
+    </p>
+    <div style='text-align:center;margin:28px 0'>
+      <a href='{portalUrl}' style='background:linear-gradient(135deg,#6355E4,#17A398);color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block;box-shadow:0 4px 14px rgba(99,85,228,0.3)'>
+        Meine Buchungen ansehen →
+      </a>
+    </div>
+    <div style='background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;margin:24px 0'>
+      <p style='font-size:13px;color:#92400e;margin:0'>
+        ⏱️ <strong>Hinweis:</strong> Dieser Link ist nur <strong>1 Stunde</strong> gültig. Danach können Sie jederzeit einen neuen anfordern.
+      </p>
+    </div>
+    <p style='font-size:13px;color:#9ca3af;margin:0 0 4px'>Falls Sie diese Anfrage nicht gestellt haben, ignorieren Sie diese E-Mail einfach.</p>
+    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
+      GentleBook · support@gentlegroup.de
+    </p>
+  </div>
+</div>
+</body>
+</html>";
+
+            var text = $@"Ihre Buchungsübersicht – GentleBook
+=====================================
+Hallo{(string.IsNullOrWhiteSpace(firstName) ? "" : $" {firstName}")},
+
+Sie haben einen Zugriffslink für Ihre Buchungsübersicht angefordert.
+
+Link (1 Stunde gültig):
+{portalUrl}
+
+Falls Sie diese Anfrage nicht gestellt haben, ignorieren Sie diese E-Mail.
+
+GentleBook · support@gentlegroup.de";
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("My-bookings magic link sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send my-bookings magic link to {Email}", recipientEmail);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Sends a premium onboarding email to a newly created TenantAdmin.
     /// </summary>
     public async Task SendWelcomeEmailAsync(

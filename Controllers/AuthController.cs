@@ -106,8 +106,8 @@ public class AuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(dto.CurrentPassword) || string.IsNullOrWhiteSpace(dto.NewPassword))
             return BadRequest(new { message = "Aktuelles und neues Passwort sind erforderlich." });
 
-        if (dto.NewPassword.Length < 6)
-            return BadRequest(new { message = "Das neue Passwort muss mindestens 6 Zeichen lang sein." });
+        if (dto.NewPassword.Length < 8)
+            return BadRequest(new { message = "Das neue Passwort muss mindestens 8 Zeichen lang sein." });
 
         var user = await _db.PlatformUsers.FindAsync(userId.Value);
         if (user == null) return NotFound();
@@ -127,6 +127,7 @@ public class AuthController : ControllerBase
     /// </summary>
     [HttpPost("forgot-password")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth-limit")]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.TenantSlug) || string.IsNullOrWhiteSpace(dto.Email))
@@ -186,13 +187,14 @@ public class AuthController : ControllerBase
     /// <summary>Reset password using token from email link.</summary>
     [HttpPost("reset-password")]
     [AllowAnonymous]
+    [EnableRateLimiting("auth-limit")]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.Token) || string.IsNullOrWhiteSpace(dto.NewPassword))
             return BadRequest(new { message = "Token und neues Passwort sind erforderlich." });
 
-        if (dto.NewPassword.Length < 6)
-            return BadRequest(new { message = "Das Passwort muss mindestens 6 Zeichen lang sein." });
+        if (dto.NewPassword.Length < 8)
+            return BadRequest(new { message = "Das Passwort muss mindestens 8 Zeichen lang sein." });
 
         var hash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(dto.Token)));
 

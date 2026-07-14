@@ -15,17 +15,20 @@ public class BookingsController : ControllerBase
     private readonly ILogger<BookingsController> _logger;
     private readonly EmailService _emailService;
     private readonly IConfiguration _config;
+    private readonly CustomerPortalTokenService _portalTokens;
 
     public BookingsController(
         BookingService bookingService,
         ILogger<BookingsController> logger,
         EmailService emailService,
-        IConfiguration config)
+        IConfiguration config,
+        CustomerPortalTokenService portalTokens)
     {
         _bookingService = bookingService;
         _logger = logger;
         _emailService = emailService;
         _config = config;
+        _portalTokens = portalTokens;
     }
 
     // ── Helpers ───────────────────────────────────────────────────
@@ -120,13 +123,56 @@ public class BookingsController : ControllerBase
     }
 
     /// <summary>
-    /// Get bookings by customer email — public.
+    /// Request a magic link for the customer booking portal ("Meine Buchungen").
+    /// Always returns 200 to prevent e-mail enumeration; the link is only sent
+    /// when bookings exist for the given address.
     /// </summary>
-    [HttpGet("by-email/{email}")]
+    [HttpPost("my-bookings/request")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth-limit")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> RequestMyBookingsLink([FromBody] MyBookingsRequestDto dto)
+    {
+        const string genericMessage = "Wenn Buchungen zu dieser E-Mail-Adresse existieren, wurde ein Zugriffslink gesendet.";
+
+        if (string.IsNullOrWhiteSpace(dto.Email) || !dto.Email.Contains('@'))
+            return Ok(new { message = genericMessage });
+
+        try
+        {
+            var bookings = await _bookingService.GetBookingsByEmailAsync(dto.Email);
+            if (bookings.Count > 0)
+            {
+                var token = _portalTokens.CreateToken(dto.Email);
+                var portalUrl = $"{_emailService.FrontendUrl}/my-bookings?token={Uri.EscapeDataString(token)}";
+                var firstName = bookings[0].Customer?.FirstName ?? "";
+                await _emailService.SendMyBookingsLinkAsync(dto.Email.Trim(), firstName, portalUrl);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Best effort — never reveal to the caller whether the address exists.
+            _logger.LogError(ex, "Failed to process my-bookings link request");
+        }
+
+        return Ok(new { message = genericMessage });
+    }
+
+    /// <summary>
+    /// Get the bookings behind a valid magic-link token.
+    /// Replaces the former anonymous by-email lookup, which exposed customer
+    /// data to anyone who knew (or guessed) an e-mail address.
+    /// </summary>
+    [HttpGet("my")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<List<BookingResponseDto>>> GetBookingsByEmail(string email)
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<List<BookingResponseDto>>> GetMyBookings([FromQuery] string token)
     {
+        var email = string.IsNullOrWhiteSpace(token) ? null : _portalTokens.ValidateToken(token);
+        if (email == null)
+            return Unauthorized(new { message = "Der Zugriffslink ist ungültig oder abgelaufen. Bitte fordern Sie einen neuen an." });
+
         var bookings = await _bookingService.GetBookingsByEmailAsync(email);
         return Ok(bookings);
     }
@@ -755,3 +801,5 @@ public class BookingsController : ControllerBase
         }
     }
 }
+
+public record MyBookingsRequestDto(string Email);

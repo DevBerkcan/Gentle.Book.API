@@ -33,7 +33,9 @@ public class JwtService
     }
 
     // ── TenantAdmin token ───────────────────────────────────────────────────
-    public string GenerateTenantAdminToken(Guid userId, string email, Guid tenantId, string tenantSlug)
+    // impersonatedBy: set when a SuperAdmin generates this token via impersonation —
+    // makes impersonated sessions distinguishable in logs and audits.
+    public string GenerateTenantAdminToken(Guid userId, string email, Guid tenantId, string tenantSlug, string? impersonatedBy = null)
     {
         var claims = new List<Claim>
         {
@@ -44,8 +46,13 @@ public class JwtService
             new("tenantId", tenantId.ToString()),
             new("tenantSlug", tenantSlug),
         };
+        if (!string.IsNullOrEmpty(impersonatedBy))
+            claims.Add(new Claim("impersonatedBy", impersonatedBy));
         return BuildToken(claims, "Jwt:Secret", "Jwt:Issuer", "Jwt:Audience", "Jwt:ExpiryHours");
     }
+
+    public static string? GetImpersonatedBy(ClaimsPrincipal user)
+        => user.FindFirstValue("impersonatedBy");
 
     // ── SuperAdmin token ────────────────────────────────────────────────────
     public string GenerateSuperAdminToken(Guid userId, string email)

@@ -29,6 +29,16 @@ public class AdminServicesController : ControllerBase
     // ── Helper to get current employee from JWT ──────────────────
     private Guid? GetCurrentEmployeeId() => JwtService.GetEmployeeId(User);
 
+    // Mutations on services/categories are TenantAdmin-only; employees keep read access
+    // (the manual-booking modal loads services per employee).
+    private ObjectResult? RequireTenantAdmin()
+    {
+        var role = JwtService.GetRole(User);
+        if (role != "TenantAdmin" && role != "SuperAdmin")
+            return StatusCode(403, new { message = "Nur Administratoren dürfen Services verwalten." });
+        return null;
+    }
+
     // ── SERVICES ─────────────────────────────────────────────────
 
     /// <summary>
@@ -70,6 +80,9 @@ public class AdminServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<AdminServiceDto>> CreateService([FromBody] CreateServiceDto dto)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var employeeId = GetCurrentEmployeeId();
 
         // Plan-Limit prüfen
@@ -118,6 +131,9 @@ public class AdminServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<AdminServiceDto>> UpdateService(Guid id, [FromBody] UpdateServiceDto dto)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var employeeId = GetCurrentEmployeeId();
 
         try
@@ -148,6 +164,9 @@ public class AdminServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteService(Guid id)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var employeeId = GetCurrentEmployeeId();
 
         try
@@ -177,6 +196,9 @@ public class AdminServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ToggleServiceActive(Guid id)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var employeeId = GetCurrentEmployeeId();
 
         try
@@ -240,6 +262,9 @@ public class AdminServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<AdminServiceCategoryDto>> CreateCategory([FromBody] CreateCategoryDto dto)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var employeeId = GetCurrentEmployeeId();
 
         try
@@ -265,6 +290,9 @@ public class AdminServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<AdminServiceCategoryDto>> UpdateCategory(Guid id, [FromBody] UpdateCategoryDto dto)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var employeeId = GetCurrentEmployeeId();
 
         try
@@ -290,6 +318,9 @@ public class AdminServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteCategory(Guid id)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var employeeId = GetCurrentEmployeeId();
 
         try
@@ -350,6 +381,9 @@ public class AdminServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> BulkAssignServicesToEmployee(Guid targetEmployeeId, [FromBody] List<Guid> serviceIds)
     {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+
         var currentEmployeeId = GetCurrentEmployeeId();
 
         try

@@ -60,11 +60,15 @@ public class EmployeeAuthService
             return (false, null, "Die Testphase Ihres Studios ist abgelaufen. Bitte wenden Sie sich an Ihren Administrator.");
         }
 
+        // SECURITY: The JWT role claim is ALWAYS the fixed value "Employee".
+        // Employee.Role is a free-text job title (e.g. "Stylistin") and must never
+        // become an authorization role — otherwise an employee named "SuperAdmin"
+        // would pass the platform-wide role checks.
         var token = _jwt.GenerateEmployeeToken(
             employee.Id,
             employee.Name,
             employee.Username!,
-            employee.Role,
+            "Employee",
             employee.TenantId,
             employee.Tenant.Slug);
 
@@ -151,6 +155,9 @@ public class EmployeeAuthService
         if (string.IsNullOrWhiteSpace(request.Username) ||
             string.IsNullOrWhiteSpace(request.Password))
             return (false, null, "Benutzername und Passwort erforderlich");
+
+        if (request.Password.Length < 8)
+            return (false, null, "Das Passwort muss mindestens 8 Zeichen lang sein");
 
         var employee = await _context.Employees
             .FirstOrDefaultAsync(e => e.TenantId == tenantId && e.Username == request.Username.Trim().ToLower());
