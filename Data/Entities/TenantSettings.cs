@@ -20,6 +20,21 @@ public class TenantSettings
     public string? Website { get; set; }
     public string? Address { get; set; }
 
+    // ── Billing Address (structured, for Mollie + CRM invoicing) ──
+    public string? LegalCompanyName { get; set; }
+    public string? BillingStreet { get; set; }
+    public string? BillingZipCode { get; set; }
+    public string? BillingCity { get; set; }
+    public string? BillingCountry { get; set; } // ISO 3166-1 alpha-2, e.g. "DE"
+    public string? VatId { get; set; }
+
+    public bool HasCompleteBillingProfile =>
+        !string.IsNullOrWhiteSpace(LegalCompanyName) &&
+        !string.IsNullOrWhiteSpace(BillingStreet) &&
+        !string.IsNullOrWhiteSpace(BillingZipCode) &&
+        !string.IsNullOrWhiteSpace(BillingCity) &&
+        !string.IsNullOrWhiteSpace(BillingCountry);
+
     // ── Booking Configuration ─────────────────────────────────
     public int BookingIntervalMinutes { get; set; } = 30;
     public int MaxAdvanceBookingDays { get; set; } = 60;

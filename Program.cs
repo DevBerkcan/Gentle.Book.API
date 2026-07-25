@@ -6,6 +6,7 @@ using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.IdentityModel.Tokens.Jwt;
@@ -132,6 +133,27 @@ builder.Services.AddDbContext<GentleBookDbContext>((serviceProvider, options) =>
 
 // ── Application Services ──────────────────────────────────────────────────────
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
+builder.Services.Configure<MollieOptions>(builder.Configuration.GetSection("Mollie"));
+builder.Services.Configure<CrmOptions>(builder.Configuration.GetSection("Crm"));
+
+// Mollie: first real outbound-HTTP integration in this codebase.
+builder.Services.AddHttpClient<MollieClient>((sp, client) =>
+{
+    var mollieBaseUrl = sp.GetRequiredService<IOptions<MollieOptions>>().Value.BaseUrl;
+    client.BaseAddress = new Uri(mollieBaseUrl);
+});
+
+// CRM push: second typed HttpClient, points at the Gentle.Suite CRM's integration endpoint.
+builder.Services.AddHttpClient<CrmPushService>((sp, client) =>
+{
+    var crmBaseUrl = sp.GetRequiredService<IOptions<CrmOptions>>().Value.BaseUrl;
+    if (!string.IsNullOrEmpty(crmBaseUrl))
+        client.BaseAddress = new Uri(crmBaseUrl.TrimEnd('/') + "/");
+});
+
+builder.Services.AddScoped<MollieService>();
+builder.Services.AddSingleton<MollieReconciliationJob>();
+
 builder.Services.AddScoped<JwtService>();
 builder.Services.AddScoped<EmailService>();
 builder.Services.AddScoped<BlockedTimeSlotService>();

@@ -1075,6 +1075,11 @@ public class SuperAdminController : ControllerBase
         if (plan == null) return BadRequest(new { message = "Unbekannter Plan" });
 
         var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == request.TenantId);
+        if (sub?.MollieSubscriptionId != null && dto?.ConfirmOverrideMollie != true)
+        {
+            return Conflict(new { message = "Dieser Tenant hat ein aktives Mollie-Abonnement. Bitte mit ConfirmOverrideMollie=true bestätigen, um bewusst manuell zu überschreiben." });
+        }
+
         if (sub != null)
         {
             sub.Plan = plan.Value;
@@ -1090,8 +1095,11 @@ public class SuperAdminController : ControllerBase
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("SuperAdmin activated plan {Plan} for tenant {TenantId}", request.RequestedPlan, request.TenantId);
+        var activationDetails = $"Plan {request.RequestedPlan} für \"{request.Tenant.Name}\" aktiviert";
+        if (sub != null && sub.MollieSubscriptionId != null)
+            activationDetails += " [ACHTUNG: manuell trotz aktivem Mollie-Abo überschrieben]";
         await _audit.LogAsync("subscription.request_activated", "SubscriptionRequest", id.ToString(),
-            $"Plan {request.RequestedPlan} für \"{request.Tenant.Name}\" aktiviert", request.TenantId);
+            activationDetails, request.TenantId);
 
         // Kunden benachrichtigen (best effort)
         try
@@ -1227,5 +1235,5 @@ public record UpdateTenantSettingsDto(
 
 public record CreateTenantUserDto(string Email, string? Password, string FirstName, string LastName, bool? SendWelcomeEmail = true);
 public record ExtendTrialDto(int Days);
-public record ActivateRequestDto(string? Note);
+public record ActivateRequestDto(string? Note, bool ConfirmOverrideMollie = false);
 public record ChangePlanDto(string Plan);

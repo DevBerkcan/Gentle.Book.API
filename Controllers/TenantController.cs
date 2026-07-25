@@ -21,8 +21,9 @@ public class TenantController : ControllerBase
     private readonly ILogger<TenantController> _logger;
     private readonly IWebHostEnvironment _env;
     private readonly AuditService _audit;
+    private readonly MollieService _mollieService;
 
-    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env, AuditService audit)
+    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env, AuditService audit, MollieService mollieService)
     {
         _db = db;
         _tenantContext = tenantContext;
@@ -30,6 +31,7 @@ public class TenantController : ControllerBase
         _logger = logger;
         _env = env;
         _audit = audit;
+        _mollieService = mollieService;
     }
 
     private IActionResult? RequireTenantAdmin()
@@ -73,6 +75,13 @@ public class TenantController : ControllerBase
                 settings.Email,
                 settings.Website,
                 settings.Address,
+                settings.LegalCompanyName,
+                settings.BillingStreet,
+                settings.BillingZipCode,
+                settings.BillingCity,
+                settings.BillingCountry,
+                settings.VatId,
+                settings.HasCompleteBillingProfile,
                 settings.BookingIntervalMinutes,
                 settings.MaxAdvanceBookingDays,
                 settings.TimeZone,
@@ -118,6 +127,12 @@ public class TenantController : ControllerBase
         settings.Email = dto.Email?.Trim() ?? settings.Email;
         settings.Website = dto.Website?.Trim() ?? settings.Website;
         settings.Address = dto.Address?.Trim() ?? settings.Address;
+        settings.LegalCompanyName = dto.LegalCompanyName?.Trim() ?? settings.LegalCompanyName;
+        settings.BillingStreet = dto.BillingStreet?.Trim() ?? settings.BillingStreet;
+        settings.BillingZipCode = dto.BillingZipCode?.Trim() ?? settings.BillingZipCode;
+        settings.BillingCity = dto.BillingCity?.Trim() ?? settings.BillingCity;
+        settings.BillingCountry = dto.BillingCountry?.Trim().ToUpper() ?? settings.BillingCountry;
+        settings.VatId = dto.VatId?.Trim() ?? settings.VatId;
         settings.WelcomeMessage = dto.WelcomeMessage?.Trim() ?? settings.WelcomeMessage;
         settings.CancellationPolicy = dto.CancellationPolicy?.Trim() ?? settings.CancellationPolicy;
 
@@ -355,7 +370,40 @@ public class TenantController : ControllerBase
                 sub.CurrentPeriodStart,
                 sub.CurrentPeriodEnd,
                 sub.CancelledAt,
+                sub.MollieSubscriptionId,
             }
+        });
+    }
+
+    // POST /api/tenant/subscription/mollie/start
+    [HttpPost("subscription/mollie/start")]
+    public async Task<IActionResult> StartMollieMandateFlow([FromBody] MollieStartRequestDto dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var result = await _mollieService.StartMandateFlowAsync(_tenantContext.TenantId!.Value, dto.Plan);
+        if (!result.Success)
+            return BadRequest(new { message = result.Error });
+
+        return Ok(new { checkoutUrl = result.CheckoutUrl });
+    }
+
+    // GET /api/tenant/subscription/mollie/status
+    [HttpGet("subscription/mollie/status")]
+    public async Task<IActionResult> GetMollieStatus()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
+        if (sub == null) return NotFound(new { message = "Kein Abonnement gefunden" });
+
+        return Ok(new
+        {
+            plan = sub.Plan.ToString(),
+            status = sub.Status.ToString(),
+            hasMollieSubscription = sub.MollieSubscriptionId != null,
         });
     }
 
@@ -397,6 +445,11 @@ public class TenantController : ControllerBase
         if (check != null) return check;
 
         var tenantId = _tenantContext.TenantId!.Value;
+
+        var activeMollieSub = await _db.Subscriptions
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.MollieSubscriptionId != null);
+        if (activeMollieSub != null)
+            return BadRequest(new { message = "Sie haben bereits ein Mollie-Abonnement — bitte verwalten Sie Ihren Plan über die Zahlungsseite." });
 
         var existing = await _db.SubscriptionRequests
             .FirstOrDefaultAsync(r => r.TenantId == tenantId && r.Status == "Pending");
@@ -510,6 +563,7 @@ public class TenantController : ControllerBase
 
 public record SupportMessageRequest(string Subject, string Message);
 public record SubscriptionRequestDto(string Plan, string ContactEmail, string? Note);
+public record MollieStartRequestDto(string Plan);
 
 public record UpdateBusinessHoursItemDto(int DayOfWeek, bool IsOpen, string? OpenTime, string? CloseTime, string? BreakStartTime, string? BreakEndTime);
 
@@ -532,5 +586,11 @@ public record UpdateTenantSettingsRequest(
     string? LinktreeStyle,
     string? LinktreeConfig,
     int? CancellationHoursNotice,
-    decimal? CancellationFeePercent
+    decimal? CancellationFeePercent,
+    string? LegalCompanyName,
+    string? BillingStreet,
+    string? BillingZipCode,
+    string? BillingCity,
+    string? BillingCountry,
+    string? VatId
 );

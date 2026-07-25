@@ -42,6 +42,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<EmployeeNote> EmployeeNotes { get; set; }
     public DbSet<WaitlistEntry> WaitlistEntries { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
+    public DbSet<MollieWebhookEvent> MollieWebhookEvents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -123,9 +124,25 @@ public class GentleBookDbContext : DbContext
             entity.HasIndex(e => e.TenantId).IsUnique();
             entity.Property(e => e.Plan).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
+            entity.HasIndex(e => e.MollieCustomerId);
+            entity.HasIndex(e => e.MollieSubscriptionId);
+            entity.HasIndex(e => e.LastMolliePaymentId);
             entity.Ignore(e => e.IsInTrial);
             entity.Ignore(e => e.TrialDaysRemaining);
             entity.Ignore(e => e.IsAccessAllowed);
+        });
+
+        // ── MollieWebhookEvent ────────────────────────────────
+        modelBuilder.Entity<MollieWebhookEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.MollieResourceId).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.ResourceType).IsRequired().HasMaxLength(20);
+            // Payment IDs must only ever be fully processed once; subscription-resource
+            // webhook pings for the same id can legitimately arrive more than once.
+            entity.HasIndex(e => e.MollieResourceId)
+                  .IsUnique()
+                  .HasFilter("[ResourceType] = 'payment'");
         });
 
         // ── PlatformUser ──────────────────────────────────────

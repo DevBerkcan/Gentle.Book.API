@@ -48,6 +48,12 @@ namespace GentleBook.Api.Options
                 s => s.MarkNoShowsAsync(),
                 Cron.Hourly());
 
+            // Hourly — safety net for missed Mollie webhooks (re-polls Mollie directly)
+            _recurringJobManager.AddOrUpdate<MollieReconciliationJob>(
+                "mollie-reconciliation",
+                j => j.ReconcileAsync(),
+                Cron.Hourly());
+
             _logger.LogInformation("Hangfire jobs scheduled successfully");
 
             return Task.CompletedTask;

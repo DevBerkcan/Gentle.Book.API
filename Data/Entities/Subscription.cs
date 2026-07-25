@@ -17,9 +17,15 @@ public class Subscription
     public DateTime? CurrentPeriodStart { get; set; }
     public DateTime? CurrentPeriodEnd { get; set; }
 
-    // ── Stripe (prepared, not yet integrated) ─────────────────
-    public string? StripeCustomerId { get; set; }
-    public string? StripeSubscriptionId { get; set; }
+    // ── Mollie (SEPA Direct Debit via Mollie Subscriptions API) ───
+    public string? MollieCustomerId { get; set; }
+    public string? MollieMandateId { get; set; }
+    public string? MollieSubscriptionId { get; set; }
+    public string? LastMolliePaymentId { get; set; }
+    public DateTime? MollieMandateSignedAt { get; set; }
+
+    // ── CRM (Gentle.Suite invoicing) ──────────────────────────
+    public string? CrmCustomerId { get; set; }
 
     public DateTime? CancelledAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
