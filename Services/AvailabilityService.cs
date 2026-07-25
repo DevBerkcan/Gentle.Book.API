@@ -24,7 +24,8 @@ public class AvailabilityService
     public async Task<AvailabilityResponseDto> GetAvailableTimeSlotsAsync(
         Guid serviceId,
         DateOnly date,
-        Guid? employeeId = null)
+        Guid? employeeId = null,
+        string? waitlistToken = null)
     {
         // 1. Service abrufen
         var service = await _context.Services.FindAsync(serviceId);
@@ -73,6 +74,8 @@ public class AvailabilityService
             employeeId,
             service.DurationMinutes
         );
+        availableSlots = await ApplyWaitlistReservationsAsync(
+            availableSlots, serviceId, date, employeeId, waitlistToken);
 
         // Erkläre WARUM keine Zeiten frei sind, statt nur eine leere Liste zu liefern
         string? message = null;
@@ -88,6 +91,47 @@ public class AvailabilityService
             availableSlots,
             message
         );
+    }
+
+    private async Task<List<TimeSlotDto>> ApplyWaitlistReservationsAsync(
+        List<TimeSlotDto> slots,
+        Guid serviceId,
+        DateOnly date,
+        Guid? employeeId,
+        string? waitlistToken)
+    {
+        var reservations = await _context.WaitlistEntries
+            .AsNoTracking()
+            .Where(w =>
+                w.ServiceId == serviceId &&
+                w.PreferredDate == date &&
+                w.ReservedEmployeeId == employeeId &&
+                w.Status == WaitlistStatus.Notified &&
+                w.ReservationExpiresAt > DateTime.UtcNow)
+            .Select(w => new
+            {
+                w.ReservationToken,
+                w.ReservedStartTime,
+                w.ReservedEndTime,
+            })
+            .ToListAsync();
+
+        if (reservations.Count == 0)
+            return slots;
+
+        return slots.Select(slot =>
+        {
+            if (!TimeOnly.TryParse(slot.StartTime, out var start) ||
+                !TimeOnly.TryParse(slot.EndTime, out var end))
+                return slot;
+
+            var reservation = reservations.FirstOrDefault(r =>
+                r.ReservedStartTime == start && r.ReservedEndTime == end);
+            var belongsToCaller = reservation == null ||
+                string.Equals(reservation.ReservationToken, waitlistToken, StringComparison.Ordinal);
+
+            return belongsToCaller ? slot : slot with { IsAvailable = false };
+        }).ToList();
     }
 
     /// <summary>

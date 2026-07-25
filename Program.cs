@@ -137,6 +137,7 @@ builder.Services.AddScoped<EmailService>();
 builder.Services.AddScoped<BlockedTimeSlotService>();
 builder.Services.AddScoped<AvailabilityService>();
 builder.Services.AddScoped<BookingService>();
+builder.Services.AddScoped<WaitlistService>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddScoped<ReminderService>();
 builder.Services.AddScoped<ManualBookingService>();
@@ -446,6 +447,25 @@ using (var scope = app.Services.CreateScope())
                 CREATE INDEX IX_WaitlistEntries_ServiceId ON WaitlistEntries(ServiceId);
                 CREATE INDEX IX_WaitlistEntries_EmployeeId ON WaitlistEntries(EmployeeId);
             END
+
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'PreferredStartTime')
+                ALTER TABLE WaitlistEntries ADD PreferredStartTime time NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'PreferredEndTime')
+                ALTER TABLE WaitlistEntries ADD PreferredEndTime time NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'ReservationToken')
+                ALTER TABLE WaitlistEntries ADD ReservationToken nvarchar(128) NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'ReservationExpiresAt')
+                ALTER TABLE WaitlistEntries ADD ReservationExpiresAt datetime2 NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'ReservedStartTime')
+                ALTER TABLE WaitlistEntries ADD ReservedStartTime time NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'ReservedEndTime')
+                ALTER TABLE WaitlistEntries ADD ReservedEndTime time NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'ReservedEmployeeId')
+                ALTER TABLE WaitlistEntries ADD ReservedEmployeeId uniqueidentifier NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'BookingId')
+                ALTER TABLE WaitlistEntries ADD BookingId uniqueidentifier NULL;
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'BookedAt')
+                ALTER TABLE WaitlistEntries ADD BookedAt datetime2 NULL;
 
             IF OBJECT_ID(N'AuditLogs', N'U') IS NULL
             BEGIN

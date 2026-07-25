@@ -29,7 +29,8 @@ public class AvailabilityController : ControllerBase
     public async Task<ActionResult<AvailabilityResponseDto>> GetAvailability(
         Guid serviceId,
         [FromQuery] string date,
-        [FromQuery] Guid? employeeId = null)
+        [FromQuery] Guid? employeeId = null,
+        [FromQuery] string? waitlistToken = null)
     {
         if (!DateOnly.TryParse(date, out var bookingDate))
             return BadRequest(new { message = "Ungültiges Datumsformat" });
@@ -37,7 +38,7 @@ public class AvailabilityController : ControllerBase
         try
         {
             var availability = await _availabilityService.GetAvailableTimeSlotsAsync(
-                serviceId, bookingDate, employeeId);
+                serviceId, bookingDate, employeeId, waitlistToken);
             return Ok(availability);
         }
         catch (ArgumentException ex)

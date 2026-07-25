@@ -7,7 +7,8 @@ public record CreateBookingDto(
     string StartTime,        // HH:mm
     CustomerInfoDto Customer,
     string? CustomerNotes,
-    Guid? EmployeeId        // optional – chosen employee
+    Guid? EmployeeId,       // optional – chosen employee
+    string? WaitlistToken = null
 );
 
 public record CustomerInfoDto(

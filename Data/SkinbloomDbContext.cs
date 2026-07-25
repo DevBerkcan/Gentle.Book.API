@@ -62,6 +62,14 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<EmployeeSchedule>().HasQueryFilter(es => CurrentTenantId == null || es.TenantId == CurrentTenantId);
         modelBuilder.Entity<EmployeeVacation>().HasQueryFilter(ev => CurrentTenantId == null || ev.TenantId == CurrentTenantId);
         modelBuilder.Entity<EmployeeNote>().HasQueryFilter(en => CurrentTenantId == null || en.TenantId == CurrentTenantId);
+        modelBuilder.Entity<WaitlistEntry>().HasQueryFilter(w => CurrentTenantId == null || w.TenantId == CurrentTenantId);
+
+        modelBuilder.Entity<WaitlistEntry>(entity =>
+        {
+            entity.Property(w => w.ReservationToken).HasMaxLength(128);
+            entity.HasIndex(w => new { w.TenantId, w.Status, w.PreferredDate });
+            entity.HasIndex(w => w.ReservationToken);
+        });
 
         // ── AuditLog (kein Tenant-Filter: SuperAdmin liest plattformweit,
         //    Schreibzugriffe setzen TenantId explizit) ─────────

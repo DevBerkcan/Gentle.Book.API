@@ -73,6 +73,19 @@ public class ManualBookingService
         // BookingService.CreateBookingAsync).
         await using var tx = await _context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
 
+        var isReservedForWaitlist = await _context.WaitlistEntries.AnyAsync(w =>
+            w.TenantId == tenantId &&
+            w.ServiceId == dto.ServiceId &&
+            w.PreferredDate == bookingDate &&
+            w.ReservedEmployeeId == dto.EmployeeId &&
+            w.ReservedStartTime == startTime &&
+            w.ReservedEndTime == endTime &&
+            w.Status == WaitlistStatus.Notified &&
+            w.ReservationExpiresAt > DateTime.UtcNow);
+        if (isReservedForWaitlist)
+            throw new InvalidOperationException(
+                "Dieser Zeitslot ist momentan für einen Wartelistenkunden reserviert.");
+
         var isAvailable = await IsSlotAvailableAsync(tenantId, bookingDate, startTime, endTime, dto.EmployeeId);
         if (!isAvailable)
             throw new InvalidOperationException("Dieser Zeitslot ist nicht verfügbar");

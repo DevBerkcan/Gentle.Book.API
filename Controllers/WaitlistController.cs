@@ -34,12 +34,52 @@ public class PublicWaitlistController : ControllerBase
         if (string.IsNullOrWhiteSpace(dto.Email))
             return BadRequest(new { message = "E-Mail-Adresse ist erforderlich." });
 
-        // Prevent duplicate waitlist entries for same date+service+email
+        if (!dto.ServiceId.HasValue || !dto.PreferredDate.HasValue)
+            return BadRequest(new { message = "Service und Wunschtag sind erforderlich." });
+
+        if (dto.PreferredDate.Value < DateOnly.FromDateTime(DateTime.UtcNow))
+            return BadRequest(new { message = "Der Wunschtag darf nicht in der Vergangenheit liegen." });
+
+        var serviceIsValid = await _db.Services.AnyAsync(s =>
+            s.Id == dto.ServiceId.Value && s.TenantId == tenant.Id && s.IsActive);
+        if (!serviceIsValid)
+            return BadRequest(new { message = "Der gewählte Service ist nicht verfügbar." });
+
+        if (dto.EmployeeId.HasValue)
+        {
+            var employeeIsValid = await _db.Employees.AnyAsync(e =>
+                e.Id == dto.EmployeeId.Value &&
+                e.TenantId == tenant.Id &&
+                e.IsActive &&
+                e.ServiceEmployees.Any(se => se.ServiceId == dto.ServiceId.Value));
+            if (!employeeIsValid)
+                return BadRequest(new { message = "Der gewählte Mitarbeiter ist für diesen Service nicht verfügbar." });
+        }
+
+        TimeOnly? preferredStartTime = null;
+        TimeOnly? preferredEndTime = null;
+        if (!string.IsNullOrWhiteSpace(dto.PreferredStartTime))
+        {
+            if (!TimeOnly.TryParse(dto.PreferredStartTime, out var parsedStart))
+                return BadRequest(new { message = "Ungültige Wunschzeit." });
+
+            preferredStartTime = parsedStart;
+            if (!string.IsNullOrWhiteSpace(dto.PreferredEndTime))
+            {
+                if (!TimeOnly.TryParse(dto.PreferredEndTime, out var parsedEnd) || parsedEnd <= parsedStart)
+                    return BadRequest(new { message = "Ungültiges Ende der Wunschzeit." });
+                preferredEndTime = parsedEnd;
+            }
+        }
+
+        // Prevent duplicate pending entries for the same customer and preference.
         var exists = await _db.WaitlistEntries.AnyAsync(w =>
             w.TenantId == tenant.Id &&
             w.Email.ToLower() == dto.Email.ToLower() &&
             w.ServiceId == dto.ServiceId &&
             w.PreferredDate == dto.PreferredDate &&
+            w.EmployeeId == dto.EmployeeId &&
+            w.PreferredStartTime == preferredStartTime &&
             w.Status == WaitlistStatus.Pending);
 
         if (exists)
@@ -51,6 +91,8 @@ public class PublicWaitlistController : ControllerBase
             ServiceId   = dto.ServiceId,
             EmployeeId  = dto.EmployeeId,
             PreferredDate = dto.PreferredDate,
+            PreferredStartTime = preferredStartTime,
+            PreferredEndTime = preferredEndTime,
             FirstName   = dto.FirstName.Trim(),
             LastName    = dto.LastName.Trim(),
             Email       = dto.Email.Trim().ToLower(),
@@ -75,7 +117,9 @@ public record JoinWaitlistDto(
     string? Notes,
     Guid? ServiceId,
     Guid? EmployeeId,
-    DateOnly? PreferredDate
+    DateOnly? PreferredDate,
+    string? PreferredStartTime,
+    string? PreferredEndTime
 );
 
 // ── Admin: view & manage waitlist ────────────────────────────────────────────
@@ -135,7 +179,11 @@ public class WaitlistController : ControllerBase
                 w.Status,
                 w.CreatedAt,
                 w.NotifiedAt,
+                w.ReservationExpiresAt,
                 PreferredDate  = w.PreferredDate.HasValue ? w.PreferredDate.Value.ToString("yyyy-MM-dd") : null,
+                PreferredStartTime = w.PreferredStartTime.HasValue ? w.PreferredStartTime.Value.ToString("HH:mm") : null,
+                PreferredEndTime = w.PreferredEndTime.HasValue ? w.PreferredEndTime.Value.ToString("HH:mm") : null,
+                ReservedStartTime = w.ReservedStartTime.HasValue ? w.ReservedStartTime.Value.ToString("HH:mm") : null,
                 ServiceName    = w.Service != null ? w.Service.Name : null,
                 EmployeeName   = w.Employee != null ? w.Employee.Name : null,
             })

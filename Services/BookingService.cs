@@ -2,6 +2,7 @@ using System.Data;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 
 namespace GentleBook.Api.Services;
@@ -11,16 +12,16 @@ public class BookingService
     private readonly GentleBookDbContext _context;
     private readonly ILogger<BookingService> _logger;
     private readonly EmailService _emailService;
-    private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IBackgroundJobClient _jobs;
 
     public BookingService(
         GentleBookDbContext context,
         ILogger<BookingService> logger,
         EmailService emailService,
-        IServiceScopeFactory scopeFactory)
+        IBackgroundJobClient jobs)
     {
         _context = context;
-        _scopeFactory = scopeFactory;
+        _jobs = jobs;
         _logger = logger;
         _emailService = emailService;
     }
@@ -77,6 +78,23 @@ public class BookingService
         // concurrent request for the same slot — RepeatableRead only locks rows already read.
         await using var tx = await _context.Database
             .BeginTransactionAsync(IsolationLevel.Serializable);
+
+        var activeReservation = await _context.WaitlistEntries.FirstOrDefaultAsync(w =>
+            w.TenantId == tenantId &&
+            w.ServiceId == dto.ServiceId &&
+            w.PreferredDate == bookingDate &&
+            w.Status == WaitlistStatus.Notified &&
+            w.ReservationExpiresAt > DateTime.UtcNow &&
+            w.ReservedStartTime == startTime &&
+            w.ReservedEndTime == endTime &&
+            w.ReservedEmployeeId == dto.EmployeeId);
+
+        if (activeReservation != null &&
+            !string.Equals(activeReservation.ReservationToken, dto.WaitlistToken, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Dieser Termin ist momentan für einen Wartelistenkunden reserviert.");
+        }
 
         var isSlotAvailable = await IsSlotAvailableAsync(
             tenantId, bookingDate, startTime, endTime, dto.EmployeeId);
@@ -157,6 +175,13 @@ public class BookingService
         };
 
         _context.Bookings.Add(booking);
+
+        if (activeReservation != null)
+        {
+            activeReservation.Status = WaitlistStatus.Booked;
+            activeReservation.BookingId = booking.Id;
+            activeReservation.BookedAt = DateTime.UtcNow;
+        }
 
         customer.TotalBookings++;
         customer.LastVisit = DateTime.SpecifyKind(bookingDateTime, DateTimeKind.Utc);
@@ -295,61 +320,16 @@ public class BookingService
             }
         }
 
-        // Notify waitlist entries for the same date + service + employee
-        _ = Task.Run(() => NotifyWaitlistAsync(booking));
+        // Offer the freed slot to the oldest matching waitlist entry.
+        _jobs.Enqueue<WaitlistService>(service => service.NotifyNextForFreedSlotAsync(
+            booking.TenantId,
+            booking.ServiceId,
+            booking.EmployeeId,
+            booking.BookingDate,
+            booking.StartTime,
+            booking.EndTime));
 
         return new CancelBookingResponseDto(true, "Termin erfolgreich storniert", emailSent);
-    }
-
-    private async Task NotifyWaitlistAsync(Booking booking)
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
-            var emailService = scope.ServiceProvider.GetRequiredService<EmailService>();
-
-            var waitlist = await db.WaitlistEntries
-                .Where(w =>
-                    w.TenantId == booking.TenantId &&
-                    w.Status == WaitlistStatus.Pending &&
-                    w.ServiceId == booking.ServiceId &&
-                    w.PreferredDate == booking.BookingDate)
-                .Include(w => w.Service)
-                .ToListAsync();
-
-            if (waitlist.Count == 0) return;
-
-            var tenantSettings = await db.TenantSettings
-                .AsNoTracking()
-                .FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
-
-            var tenant = await db.Tenants.AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Id == booking.TenantId);
-
-            var tenantName  = tenantSettings?.CompanyName ?? tenant?.Name ?? "Buchungssystem";
-            var tenantSlug  = tenant?.Slug ?? "";
-            var logoUrl     = emailService.GetAbsoluteLogoUrl(tenantSettings?.LogoUrl);
-            var color       = tenantSettings?.PrimaryColor ?? "#6355E4";
-            var serviceName = waitlist.FirstOrDefault()?.Service?.Name ?? "Ihrem Service";
-
-            foreach (var entry in waitlist)
-            {
-                await emailService.SendWaitlistNotificationAsync(
-                    entry.Email, entry.FirstName, entry.LastName,
-                    serviceName, booking.BookingDate, tenantSlug,
-                    tenantName, logoUrl, color);
-
-                entry.Status     = WaitlistStatus.Notified;
-                entry.NotifiedAt = DateTime.UtcNow;
-            }
-
-            await db.SaveChangesAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to notify waitlist for booking {BookingId}", booking.Id);
-        }
     }
 
     // ── CONFIRM ───────────────────────────────────────────────────

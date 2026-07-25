@@ -421,17 +421,23 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
     }
 
     /// <summary>Notifies a waitlist customer that a slot has opened up.</summary>
-    public async Task SendWaitlistNotificationAsync(
+    public async Task<bool> SendWaitlistNotificationAsync(
         string toEmail, string toFirstName, string toLastName,
-        string serviceName, DateOnly date, string tenantSlug,
-        string tenantName, string? tenantLogoUrl, string primaryColor)
+        string serviceName, DateOnly date, TimeOnly startTime, TimeOnly endTime,
+        string tenantSlug, string tenantName, string? tenantLogoUrl,
+        string primaryColor, string reservationToken,
+        Guid serviceId, Guid? employeeId)
     {
         try
         {
             var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl)
                 ? _emailOptions.BaseUrl
                 : _emailOptions.FrontendUrl;
-            var bookingUrl = $"{frontendBase}/booking/{tenantSlug}/book";
+            var bookingUrl = $"{frontendBase}/booking/{tenantSlug}/book" +
+                $"?waitlistToken={Uri.EscapeDataString(reservationToken)}" +
+                $"&serviceId={serviceId}&date={date:yyyy-MM-dd}" +
+                $"&time={startTime:HH\\:mm}" +
+                (employeeId.HasValue ? $"&employeeId={employeeId.Value}" : "");
 
             var content = $@"
                 <div class='greeting'>Hallo {toFirstName},</div>
@@ -448,10 +454,14 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
                         <span class='detail-label'>Datum</span>
                         <span class='detail-value'>{date:dd.MM.yyyy}</span>
                     </div>
+                    <div class='detail-row'>
+                        <span class='detail-label'>Uhrzeit</span>
+                        <span class='detail-value'>{startTime:HH\\:mm} – {endTime:HH\\:mm}</span>
+                    </div>
                 </div>
                 <div class='cancel-section'>
                     <div class='cancel-title'>Jetzt buchen!</div>
-                    <div class='cancel-text'>Bitte schnell sein – Termine werden nach dem Prinzip „Wer zuerst kommt, mahlt zuerst“ vergeben.</div>
+                    <div class='cancel-text'>Dieser Termin ist ab Versand dieser E-Mail 15 Minuten exklusiv für Sie reserviert.</div>
                     <a href='{bookingUrl}' style='display: inline-block; background: linear-gradient(135deg, {primaryColor} 0%, {DarkenHex(primaryColor)} 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);'>
                         Termin jetzt buchen
                     </a>
@@ -474,10 +484,12 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
             await smtp.DisconnectAsync(true);
 
             _logger.LogInformation("Waitlist notification sent to {Email}", toEmail);
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send waitlist notification to {Email}", toEmail);
+            return false;
         }
     }
 
