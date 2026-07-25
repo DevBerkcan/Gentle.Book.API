@@ -16,6 +16,7 @@ public class EmailService
     private readonly GentleBookDbContext _context;
     private readonly ILogger<EmailService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IConfiguration _config;
 
     public string FrontendUrl => string.IsNullOrEmpty(_emailOptions.FrontendUrl)
         ? _emailOptions.BaseUrl
@@ -25,12 +26,14 @@ public class EmailService
         IOptions<EmailOptions> emailOptions,
         GentleBookDbContext context,
         ILogger<EmailService> logger,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        IConfiguration config)
     {
         _emailOptions = emailOptions.Value;
         _context = context;
         _logger = logger;
         _scopeFactory = scopeFactory;
+        _config = config;
     }
 
     public async Task SendBookingConfirmationAsync(Guid bookingId)
@@ -1559,15 +1562,63 @@ STORNIERUNG:
 
     #endregion
 
-    private string GenerateCancellationToken(Guid bookingId)
+    // New tokens are HMAC-signed ("{payloadBase64Url}.{signatureBase64Url}", payload =
+    // "{bookingId}:{action}"). DecodeToken keeps accepting the old, unsigned Base64
+    // triplet format indefinitely so links already sent by e-mail never break.
+    private byte[] TokenSigningKey =>
+        System.Text.Encoding.UTF8.GetBytes(_config["Jwt:Secret"]
+            ?? throw new InvalidOperationException("Jwt:Secret is not configured"));
+
+    private static string Base64Url(byte[] data) =>
+        Convert.ToBase64String(data).Replace("+", "-").Replace("/", "_").TrimEnd('=');
+
+    private static byte[] FromBase64Url(string input)
     {
-        return Convert.ToBase64String(
-            System.Text.Encoding.UTF8.GetBytes($"{bookingId}:{DateTime.UtcNow.Ticks}:cancel")
-        ).Replace("+", "-").Replace("/", "_").Replace("=", "");
+        var s = input.Replace("-", "+").Replace("_", "/");
+        while (s.Length % 4 != 0) s += "=";
+        return Convert.FromBase64String(s);
+    }
+
+    private string GenerateCancellationToken(Guid bookingId) => GenerateActionToken(bookingId, "cancel");
+
+    private string GenerateActionToken(Guid bookingId, string action)
+    {
+        var payloadBytes = System.Text.Encoding.UTF8.GetBytes($"{bookingId}:{action}");
+        using var hmac = new System.Security.Cryptography.HMACSHA256(TokenSigningKey);
+        var signature = hmac.ComputeHash(payloadBytes);
+        return $"{Base64Url(payloadBytes)}.{Base64Url(signature)}";
     }
 
     public (Guid bookingId, string action) DecodeToken(string token)
     {
+        // New signed format: "payload.signature"
+        if (token.Contains('.'))
+        {
+            try
+            {
+                var parts = token.Split('.');
+                if (parts.Length == 2)
+                {
+                    var payloadBytes = FromBase64Url(parts[0]);
+                    var providedSig = FromBase64Url(parts[1]);
+                    using var hmac = new System.Security.Cryptography.HMACSHA256(TokenSigningKey);
+                    var expectedSig = hmac.ComputeHash(payloadBytes);
+                    if (System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedSig, providedSig))
+                    {
+                        var payload = System.Text.Encoding.UTF8.GetString(payloadBytes);
+                        var segments = payload.Split(':');
+                        if (segments.Length == 2 && Guid.TryParse(segments[0], out var signedBookingId))
+                            return (signedBookingId, segments[1]);
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return (Guid.Empty, string.Empty);
+        }
+
+        // Legacy unsigned format — kept so previously sent e-mail links stay valid.
         try
         {
             var base64 = token.Replace("-", "+").Replace("_", "/");

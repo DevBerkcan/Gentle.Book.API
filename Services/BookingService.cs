@@ -72,9 +72,11 @@ public class BookingService
                 throw new InvalidOperationException("Das monatliche Buchungskontingent dieses Studios ist ausgeschöpft. Bitte kontaktieren Sie das Studio direkt.");
         }
 
-        // 3. Check slot availability inside a serializable transaction to prevent race conditions
+        // 3. Check slot availability inside a serializable transaction to prevent race conditions.
+        // Serializable (not RepeatableRead) is required to also block phantom inserts from a
+        // concurrent request for the same slot — RepeatableRead only locks rows already read.
         await using var tx = await _context.Database
-            .BeginTransactionAsync(IsolationLevel.RepeatableRead);
+            .BeginTransactionAsync(IsolationLevel.Serializable);
 
         var isSlotAvailable = await IsSlotAvailableAsync(
             tenantId, bookingDate, startTime, endTime, dto.EmployeeId);
@@ -275,6 +277,8 @@ public class BookingService
         _logger.LogInformation(
             "Booking cancelled: {BookingId}, Reason: {Reason}", booking.Id, dto.Reason);
 
+        // SendCancellationConfirmationAsync already writes its own EmailLog entry
+        // (Sent or Failed) — it must not be duplicated here.
         bool emailSent = false;
         if (dto.NotifyCustomer)
         {
@@ -282,37 +286,12 @@ public class BookingService
             {
                 await _emailService.SendCancellationConfirmationAsync(
                     booking, booking.Customer, booking.Service);
-
-                _context.EmailLogs.Add(new EmailLog
-                {
-                    TenantId = booking.TenantId,
-                    BookingId = booking.Id,
-                    RecipientEmail = booking.Customer.Email,
-                    EmailType = EmailType.Cancellation,
-                    SentAt = DateTime.UtcNow,
-                    Status = EmailStatus.Sent,
-                });
-                await _context.SaveChangesAsync();
                 emailSent = true;
-
-                _logger.LogInformation("Cancellation email sent to {Email}", booking.Customer.Email);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex,
                     "Failed to send cancellation email to {Email}", booking.Customer.Email);
-
-                _context.EmailLogs.Add(new EmailLog
-                {
-                    TenantId = booking.TenantId,
-                    BookingId = booking.Id,
-                    RecipientEmail = booking.Customer.Email,
-                    EmailType = EmailType.Cancellation,
-                    SentAt = DateTime.UtcNow,
-                    Status = EmailStatus.Failed,
-                    ErrorMessage = ex.Message,
-                });
-                await _context.SaveChangesAsync();
             }
         }
 
@@ -415,42 +394,19 @@ public class BookingService
             "Booking confirmed: {BookingId} for customer {Email}",
             booking.Id, booking.Customer.Email);
 
+        // SendConfirmationReceiptAsync already writes its own EmailLog entry
+        // (Sent or Failed) — it must not be duplicated here.
         bool emailSent = false;
         try
         {
             await _emailService.SendConfirmationReceiptAsync(
                 booking, booking.Customer, booking.Service);
-
-            _context.EmailLogs.Add(new EmailLog
-            {
-                TenantId = booking.TenantId,
-                BookingId = booking.Id,
-                RecipientEmail = booking.Customer.Email,
-                EmailType = EmailType.Confirmation,
-                SentAt = DateTime.UtcNow,
-                Status = EmailStatus.Sent,
-            });
-            await _context.SaveChangesAsync();
             emailSent = true;
-
-            _logger.LogInformation("Confirmation receipt sent to {Email}", booking.Customer.Email);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex,
                 "Failed to send confirmation receipt to {Email}", booking.Customer.Email);
-
-            _context.EmailLogs.Add(new EmailLog
-            {
-                TenantId = booking.TenantId,
-                BookingId = booking.Id,
-                RecipientEmail = booking.Customer.Email,
-                EmailType = EmailType.Confirmation,
-                SentAt = DateTime.UtcNow,
-                Status = EmailStatus.Failed,
-                ErrorMessage = ex.Message,
-            });
-            await _context.SaveChangesAsync();
         }
 
         return ToDto(booking, emailSent);

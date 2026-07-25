@@ -42,6 +42,12 @@ namespace GentleBook.Api.Options
                 s => s.SendTrialWarningEmailsAsync(),
                 Cron.Daily(9, 0));
 
+            // Hourly — mark bookings whose end time + grace period has passed as NoShow
+            _recurringJobManager.AddOrUpdate<NoShowService>(
+                "auto-no-show",
+                s => s.MarkNoShowsAsync(),
+                Cron.Hourly());
+
             _logger.LogInformation("Hangfire jobs scheduled successfully");
 
             return Task.CompletedTask;

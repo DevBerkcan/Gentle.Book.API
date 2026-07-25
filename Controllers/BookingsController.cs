@@ -35,6 +35,7 @@ public class BookingsController : ControllerBase
 
     private Guid? GetCurrentEmployeeId() => JwtService.GetEmployeeId(User);
     private bool IsTenantAdmin() => JwtService.GetRole(User) == "TenantAdmin";
+    private bool HasTenantWideAccess() => JwtService.GetRole(User) is "TenantAdmin" or "SuperAdmin";
     private Guid? GetEmployeeScope() => IsTenantAdmin() ? null : GetCurrentEmployeeId();
 
     // ─────────────────────────────────────────────────────────────
@@ -191,17 +192,20 @@ public class BookingsController : ControllerBase
     public async Task<ActionResult<List<BookingResponseDto>>> GetAllBookings(
         [FromQuery] bool all = false)
     {
-        var employeeId = all ? null : GetEmployeeScope();
+        // "all" darf Mitarbeiter-Scoping nur für TenantAdmin/SuperAdmin aufheben,
+        // sonst könnte jeder Mitarbeiter mit ?all=true alle Kollegen-Buchungen sehen.
+        var employeeId = (all && HasTenantWideAccess()) ? null : GetEmployeeScope();
         var bookings = await _bookingService.GetAllBookingsAsync(employeeId);
         return Ok(bookings);
     }
 
-    /// <summary>Export all bookings as CSV file.</summary>
+    /// <summary>Export bookings as CSV file — scoped to the authenticated employee
+    /// unless the caller is TenantAdmin/SuperAdmin.</summary>
     [HttpGet("export/csv")]
     [Authorize]
     public async Task<IActionResult> ExportCsv()
     {
-        var bookings = await _bookingService.GetAllBookingsAsync(null);
+        var bookings = await _bookingService.GetAllBookingsAsync(GetEmployeeScope());
 
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("Buchungsnummer;Status;Datum;Uhrzeit;Ende;Service;Preis;Währung;Vorname;Nachname;E-Mail;Mitarbeiter");

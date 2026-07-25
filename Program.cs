@@ -159,6 +159,7 @@ builder.Services.AddHangfire(configuration => configuration
 
 builder.Services.AddHangfireServer();
 builder.Services.AddSingleton<IHostedService, HangfireJobScheduler>();
+builder.Services.AddScoped<NoShowService>();
 
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
 builder.Services.AddRateLimiter(options =>
@@ -260,21 +261,16 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+// Recurring Hangfire jobs are registered by HangfireJobScheduler (IHostedService, see
+// builder.Services.AddSingleton<IHostedService, HangfireJobScheduler>() above). Registering
+// them here too duplicated "process-expired-trials" under a second job id
+// ("trial-expiration-check"), causing it to run twice a day — removed. Hangfire persists
+// recurring jobs in its own storage, so the stale id must be explicitly deleted once,
+// otherwise it keeps firing even though the code above no longer re-registers it.
 using (var scope = app.Services.CreateScope())
 {
-    var recurringJobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();
-
-    // Send booking reminders daily at 8:00 AM UTC
-    recurringJobManager.AddOrUpdate<ReminderService>(
-        "daily-reminders",
-        service => service.SendDailyRemindersAsync(),
-        Cron.Daily(8, 0));
-
-    // Trial expiration: daily at 1:00 AM UTC
-    recurringJobManager.AddOrUpdate<SubscriptionService>(
-        "trial-expiration-check",
-        service => service.ProcessExpiredTrialsAsync(),
-        Cron.Daily(1, 0));
+    scope.ServiceProvider.GetRequiredService<IRecurringJobManager>()
+        .RemoveIfExists("trial-expiration-check");
 }
 
 app.MapControllers();

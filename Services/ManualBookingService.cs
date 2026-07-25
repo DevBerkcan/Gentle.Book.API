@@ -1,4 +1,5 @@
-﻿using GentleBook.Api.Data;
+﻿using System.Data;
+using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
 using Microsoft.EntityFrameworkCore;
@@ -67,7 +68,11 @@ public class ManualBookingService
                     $"Ihr Plan erlaubt maximal {planLimits.MaxBookingsPerMonth} Buchungen pro Monat. Bitte upgraden Sie Ihren Plan.");
         }
 
-        // Check if slot is available
+        // Check slot availability inside a serializable transaction to prevent race conditions
+        // against concurrent public/manual bookings for the same slot (same pattern as
+        // BookingService.CreateBookingAsync).
+        await using var tx = await _context.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+
         var isAvailable = await IsSlotAvailableAsync(tenantId, bookingDate, startTime, endTime, dto.EmployeeId);
         if (!isAvailable)
             throw new InvalidOperationException("Dieser Zeitslot ist nicht verfügbar");
@@ -108,6 +113,7 @@ public class ManualBookingService
         customer.UpdatedAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+        await tx.CommitAsync();
 
         _logger.LogInformation(
             "Manual booking created: {BookingNumber} for customer {CustomerId} - {FirstName} {LastName} assigned to employee {EmployeeId}",
@@ -118,7 +124,8 @@ public class ManualBookingService
             customer.EmployeeId
         );
 
-        // Try to send confirmation email if email is provided
+        // Try to send confirmation email if email is provided.
+        // SendBookingConfirmationAsync already writes its own EmailLog entry — must not be duplicated here.
         bool emailSent = false;
         if (!string.IsNullOrEmpty(customer.Email))
         {
@@ -126,20 +133,6 @@ public class ManualBookingService
             {
                 await _emailService.SendBookingConfirmationAsync(booking.Id);
                 emailSent = true;
-
-                _context.EmailLogs.Add(new EmailLog
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = booking.TenantId,
-                    BookingId = booking.Id,
-                    RecipientEmail = customer.Email,
-                    EmailType = EmailType.Confirmation,
-                    SentAt = DateTime.UtcNow,
-                    Status = EmailStatus.Sent
-                });
-                await _context.SaveChangesAsync();
-
-                _logger.LogInformation("Confirmation email sent to {Email}", customer.Email);
             }
             catch (Exception ex)
             {

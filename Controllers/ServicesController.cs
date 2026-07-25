@@ -156,6 +156,10 @@ public class ServicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<List<ServiceDto>>> GetEmployeeServices(Guid employeeId)
     {
+        var role = JwtService.GetRole(User);
+        if (role != "TenantAdmin" && role != "SuperAdmin")
+            return StatusCode(403, new { message = "Nur Administratoren dürfen Service-Zuweisungen einsehen." });
+
         var services = await _serviceService.GetEmployeeServicesAsync(employeeId);
         return Ok(services);
     }

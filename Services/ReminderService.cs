@@ -85,24 +85,10 @@ public class ReminderService
 
             try
             {
-                // Send reminder email
+                // Send reminder email — SendBookingReminderAsync already writes its own
+                // EmailLog entry (Sent or Failed) and sets ReminderSentAt on the tracked
+                // booking, so neither must be duplicated here.
                 await _emailService.SendBookingReminderAsync(booking.Id);
-
-                // Mark reminder as sent
-                booking.ReminderSentAt = DateTime.UtcNow;
-
-                // Log email
-                _context.EmailLogs.Add(new EmailLog
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = booking.TenantId,
-                    BookingId = booking.Id,
-                    RecipientEmail = booking.Customer.Email,
-                    EmailType = EmailType.Reminder,
-                    SentAt = DateTime.UtcNow,
-                    Status = EmailStatus.Sent,
-                    CreatedAt = DateTime.UtcNow
-                });
 
                 successCount++;
                 _logger.LogInformation(
@@ -120,20 +106,6 @@ public class ReminderService
                     booking.Id,
                     booking.Customer?.Email ?? "unknown"
                 );
-
-                // Log email failure
-                _context.EmailLogs.Add(new EmailLog
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = booking.TenantId,
-                    BookingId = booking.Id,
-                    RecipientEmail = booking.Customer?.Email ?? "unknown",
-                    EmailType = EmailType.Reminder,
-                    SentAt = DateTime.UtcNow,
-                    Status = EmailStatus.Failed,
-                    ErrorMessage = ex.Message,
-                    CreatedAt = DateTime.UtcNow
-                });
             }
         }
 
