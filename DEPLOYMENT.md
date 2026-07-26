@@ -1,5 +1,16 @@
 # GentleBook API — Deployment auf MonsterASP
 
+## Umgebungen
+
+Production und Staging müssen als zwei getrennte Anwendungen mit getrennten
+Datenbanken betrieben werden. Für Staging wird
+`ASPNETCORE_ENVIRONMENT=Staging` gesetzt; die nicht geheimen Defaults stehen in
+`appsettings.Staging.json`. Connection String, JWT-Secrets, E-Mail-, Mollie- und
+CRM-Zugangsdaten werden ausschließlich als Hosting-Umgebungsvariablen gesetzt.
+
+Die vollständige Zuordnung zwischen Vercel-Frontend, API und Datenbank ist in
+`../Gentle.Book.UI/DEPLOYMENT_ENVIRONMENTS.md` dokumentiert.
+
 ## Voraussetzungen
 - MonsterASP Account mit .NET 8 Hosting-Paket
 - SQL Server-Datenbank auf MonsterASP (NEUE, leere DB — NICHT die Skinbloom-DB!)

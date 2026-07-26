@@ -11,9 +11,38 @@ namespace GentleBook.Api.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_WaitlistEntries_TenantId",
-                table: "WaitlistEntries");
+            // Guarded: the WaitlistEntries table itself (and this index) predate the migration
+            // history — they were only ever created via the raw-SQL fallback in Program.cs, never
+            // through a proper migration. A from-scratch replay must create the table here first.
+            migrationBuilder.Sql(@"
+                IF OBJECT_ID(N'WaitlistEntries', N'U') IS NULL
+                BEGIN
+                    CREATE TABLE WaitlistEntries (
+                        Id uniqueidentifier NOT NULL DEFAULT NEWID(),
+                        TenantId uniqueidentifier NOT NULL,
+                        ServiceId uniqueidentifier NULL,
+                        EmployeeId uniqueidentifier NULL,
+                        PreferredDate date NULL,
+                        FirstName nvarchar(max) NOT NULL,
+                        LastName nvarchar(max) NOT NULL,
+                        Email nvarchar(max) NOT NULL,
+                        Phone nvarchar(max) NULL,
+                        Notes nvarchar(max) NULL,
+                        Status int NOT NULL CONSTRAINT DF_WaitlistEntries_Status DEFAULT 0,
+                        CreatedAt datetime2 NOT NULL CONSTRAINT DF_WaitlistEntries_CreatedAt DEFAULT SYSUTCDATETIME(),
+                        NotifiedAt datetime2 NULL,
+                        CONSTRAINT PK_WaitlistEntries PRIMARY KEY (Id),
+                        CONSTRAINT FK_WaitlistEntries_Tenants_TenantId FOREIGN KEY (TenantId)
+                            REFERENCES Tenants(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_WaitlistEntries_Services_ServiceId FOREIGN KEY (ServiceId)
+                            REFERENCES Services(Id),
+                        CONSTRAINT FK_WaitlistEntries_Employees_EmployeeId FOREIGN KEY (EmployeeId)
+                            REFERENCES Employees(Id)
+                    );
+                END
+                ELSE IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_WaitlistEntries_TenantId' AND object_id = OBJECT_ID('WaitlistEntries'))
+                    DROP INDEX IX_WaitlistEntries_TenantId ON WaitlistEntries;
+            ");
 
             migrationBuilder.AddColumn<DateTime>(
                 name: "BookedAt",

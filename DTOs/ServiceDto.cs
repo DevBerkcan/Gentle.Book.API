@@ -8,7 +8,9 @@ public record ServiceDto(
     int DurationMinutes,
     decimal Price,
     int DisplayOrder,
-    string Currency
+    string Currency,
+    Guid? LocationId = null,
+    string? LocationName = null
 );
 
 public record ServiceCategoryDto(
@@ -30,7 +32,9 @@ public record ServiceWithCategoryDto(
     Guid CategoryId,
     string CategoryName,
     string Currency,
-    List<EmployeeBasicDto>? AssignedEmployees = null  
+    List<EmployeeBasicDto>? AssignedEmployees = null,
+    Guid? LocationId = null,
+    string? LocationName = null
 );
 
 public record EmployeeBasicDto(
@@ -59,7 +63,9 @@ public record AdminServiceDto(
     string CategoryName,
     string Currency,
     List<EmployeeBasicDto> AssignedEmployees,
-    bool IsActive
+    bool IsActive,
+    Guid? LocationId = null,
+    string? LocationName = null
 );
 
 public record AdminServiceCategoryDto(
@@ -80,7 +86,8 @@ public record CreateServiceDto(
     int DisplayOrder,
     Guid CategoryId,
     string Currency,
-    List<Guid>? EmployeeIds = null
+    List<Guid>? EmployeeIds = null,
+    Guid? LocationId = null
 );
 
 public record UpdateServiceDto(
@@ -93,7 +100,8 @@ public record UpdateServiceDto(
     Guid CategoryId,
     string Currency,
     List<Guid>? EmployeeIds,
-    bool IsActive
+    bool IsActive,
+    Guid? LocationId = null
 );
 
 public record CreateCategoryDto(

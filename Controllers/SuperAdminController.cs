@@ -166,10 +166,22 @@ public class SuperAdminController : ControllerBase
             CurrentPeriodStart = selectedPlan != SubscriptionPlan.Trial ? DateTime.UtcNow : (DateTime?)null,
             CurrentPeriodEnd = selectedPlan != SubscriptionPlan.Trial ? DateTime.UtcNow.AddMonths(1) : (DateTime?)null,
         };
+        var defaultLocation = new BusinessLocation
+        {
+            TenantId = tenant.Id,
+            Name = "Hauptstandort",
+            City = "Hauptstandort",
+            CountryCode = string.Equals(settings.DefaultCurrency, "CHF", StringComparison.OrdinalIgnoreCase) ? "CH" : "DE",
+            Currency = settings.DefaultCurrency.ToUpperInvariant(),
+            TimeZone = settings.TimeZone,
+            IsDefault = true,
+            IsActive = true,
+        };
 
         _db.Tenants.Add(tenant);
         _db.TenantSettings.Add(settings);
         _db.Subscriptions.Add(subscription);
+        _db.BusinessLocations.Add(defaultLocation);
 
         // Optionally create the first TenantAdmin user with a setup link (no plaintext password)
         string? adminFirstName = null;
@@ -299,7 +311,11 @@ public class SuperAdminController : ControllerBase
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
+            // Dependents with optional/restrictive foreign keys must be removed
+            // before their bookings, services or employees.
             await _db.EmailLogs.IgnoreQueryFilters().Where(e => e.TenantId == id).ExecuteDeleteAsync();
+            await _db.WaitlistEntries.IgnoreQueryFilters().Where(w => w.TenantId == id).ExecuteDeleteAsync();
+            await _db.EmployeeNotes.IgnoreQueryFilters().Where(n => n.TenantId == id).ExecuteDeleteAsync();
             await _db.Bookings.IgnoreQueryFilters().Where(b => b.TenantId == id).ExecuteDeleteAsync();
 
             await _db.BlockedTimeSlots.IgnoreQueryFilters().Where(b => b.TenantId == id).ExecuteDeleteAsync();
@@ -311,6 +327,7 @@ public class SuperAdminController : ControllerBase
                 .ExecuteDeleteAsync();
 
             await _db.Services.IgnoreQueryFilters().Where(s => s.TenantId == id).ExecuteDeleteAsync();
+            await _db.BusinessLocations.IgnoreQueryFilters().Where(l => l.TenantId == id).ExecuteDeleteAsync();
             await _db.ServiceCategories.IgnoreQueryFilters().Where(c => c.TenantId == id).ExecuteDeleteAsync();
             await _db.Customers.IgnoreQueryFilters().Where(c => c.TenantId == id).ExecuteDeleteAsync();
             await _db.BusinessHours.IgnoreQueryFilters().Where(h => h.TenantId == id).ExecuteDeleteAsync();
@@ -325,6 +342,7 @@ public class SuperAdminController : ControllerBase
             await _db.Subscriptions.Where(s => s.TenantId == id).ExecuteDeleteAsync();
             await _db.SubscriptionRequests.IgnoreQueryFilters().Where(r => r.TenantId == id).ExecuteDeleteAsync();
             await _db.Employees.IgnoreQueryFilters().Where(e => e.TenantId == id).ExecuteDeleteAsync();
+            await _db.AuditLogs.Where(a => a.TenantId == id).ExecuteDeleteAsync();
 
             _db.Tenants.Remove(tenant);
             await _db.SaveChangesAsync();
@@ -362,7 +380,28 @@ public class SuperAdminController : ControllerBase
         if (dto.Address != null) settings.Address = dto.Address;
         if (dto.WelcomeMessage != null) settings.WelcomeMessage = dto.WelcomeMessage;
         if (dto.CancellationPolicy != null) settings.CancellationPolicy = dto.CancellationPolicy;
-        if (dto.DefaultCurrency != null) settings.DefaultCurrency = dto.DefaultCurrency;
+        if (!string.IsNullOrWhiteSpace(dto.DefaultCurrency))
+        {
+            var currency = dto.DefaultCurrency.Trim().ToUpperInvariant();
+            if (currency.Length != 3)
+                return BadRequest(new { message = "Die Währung muss ein gültiger dreistelliger ISO-Code sein." });
+
+            settings.DefaultCurrency = currency;
+            var defaultLocation = await _db.BusinessLocations
+                .FirstOrDefaultAsync(location => location.TenantId == id && location.IsDefault);
+            if (defaultLocation != null)
+            {
+                defaultLocation.Currency = currency;
+                defaultLocation.UpdatedAt = DateTime.UtcNow;
+            }
+            await _db.Services
+                .Where(s => s.TenantId == id
+                    && (s.LocationId == null || (defaultLocation != null && s.LocationId == defaultLocation.Id))
+                    && s.Currency != currency)
+                .ExecuteUpdateAsync(updates => updates
+                    .SetProperty(s => s.Currency, currency)
+                    .SetProperty(s => s.UpdatedAt, DateTime.UtcNow));
+        }
         if (dto.TimeZone != null) settings.TimeZone = dto.TimeZone;
         if (dto.BookingIntervalMinutes.HasValue) settings.BookingIntervalMinutes = dto.BookingIntervalMinutes.Value;
         if (dto.MaxAdvanceBookingDays.HasValue) settings.MaxAdvanceBookingDays = dto.MaxAdvanceBookingDays.Value;

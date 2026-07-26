@@ -40,12 +40,16 @@ public class MollieClient
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "payments")
         {
+            // No `method` here on purpose — Mollie rejects method=directdebit combined with
+            // sequenceType=first (SEPA mandates aren't collected via direct API method
+            // selection). Omitting it sends the customer to Mollie's hosted checkout to pick
+            // a method themselves (SEPA Direct Debit included), which is how Mollie expects
+            // first-time mandate collection to work.
             Content = JsonContent.Create(new
             {
                 amount = new { currency, value = amount.ToString("F2") },
                 customerId,
                 sequenceType = "first",
-                method = "directdebit",
                 description,
                 redirectUrl,
                 webhookUrl,

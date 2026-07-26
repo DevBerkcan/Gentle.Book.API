@@ -37,7 +37,9 @@ public record DashboardStatisticsDto(
     decimal RevenueLastMonthEUR,
     int TotalCustomers,
     int NewCustomersThisMonth,
-    List<PopularServiceDto> PopularServices
+    List<PopularServiceDto> PopularServices,
+    Dictionary<string, decimal> RevenueThisMonthByCurrency,
+    Dictionary<string, decimal> RevenueLastMonthByCurrency
 );
 
 public record PopularServiceDto(

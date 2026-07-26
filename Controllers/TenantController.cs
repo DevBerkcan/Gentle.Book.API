@@ -48,10 +48,10 @@ public class TenantController : ControllerBase
     [HttpGet("settings")]
     public async Task<IActionResult> GetSettings()
     {
-        var check = RequireTenantAdmin();
-        if (check != null) return check;
+        if (!_tenantContext.TenantId.HasValue)
+            return Unauthorized(new { message = "Kein Tenant im Token" });
 
-        var tenantId = _tenantContext.TenantId!.Value;
+        var tenantId = _tenantContext.TenantId.Value;
 
         var settings = await _db.TenantSettings
             .FirstOrDefaultAsync(s => s.TenantId == tenantId);
@@ -150,7 +150,31 @@ public class TenantController : ControllerBase
         if (!string.IsNullOrWhiteSpace(dto.TimeZone))
             settings.TimeZone = dto.TimeZone.Trim();
         if (!string.IsNullOrWhiteSpace(dto.DefaultCurrency))
-            settings.DefaultCurrency = dto.DefaultCurrency.Trim().ToUpper();
+        {
+            var currency = dto.DefaultCurrency.Trim().ToUpperInvariant();
+            if (currency.Length != 3)
+                return BadRequest(new { message = "Die Währung muss ein gültiger dreistelliger ISO-Code sein." });
+
+            settings.DefaultCurrency = currency;
+
+            var defaultLocation = await _db.BusinessLocations
+                .FirstOrDefaultAsync(location => location.TenantId == tenantId && location.IsDefault);
+            if (defaultLocation != null)
+            {
+                defaultLocation.Currency = currency;
+                defaultLocation.UpdatedAt = DateTime.UtcNow;
+            }
+
+            // The legacy setting represents the default location. Other locations
+            // retain their own currencies.
+            await _db.Services
+                .Where(s => s.TenantId == tenantId
+                    && (s.LocationId == null || (defaultLocation != null && s.LocationId == defaultLocation.Id))
+                    && s.Currency != currency)
+                .ExecuteUpdateAsync(updates => updates
+                    .SetProperty(s => s.Currency, currency)
+                    .SetProperty(s => s.UpdatedAt, DateTime.UtcNow));
+        }
         if (dto.CancellationHoursNotice.HasValue && dto.CancellationHoursNotice.Value >= 0)
             settings.CancellationHoursNotice = dto.CancellationHoursNotice.Value;
         if (dto.CancellationFeePercent.HasValue && dto.CancellationFeePercent.Value >= 0)
@@ -171,6 +195,175 @@ public class TenantController : ControllerBase
 
         return Ok(new { message = "Einstellungen gespeichert" });
     }
+
+    // GET /api/tenant/locations
+    [HttpGet("locations")]
+    public async Task<IActionResult> GetLocations()
+    {
+        if (!_tenantContext.TenantId.HasValue)
+            return Unauthorized(new { message = "Kein Tenant im Token" });
+
+        var tenantId = _tenantContext.TenantId.Value;
+        var locations = await _db.BusinessLocations
+            .Where(location => location.TenantId == tenantId)
+            .OrderByDescending(location => location.IsDefault)
+            .ThenBy(location => location.Name)
+            .Select(location => new BusinessLocationResponse(
+                location.Id,
+                location.Name,
+                location.Street,
+                location.PostalCode,
+                location.City,
+                location.CountryCode,
+                location.Currency,
+                location.TimeZone,
+                location.IsDefault,
+                location.IsActive,
+                location.Services.Count))
+            .ToListAsync();
+
+        return Ok(new { data = locations });
+    }
+
+    // POST /api/tenant/locations
+    [HttpPost("locations")]
+    public async Task<IActionResult> CreateLocation([FromBody] UpsertBusinessLocationRequest dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var validation = ValidateLocation(dto);
+        if (validation != null) return validation;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var hasLocations = await _db.BusinessLocations.AnyAsync(location => location.TenantId == tenantId);
+        var makeDefault = dto.IsDefault || !hasLocations;
+
+        if (makeDefault)
+        {
+            await _db.BusinessLocations
+                .Where(location => location.TenantId == tenantId && location.IsDefault)
+                .ExecuteUpdateAsync(updates => updates.SetProperty(location => location.IsDefault, false));
+        }
+
+        var location = new BusinessLocation
+        {
+            TenantId = tenantId,
+            Name = dto.Name.Trim(),
+            Street = NullIfWhiteSpace(dto.Street),
+            PostalCode = NullIfWhiteSpace(dto.PostalCode),
+            City = dto.City.Trim(),
+            CountryCode = dto.CountryCode.Trim().ToUpperInvariant(),
+            Currency = dto.Currency.Trim().ToUpperInvariant(),
+            TimeZone = dto.TimeZone.Trim(),
+            IsDefault = makeDefault,
+            IsActive = dto.IsActive,
+        };
+
+        _db.BusinessLocations.Add(location);
+        await ApplyDefaultLocationSettingsAsync(location);
+        await _db.SaveChangesAsync();
+
+        return CreatedAtAction(nameof(GetLocations), new { id = location.Id }, new { data = location.Id });
+    }
+
+    // PUT /api/tenant/locations/{id}
+    [HttpPut("locations/{id:guid}")]
+    public async Task<IActionResult> UpdateLocation(Guid id, [FromBody] UpsertBusinessLocationRequest dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var validation = ValidateLocation(dto);
+        if (validation != null) return validation;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var location = await _db.BusinessLocations
+            .FirstOrDefaultAsync(item => item.Id == id && item.TenantId == tenantId);
+        if (location == null) return NotFound(new { message = "Standort nicht gefunden." });
+
+        var makeDefault = dto.IsDefault || location.IsDefault;
+        if (makeDefault)
+        {
+            await _db.BusinessLocations
+                .Where(item => item.TenantId == tenantId && item.Id != id && item.IsDefault)
+                .ExecuteUpdateAsync(updates => updates.SetProperty(item => item.IsDefault, false));
+        }
+
+        location.Name = dto.Name.Trim();
+        location.Street = NullIfWhiteSpace(dto.Street);
+        location.PostalCode = NullIfWhiteSpace(dto.PostalCode);
+        location.City = dto.City.Trim();
+        location.CountryCode = dto.CountryCode.Trim().ToUpperInvariant();
+        location.Currency = dto.Currency.Trim().ToUpperInvariant();
+        location.TimeZone = dto.TimeZone.Trim();
+        location.IsDefault = makeDefault;
+        location.IsActive = dto.IsActive;
+        location.UpdatedAt = DateTime.UtcNow;
+
+        await _db.Services
+            .Where(service => service.TenantId == tenantId && service.LocationId == location.Id)
+            .ExecuteUpdateAsync(updates => updates
+                .SetProperty(service => service.Currency, location.Currency)
+                .SetProperty(service => service.UpdatedAt, DateTime.UtcNow));
+
+        await ApplyDefaultLocationSettingsAsync(location);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    // DELETE /api/tenant/locations/{id}
+    [HttpDelete("locations/{id:guid}")]
+    public async Task<IActionResult> DeleteLocation(Guid id)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var location = await _db.BusinessLocations
+            .FirstOrDefaultAsync(item => item.Id == id && item.TenantId == tenantId);
+        if (location == null) return NotFound(new { message = "Standort nicht gefunden." });
+        if (location.IsDefault)
+            return BadRequest(new { message = "Der Standardstandort kann nicht gelöscht werden." });
+        if (await _db.Services.AnyAsync(service => service.LocationId == id))
+            return BadRequest(new { message = "Der Standort ist noch Services zugeordnet." });
+
+        _db.BusinessLocations.Remove(location);
+        await _db.SaveChangesAsync();
+        return NoContent();
+    }
+
+    private IActionResult? ValidateLocation(UpsertBusinessLocationRequest dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Name) || string.IsNullOrWhiteSpace(dto.City))
+            return BadRequest(new { message = "Name und Ort sind erforderlich." });
+        if (string.IsNullOrWhiteSpace(dto.CountryCode) || dto.CountryCode.Trim().Length != 2)
+            return BadRequest(new { message = "Das Land muss ein zweistelliger ISO-Code sein." });
+        if (string.IsNullOrWhiteSpace(dto.Currency) || dto.Currency.Trim().Length != 3)
+            return BadRequest(new { message = "Die Währung muss ein dreistelliger ISO-Code sein." });
+        if (string.IsNullOrWhiteSpace(dto.TimeZone))
+            return BadRequest(new { message = "Die Zeitzone ist erforderlich." });
+        return null;
+    }
+
+    private async Task ApplyDefaultLocationSettingsAsync(BusinessLocation location)
+    {
+        if (!location.IsDefault) return;
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(item => item.TenantId == location.TenantId);
+        if (settings == null) return;
+
+        settings.DefaultCurrency = location.Currency;
+        settings.TimeZone = location.TimeZone;
+        settings.Address = string.Join(", ", new[]
+        {
+            location.Street,
+            string.Join(" ", new[] { location.PostalCode, location.City }.Where(value => !string.IsNullOrWhiteSpace(value)))
+        }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        settings.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static string? NullIfWhiteSpace(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     // POST /api/tenant/logo
     [HttpPost("logo")]
@@ -554,7 +747,7 @@ public class TenantController : ControllerBase
 
             return Ok(new { message = "Nachricht erfolgreich gesendet." });
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             return StatusCode(500, new { message = "E-Mail konnte nicht gesendet werden." });
         }
@@ -566,6 +759,28 @@ public record SubscriptionRequestDto(string Plan, string ContactEmail, string? N
 public record MollieStartRequestDto(string Plan);
 
 public record UpdateBusinessHoursItemDto(int DayOfWeek, bool IsOpen, string? OpenTime, string? CloseTime, string? BreakStartTime, string? BreakEndTime);
+public record BusinessLocationResponse(
+    Guid Id,
+    string Name,
+    string? Street,
+    string? PostalCode,
+    string City,
+    string CountryCode,
+    string Currency,
+    string TimeZone,
+    bool IsDefault,
+    bool IsActive,
+    int ServiceCount);
+public record UpsertBusinessLocationRequest(
+    string Name,
+    string? Street,
+    string? PostalCode,
+    string City,
+    string CountryCode,
+    string Currency,
+    string TimeZone,
+    bool IsDefault,
+    bool IsActive);
 
 public record UpdateTenantSettingsRequest(
     string? CompanyName,

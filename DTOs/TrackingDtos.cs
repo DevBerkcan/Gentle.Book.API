@@ -21,6 +21,8 @@ public class SimplifiedTrackingStatisticsDto
     // Average booking value split by currency
     public decimal AverageBookingValueCHF { get; set; }
     public decimal AverageBookingValueEUR { get; set; }
+    public Dictionary<string, decimal> TotalRevenueByCurrency { get; set; } = new();
+    public Dictionary<string, decimal> AverageBookingValueByCurrency { get; set; } = new();
 
     // Link click statistics
     public List<LinkClickStatisticDto> LinkClicks { get; set; } = new();
@@ -44,6 +46,10 @@ public class RevenueStatisticsDto
     public decimal MonthRevenueEUR { get; set; }
     public decimal AllTimeRevenueCHF { get; set; }
     public decimal AllTimeRevenueEUR { get; set; }
+    public Dictionary<string, decimal> TodayRevenueByCurrency { get; set; } = new();
+    public Dictionary<string, decimal> WeekRevenueByCurrency { get; set; } = new();
+    public Dictionary<string, decimal> MonthRevenueByCurrency { get; set; } = new();
+    public Dictionary<string, decimal> AllTimeRevenueByCurrency { get; set; } = new();
 
     // Booking counts (same for both currencies)
     public int TodayBookings { get; set; }

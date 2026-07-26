@@ -21,6 +21,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<TenantSettings> TenantSettings { get; set; }
     public DbSet<Subscription> Subscriptions { get; set; }
     public DbSet<PlatformUser> PlatformUsers { get; set; }
+    public DbSet<BusinessLocation> BusinessLocations { get; set; }
 
     // ── Tenant-scoped ─────────────────────────────────────────
     public DbSet<Employee> Employees { get; set; }
@@ -64,6 +65,7 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<EmployeeVacation>().HasQueryFilter(ev => CurrentTenantId == null || ev.TenantId == CurrentTenantId);
         modelBuilder.Entity<EmployeeNote>().HasQueryFilter(en => CurrentTenantId == null || en.TenantId == CurrentTenantId);
         modelBuilder.Entity<WaitlistEntry>().HasQueryFilter(w => CurrentTenantId == null || w.TenantId == CurrentTenantId);
+        modelBuilder.Entity<BusinessLocation>().HasQueryFilter(l => CurrentTenantId == null || l.TenantId == CurrentTenantId);
 
         modelBuilder.Entity<WaitlistEntry>(entity =>
         {
@@ -111,6 +113,26 @@ public class GentleBookDbContext : DbContext
             entity.Property(e => e.AccentColor).HasMaxLength(20);
             entity.Property(e => e.DefaultCurrency).HasMaxLength(3).HasDefaultValue("EUR");
             entity.Property(e => e.TimeZone).HasMaxLength(100).HasDefaultValue("Europe/Berlin");
+        });
+
+        modelBuilder.Entity<BusinessLocation>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(150);
+            entity.Property(e => e.Street).HasMaxLength(200);
+            entity.Property(e => e.PostalCode).HasMaxLength(20);
+            entity.Property(e => e.City).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.CountryCode).IsRequired().HasMaxLength(2);
+            entity.Property(e => e.Currency).IsRequired().HasMaxLength(3);
+            entity.Property(e => e.TimeZone).IsRequired().HasMaxLength(100);
+            entity.HasIndex(e => new { e.TenantId, e.IsActive });
+            entity.HasIndex(e => new { e.TenantId, e.IsDefault })
+                  .IsUnique()
+                  .HasFilter("[IsDefault] = 1");
+            entity.HasOne(e => e.Tenant)
+                  .WithMany(t => t.Locations)
+                  .HasForeignKey(e => e.TenantId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ── Subscription ──────────────────────────────────────
@@ -212,18 +234,28 @@ public class GentleBookDbContext : DbContext
                   .WithMany(c => c.Services)
                   .HasForeignKey(s => s.CategoryId)
                   .OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(s => s.Location)
+                  .WithMany(l => l.Services)
+                  .HasForeignKey(s => s.LocationId)
+                  .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(e => new { e.TenantId, e.IsActive });
+            entity.HasIndex(e => new { e.TenantId, e.LocationId });
         });
 
         // ── ServiceEmployee (join table) ──────────────────────
         modelBuilder.Entity<ServiceEmployee>()
             .HasKey(se => new { se.ServiceId, se.EmployeeId });
 
+        // NoAction (not Cascade) — Service and Employee both cascade from Tenant, so a
+        // Cascade here would create a second delete path into ServiceEmployees alongside
+        // the Employee FK below, which SQL Server rejects (multiple cascade paths).
+        // Application code already removes ServiceEmployees explicitly before deleting a
+        // Service (see ServiceService.cs), so this is safe.
         modelBuilder.Entity<ServiceEmployee>()
             .HasOne(se => se.Service)
             .WithMany(s => s.ServiceEmployees)
             .HasForeignKey(se => se.ServiceId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.NoAction);
 
         modelBuilder.Entity<ServiceEmployee>()
             .HasOne(se => se.Employee)
@@ -334,10 +366,13 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<EmailLog>(entity =>
         {
             entity.HasKey(e => e.Id);
+            // NoAction — Booking also cascades from Tenant, so a direct Cascade here would
+            // create a second delete path into EmailLogs (multiple cascade paths). SuperAdminController.DeleteTenant
+            // already removes EmailLogs explicitly before removing the tenant.
             entity.HasOne(e => e.Tenant)
                   .WithMany()
                   .HasForeignKey(e => e.TenantId)
-                  .OnDelete(DeleteBehavior.Cascade);
+                  .OnDelete(DeleteBehavior.NoAction);
             entity.HasOne(e => e.Booking)
                   .WithMany(b => b.EmailLogs)
                   .HasForeignKey(e => e.BookingId)

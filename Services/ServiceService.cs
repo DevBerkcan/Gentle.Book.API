@@ -64,7 +64,9 @@ public class ServiceService
                 s.DurationMinutes,
                 s.Price,
                 s.DisplayOrder,
-                s.Currency
+                s.Currency,
+                s.LocationId,
+                s.Location != null ? s.Location.Name : null
             ))
             .ToListAsync();
 
@@ -101,7 +103,9 @@ public class ServiceService
                         s.DurationMinutes,
                         s.Price,
                         s.DisplayOrder,
-                        s.Currency
+                        s.Currency,
+                        s.LocationId,
+                        s.Location != null ? s.Location.Name : null
                     ))
                     .ToList()
             ))
@@ -150,7 +154,9 @@ public class ServiceService
                 s.DurationMinutes,
                 s.Price,
                 s.DisplayOrder,
-                s.Currency
+                s.Currency,
+                s.LocationId,
+                s.Location != null ? s.Location.Name : null
             ))
             .ToListAsync();
 
@@ -193,7 +199,9 @@ public class ServiceService
                     se.Employee.Name,
                     se.Employee.Role,
                     se.Employee.Specialty
-                )).ToList()
+                )).ToList(),
+                s.LocationId,
+                s.Location != null ? s.Location.Name : null
             ))
             .FirstOrDefaultAsync();
 
@@ -215,7 +223,9 @@ public class ServiceService
                 s.DurationMinutes,
                 s.Price,
                 s.DisplayOrder,
-                s.Currency
+                s.Currency,
+                s.LocationId,
+                s.Location != null ? s.Location.Name : null
             ))
             .ToListAsync();
 
@@ -248,7 +258,9 @@ public class ServiceService
                         s.DurationMinutes,
                         s.Price,
                         s.DisplayOrder,
-                        s.Currency
+                        s.Currency,
+                        s.LocationId,
+                        s.Location != null ? s.Location.Name : null
                     ))
                     .ToList()
             ))
@@ -417,7 +429,9 @@ public class ServiceService
                     se.Employee.Role,
                     se.Employee.Specialty
                 )).ToList(),
-                s.IsActive
+                s.IsActive,
+                s.LocationId,
+                s.Location != null ? s.Location.Name : null
             ))
             .ToListAsync();
 
@@ -431,6 +445,7 @@ public class ServiceService
 
         var service = await _context.Services
             .Include(s => s.Category)
+            .Include(s => s.Location)
             .Include(s => s.ServiceEmployees)
                 .ThenInclude(se => se.Employee)
             .FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tenantId);
@@ -455,13 +470,26 @@ public class ServiceService
                 se.Employee.Role,
                 se.Employee.Specialty
             )).ToList(),
-            service.IsActive
+            service.IsActive,
+            service.LocationId,
+            service.Location?.Name
         );
     }
 
     public async Task<AdminServiceDto> CreateServiceAsync(CreateServiceDto dto)
     {
         var tenantId = RequireTenantId();
+        var location = dto.LocationId.HasValue
+            ? await _context.BusinessLocations.FirstOrDefaultAsync(item =>
+                item.Id == dto.LocationId.Value && item.TenantId == tenantId && item.IsActive)
+            : await _context.BusinessLocations.FirstOrDefaultAsync(item =>
+                item.TenantId == tenantId && item.IsDefault && item.IsActive);
+        if (dto.LocationId.HasValue && location == null)
+            throw new ArgumentException("Standort nicht gefunden");
+        var tenantCurrency = location?.Currency ?? await _context.TenantSettings
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => s.DefaultCurrency)
+            .FirstOrDefaultAsync() ?? "EUR";
 
         // Validate category
         var category = await _context.ServiceCategories.FirstOrDefaultAsync(c => c.Id == dto.CategoryId && c.TenantId == tenantId);
@@ -493,7 +521,8 @@ public class ServiceService
             DurationMinutes = dto.DurationMinutes,
             BufferTimeMinutes = dto.BufferTimeMinutes,
             Price = dto.Price,
-            Currency = dto.Currency,
+            Currency = tenantCurrency.ToUpperInvariant(),
+            LocationId = location?.Id,
             DisplayOrder = dto.DisplayOrder,
             CategoryId = dto.CategoryId,
             IsActive = true,
@@ -532,6 +561,17 @@ public class ServiceService
     public async Task<AdminServiceDto> UpdateServiceAsync(Guid id, UpdateServiceDto dto)
     {
         var tenantId = RequireTenantId();
+        var location = dto.LocationId.HasValue
+            ? await _context.BusinessLocations.FirstOrDefaultAsync(item =>
+                item.Id == dto.LocationId.Value && item.TenantId == tenantId && item.IsActive)
+            : await _context.BusinessLocations.FirstOrDefaultAsync(item =>
+                item.TenantId == tenantId && item.IsDefault && item.IsActive);
+        if (dto.LocationId.HasValue && location == null)
+            throw new ArgumentException("Standort nicht gefunden");
+        var tenantCurrency = location?.Currency ?? await _context.TenantSettings
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => s.DefaultCurrency)
+            .FirstOrDefaultAsync() ?? "EUR";
 
         var service = await _context.Services
             .Include(s => s.ServiceEmployees)
@@ -564,7 +604,8 @@ public class ServiceService
         service.DurationMinutes = dto.DurationMinutes;
         service.BufferTimeMinutes = dto.BufferTimeMinutes;
         service.Price = dto.Price;
-        service.Currency = dto.Currency;
+        service.Currency = tenantCurrency.ToUpperInvariant();
+        service.LocationId = location?.Id;
         service.DisplayOrder = dto.DisplayOrder;
         service.CategoryId = dto.CategoryId;
         service.IsActive = dto.IsActive;
@@ -753,7 +794,9 @@ public class ServiceService
                         se.Employee.Role,
                         se.Employee.Specialty
                     )).ToList(),
-                    s.IsActive
+                    s.IsActive,
+                    s.LocationId,
+                    s.Location != null ? s.Location.Name : null
                 )).ToList()
             ))
             .ToListAsync();
@@ -769,6 +812,8 @@ public class ServiceService
             .Include(c => c.Services)
                 .ThenInclude(s => s.ServiceEmployees)
                 .ThenInclude(se => se.Employee)
+            .Include(c => c.Services)
+                .ThenInclude(s => s.Location)
             .FirstOrDefaultAsync(c => c.Id == id && c.TenantId == tenantId);
 
         if (category == null)
@@ -789,15 +834,17 @@ public class ServiceService
                 s.Price,
                 s.DisplayOrder,
                 s.CategoryId,
-                s.Currency,
                 category.Name,
+                s.Currency,
                 s.ServiceEmployees.Select(se => new EmployeeBasicDto(
                     se.Employee.Id,
                     se.Employee.Name,
                     se.Employee.Role,
                     se.Employee.Specialty
                 )).ToList(),
-                s.IsActive
+                s.IsActive,
+                s.LocationId,
+                s.Location?.Name
             )).ToList()
         );
     }
@@ -935,7 +982,9 @@ public class ServiceService
                     se.Employee.Role,
                     se.Employee.Specialty
                 )).ToList(),
-                s.IsActive
+                s.IsActive,
+                s.LocationId,
+                s.Location != null ? s.Location.Name : null
             ))
             .ToListAsync();
 

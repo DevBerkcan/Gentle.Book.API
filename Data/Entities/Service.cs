@@ -12,6 +12,7 @@ public class Service
     public int BufferTimeMinutes { get; set; } = 0;
     public decimal Price { get; set; }
     public string Currency { get; set; } = "EUR";
+    public Guid? LocationId { get; set; }
     public bool IsActive { get; set; } = true;
     public int DisplayOrder { get; set; } = 0;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -20,6 +21,7 @@ public class Service
     // Navigation
     public Tenant Tenant { get; set; } = null!;
     public ServiceCategory Category { get; set; } = null!;
+    public BusinessLocation? Location { get; set; }
     public ICollection<ServiceEmployee> ServiceEmployees { get; set; } = new List<ServiceEmployee>();
     public ICollection<Booking> Bookings { get; set; } = new List<Booking>();
 }

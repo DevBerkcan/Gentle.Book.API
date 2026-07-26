@@ -403,7 +403,7 @@ namespace GentleBook.Api.Migrations
                         column: x => x.ServiceId,
                         principalTable: "Services",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.NoAction);
                 });
 
             migrationBuilder.CreateTable(
@@ -435,7 +435,7 @@ namespace GentleBook.Api.Migrations
                         column: x => x.TenantId,
                         principalTable: "Tenants",
                         principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        onDelete: ReferentialAction.NoAction);
                 });
 
             migrationBuilder.CreateIndex(
@@ -568,6 +568,70 @@ namespace GentleBook.Api.Migrations
                 table: "TenantSettings",
                 column: "TenantId",
                 unique: true);
+
+            // Guarded: EmployeeVacations, EmployeeNotes and SubscriptionRequests were never
+            // created by any migration — only via raw-SQL fallbacks in Program.cs (the first
+            // two) or an undocumented one-off process (the third). A from-scratch replay must
+            // create them here so later migrations/fallbacks that assume they exist don't fail.
+            migrationBuilder.Sql(@"
+                IF OBJECT_ID(N'EmployeeVacations', N'U') IS NULL
+                BEGIN
+                    CREATE TABLE EmployeeVacations (
+                        Id uniqueidentifier NOT NULL DEFAULT NEWID(),
+                        TenantId uniqueidentifier NOT NULL,
+                        EmployeeId uniqueidentifier NOT NULL,
+                        StartDate date NOT NULL,
+                        EndDate date NOT NULL,
+                        Type nvarchar(50) NOT NULL DEFAULT 'Vacation',
+                        Note nvarchar(500) NULL,
+                        CreatedAt datetime2 NOT NULL DEFAULT GETUTCDATE(),
+                        CONSTRAINT PK_EmployeeVacations PRIMARY KEY (Id),
+                        CONSTRAINT FK_EmployeeVacations_Employees FOREIGN KEY (EmployeeId)
+                            REFERENCES Employees(Id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IX_EmployeeVacations_EmployeeId ON EmployeeVacations(EmployeeId);
+                    CREATE INDEX IX_EmployeeVacations_TenantId ON EmployeeVacations(TenantId);
+                END
+
+                IF OBJECT_ID(N'EmployeeNotes', N'U') IS NULL
+                BEGIN
+                    CREATE TABLE EmployeeNotes (
+                        Id int IDENTITY(1,1) NOT NULL,
+                        TenantId uniqueidentifier NOT NULL,
+                        EmployeeId uniqueidentifier NOT NULL,
+                        EmployeeName nvarchar(200) NOT NULL,
+                        Subject nvarchar(200) NOT NULL,
+                        Message nvarchar(4000) NOT NULL,
+                        IsRead bit NOT NULL CONSTRAINT DF_EmployeeNotes_IsRead DEFAULT 0,
+                        CreatedAt datetime2 NOT NULL CONSTRAINT DF_EmployeeNotes_CreatedAt DEFAULT SYSUTCDATETIME(),
+                        CONSTRAINT PK_EmployeeNotes PRIMARY KEY (Id),
+                        CONSTRAINT FK_EmployeeNotes_Tenants_TenantId FOREIGN KEY (TenantId)
+                            REFERENCES Tenants(Id) ON DELETE CASCADE,
+                        CONSTRAINT FK_EmployeeNotes_Employees_EmployeeId FOREIGN KEY (EmployeeId)
+                            REFERENCES Employees(Id) ON DELETE NO ACTION
+                    );
+                    CREATE INDEX IX_EmployeeNotes_TenantId ON EmployeeNotes(TenantId);
+                    CREATE INDEX IX_EmployeeNotes_EmployeeId ON EmployeeNotes(EmployeeId);
+                END
+
+                IF OBJECT_ID(N'SubscriptionRequests', N'U') IS NULL
+                BEGIN
+                    CREATE TABLE SubscriptionRequests (
+                        Id uniqueidentifier NOT NULL DEFAULT NEWID(),
+                        TenantId uniqueidentifier NOT NULL,
+                        RequestedPlan nvarchar(50) NOT NULL,
+                        ContactEmail nvarchar(200) NOT NULL,
+                        Note nvarchar(500) NULL,
+                        Status nvarchar(20) NOT NULL CONSTRAINT DF_SubscriptionRequests_Status DEFAULT 'Pending',
+                        CreatedAt datetime2 NOT NULL CONSTRAINT DF_SubscriptionRequests_CreatedAt DEFAULT SYSUTCDATETIME(),
+                        ProcessedAt datetime2 NULL,
+                        CONSTRAINT PK_SubscriptionRequests PRIMARY KEY (Id),
+                        CONSTRAINT FK_SubscriptionRequests_Tenants_TenantId FOREIGN KEY (TenantId)
+                            REFERENCES Tenants(Id) ON DELETE CASCADE
+                    );
+                    CREATE INDEX IX_SubscriptionRequests_TenantId_Status ON SubscriptionRequests(TenantId, Status);
+                END
+            ");
         }
 
         /// <inheritdoc />

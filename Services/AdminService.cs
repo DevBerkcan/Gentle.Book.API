@@ -157,7 +157,7 @@ public class AdminService
             .Sum(b => b.Price);
 
         var revenueThisMonthEUR = thisMonthBookings
-            .Where(b => b.Currency == "EUR")
+            .Where(b => b.Currency != "CHF")
             .Sum(b => b.Price);
 
         // Calculate revenue by currency for last month
@@ -166,8 +166,14 @@ public class AdminService
             .Sum(b => b.Price);
 
         var revenueLastMonthEUR = lastMonthBookings
-            .Where(b => b.Currency == "EUR")
+            .Where(b => b.Currency != "CHF")
             .Sum(b => b.Price);
+        var revenueThisMonthByCurrency = thisMonthBookings
+            .GroupBy(booking => booking.Currency.ToUpperInvariant())
+            .ToDictionary(group => group.Key, group => group.Sum(booking => booking.Price));
+        var revenueLastMonthByCurrency = lastMonthBookings
+            .GroupBy(booking => booking.Currency.ToUpperInvariant())
+            .ToDictionary(group => group.Key, group => group.Sum(booking => booking.Price));
 
         var customersQuery = _context.Customers.AsQueryable();
         if (employeeId.HasValue)
@@ -194,7 +200,7 @@ public class AdminService
                 g.Key.ServiceName ?? "Unknown",
                 g.Count(),
                 g.Where(x => x.Currency == "CHF").Sum(x => x.Price),
-                g.Where(x => x.Currency == "EUR").Sum(x => x.Price)
+                g.Where(x => x.Currency != "CHF").Sum(x => x.Price)
             ))
             .OrderByDescending(s => s.BookingCount)
             .Take(5)
@@ -209,7 +215,9 @@ public class AdminService
             revenueLastMonthEUR,
             totalCustomers,
             newCustomersThisMonth,
-            popularServices
+            popularServices,
+            revenueThisMonthByCurrency,
+            revenueLastMonthByCurrency
         );
     }
 

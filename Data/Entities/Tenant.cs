@@ -29,6 +29,7 @@ public class Tenant
     public ICollection<Customer> Customers { get; set; } = new List<Customer>();
     public ICollection<BusinessHours> BusinessHours { get; set; } = new List<BusinessHours>();
     public ICollection<TenantLink> Links { get; set; } = new List<TenantLink>();
+    public ICollection<BusinessLocation> Locations { get; set; } = new List<BusinessLocation>();
 }
 
 public enum IndustryType

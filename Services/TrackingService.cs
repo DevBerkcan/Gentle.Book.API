@@ -2,7 +2,6 @@
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
 using Microsoft.EntityFrameworkCore;
-using GentleBook.Api.Data.Entities;
 
 namespace GentleBook.Api.Services;
 
@@ -66,12 +65,18 @@ public class TrackingService
             .Sum(b => b.Price);
 
         var totalRevenueEUR = bookings
-            .Where(b => b.Currency == "EUR")
+            .Where(b => b.Currency != "CHF")
             .Sum(b => b.Price);
 
         // Average booking values by currency
         var averageBookingValueCHF = totalBookings > 0 ? totalRevenueCHF / totalBookings : 0;
         var averageBookingValueEUR = totalBookings > 0 ? totalRevenueEUR / totalBookings : 0;
+        var revenueByCurrency = bookings
+            .GroupBy(booking => booking.Currency.ToUpperInvariant())
+            .ToDictionary(group => group.Key, group => Math.Round(group.Sum(booking => booking.Price), 2));
+        var averageByCurrency = bookings
+            .GroupBy(booking => booking.Currency.ToUpperInvariant())
+            .ToDictionary(group => group.Key, group => Math.Round(group.Average(booking => booking.Price), 2));
 
         // Total link clicks
         var totalLinkClicks = await _context.LinkClicks
@@ -110,6 +115,8 @@ public class TrackingService
             TotalRevenueEUR = Math.Round(totalRevenueEUR, 2),
             AverageBookingValueCHF = Math.Round(averageBookingValueCHF, 2),
             AverageBookingValueEUR = Math.Round(averageBookingValueEUR, 2),
+            TotalRevenueByCurrency = revenueByCurrency,
+            AverageBookingValueByCurrency = averageByCurrency,
             LinkClicks = linkClickStats
         };
     }
@@ -172,29 +179,33 @@ public class TrackingService
             .Where(b => b.Currency == "CHF")
             .Sum(b => b.Price);
         var todayRevenueEUR = todayBookings
-            .Where(b => b.Currency == "EUR")
+            .Where(b => b.Currency != "CHF")
             .Sum(b => b.Price);
 
         var weekRevenueCHF = weekBookings
             .Where(b => b.Currency == "CHF")
             .Sum(b => b.Price);
         var weekRevenueEUR = weekBookings
-            .Where(b => b.Currency == "EUR")
+            .Where(b => b.Currency != "CHF")
             .Sum(b => b.Price);
 
         var monthRevenueCHF = monthBookings
             .Where(b => b.Currency == "CHF")
             .Sum(b => b.Price);
         var monthRevenueEUR = monthBookings
-            .Where(b => b.Currency == "EUR")
+            .Where(b => b.Currency != "CHF")
             .Sum(b => b.Price);
 
         var allTimeRevenueCHF = allTimeBookings
             .Where(b => b.Currency == "CHF")
             .Sum(b => b.Price);
         var allTimeRevenueEUR = allTimeBookings
-            .Where(b => b.Currency == "EUR")
+            .Where(b => b.Currency != "CHF")
             .Sum(b => b.Price);
+        static Dictionary<string, decimal> GroupRevenueByCurrency(IEnumerable<dynamic> source)
+            => source
+                .GroupBy(booking => ((string)booking.Currency).ToUpperInvariant())
+                .ToDictionary(group => group.Key, group => Math.Round(group.Sum(booking => (decimal)booking.Price), 2));
 
         return new RevenueStatisticsDto
         {
@@ -212,6 +223,10 @@ public class TrackingService
 
             AllTimeRevenueCHF = Math.Round(allTimeRevenueCHF, 2),
             AllTimeRevenueEUR = Math.Round(allTimeRevenueEUR, 2),
+            TodayRevenueByCurrency = GroupRevenueByCurrency(todayBookings),
+            WeekRevenueByCurrency = GroupRevenueByCurrency(weekBookings),
+            MonthRevenueByCurrency = GroupRevenueByCurrency(monthBookings),
+            AllTimeRevenueByCurrency = GroupRevenueByCurrency(allTimeBookings),
             AllTimeBookings = allTimeBookings.Count
         };
     }

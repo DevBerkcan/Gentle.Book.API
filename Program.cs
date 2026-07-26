@@ -315,6 +315,52 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Normalize legacy service rows that still carry a currency different from the
+// tenant-wide setting. This is idempotent and also fixes existing installations.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+    try
+    {
+        var tenantCurrencies = await db.TenantSettings
+            .AsNoTracking()
+            .Select(settings => new { settings.TenantId, settings.DefaultCurrency })
+            .ToListAsync();
+
+        foreach (var tenant in tenantCurrencies)
+        {
+            var currency = tenant.DefaultCurrency.Trim().ToUpperInvariant();
+            if (currency.Length != 3) continue;
+
+            await db.Services
+                .Where(service => service.TenantId == tenant.TenantId
+                    && service.LocationId == null
+                    && service.Currency != currency)
+                .ExecuteUpdateAsync(updates => updates
+                    .SetProperty(service => service.Currency, currency)
+                    .SetProperty(service => service.UpdatedAt, DateTime.UtcNow));
+        }
+
+        var locations = await db.BusinessLocations
+            .AsNoTracking()
+            .Select(location => new { location.Id, location.Currency })
+            .ToListAsync();
+        foreach (var location in locations)
+        {
+            var currency = location.Currency.Trim().ToUpperInvariant();
+            await db.Services
+                .Where(service => service.LocationId == location.Id && service.Currency != currency)
+                .ExecuteUpdateAsync(updates => updates
+                    .SetProperty(service => service.Currency, currency)
+                    .SetProperty(service => service.UpdatedAt, DateTime.UtcNow));
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[CURRENCY NORMALIZATION ERROR] {ex.Message}");
+    }
+}
+
 // ── Schema-Fallback: fehlende Spalten direkt anlegen ─────────────────────────
 // Falls MigrateAsync auf Production keine Rechte hat, legen wir die Spalten
 // per Raw-SQL an (IF NOT EXISTS = idempotent, sicher bei mehrfachem Neustart).
