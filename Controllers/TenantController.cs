@@ -3,10 +3,12 @@
 using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
+using GentleBook.Api.Options;
 using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace GentleBook.Api.Controllers;
 
@@ -22,8 +24,9 @@ public class TenantController : ControllerBase
     private readonly IWebHostEnvironment _env;
     private readonly AuditService _audit;
     private readonly MollieService _mollieService;
+    private readonly IOptions<MollieOptions> _mollieOptions;
 
-    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env, AuditService audit, MollieService mollieService)
+    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env, AuditService audit, MollieService mollieService, IOptions<MollieOptions> mollieOptions)
     {
         _db = db;
         _tenantContext = tenantContext;
@@ -32,7 +35,13 @@ public class TenantController : ControllerBase
         _env = env;
         _audit = audit;
         _mollieService = mollieService;
+        _mollieOptions = mollieOptions;
     }
+
+    // Mollie test-mode keys always start with "test_"; live keys with "live_".
+    // Real customers must never be routed to a Mollie test-mode checkout page.
+    private bool IsMollieLiveMode() =>
+        _mollieOptions.Value.ApiKey.StartsWith("live_", StringComparison.Ordinal);
 
     private IActionResult? RequireTenantAdmin()
     {
@@ -594,6 +603,7 @@ public class TenantController : ControllerBase
 
         return Ok(new
         {
+            isLiveMode = IsMollieLiveMode(),
             plan = sub.Plan.ToString(),
             status = sub.Status.ToString(),
             hasMollieSubscription = sub.MollieSubscriptionId != null,

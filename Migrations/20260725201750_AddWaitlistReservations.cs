@@ -44,70 +44,31 @@ namespace GentleBook.Api.Migrations
                     DROP INDEX IX_WaitlistEntries_TenantId ON WaitlistEntries;
             ");
 
-            migrationBuilder.AddColumn<DateTime>(
-                name: "BookedAt",
-                table: "WaitlistEntries",
-                type: "datetime2",
-                nullable: true);
-
-            migrationBuilder.AddColumn<Guid>(
-                name: "BookingId",
-                table: "WaitlistEntries",
-                type: "uniqueidentifier",
-                nullable: true);
-
-            migrationBuilder.AddColumn<TimeOnly>(
-                name: "PreferredEndTime",
-                table: "WaitlistEntries",
-                type: "time",
-                nullable: true);
-
-            migrationBuilder.AddColumn<TimeOnly>(
-                name: "PreferredStartTime",
-                table: "WaitlistEntries",
-                type: "time",
-                nullable: true);
-
-            migrationBuilder.AddColumn<DateTime>(
-                name: "ReservationExpiresAt",
-                table: "WaitlistEntries",
-                type: "datetime2",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "ReservationToken",
-                table: "WaitlistEntries",
-                type: "nvarchar(128)",
-                maxLength: 128,
-                nullable: true);
-
-            migrationBuilder.AddColumn<Guid>(
-                name: "ReservedEmployeeId",
-                table: "WaitlistEntries",
-                type: "uniqueidentifier",
-                nullable: true);
-
-            migrationBuilder.AddColumn<TimeOnly>(
-                name: "ReservedEndTime",
-                table: "WaitlistEntries",
-                type: "time",
-                nullable: true);
-
-            migrationBuilder.AddColumn<TimeOnly>(
-                name: "ReservedStartTime",
-                table: "WaitlistEntries",
-                type: "time",
-                nullable: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_WaitlistEntries_ReservationToken",
-                table: "WaitlistEntries",
-                column: "ReservationToken");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_WaitlistEntries_TenantId_Status_PreferredDate",
-                table: "WaitlistEntries",
-                columns: new[] { "TenantId", "Status", "PreferredDate" });
+            // Guarded — same out-of-band fallback drift as everything else in this migration.
+            migrationBuilder.Sql(@"
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'PreferredStartTime')
+                    ALTER TABLE WaitlistEntries ADD PreferredStartTime time NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'PreferredEndTime')
+                    ALTER TABLE WaitlistEntries ADD PreferredEndTime time NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'ReservationToken')
+                    ALTER TABLE WaitlistEntries ADD ReservationToken nvarchar(128) NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'ReservationExpiresAt')
+                    ALTER TABLE WaitlistEntries ADD ReservationExpiresAt datetime2 NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'ReservedStartTime')
+                    ALTER TABLE WaitlistEntries ADD ReservedStartTime time NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'ReservedEndTime')
+                    ALTER TABLE WaitlistEntries ADD ReservedEndTime time NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'ReservedEmployeeId')
+                    ALTER TABLE WaitlistEntries ADD ReservedEmployeeId uniqueidentifier NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'BookingId')
+                    ALTER TABLE WaitlistEntries ADD BookingId uniqueidentifier NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('WaitlistEntries') AND name = 'BookedAt')
+                    ALTER TABLE WaitlistEntries ADD BookedAt datetime2 NULL;
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_WaitlistEntries_ReservationToken' AND object_id = OBJECT_ID('WaitlistEntries'))
+                    CREATE INDEX IX_WaitlistEntries_ReservationToken ON WaitlistEntries(ReservationToken);
+                IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_WaitlistEntries_TenantId_Status_PreferredDate' AND object_id = OBJECT_ID('WaitlistEntries'))
+                    CREATE INDEX IX_WaitlistEntries_TenantId_Status_PreferredDate ON WaitlistEntries(TenantId, Status, PreferredDate);
+            ");
         }
 
         /// <inheritdoc />
