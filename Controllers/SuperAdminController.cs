@@ -818,6 +818,63 @@ public class SuperAdminController : ControllerBase
         return Ok(new { items, totalCount = total, page, pageSize, sentCount, failedCount });
     }
 
+    // ── Invoices ──────────────────────────────────────────────────────────
+
+    /// <summary>All GentleBook-issued subscription invoices, across all tenants.</summary>
+    [HttpGet("invoices")]
+    public async Task<IActionResult> GetInvoices(
+        [FromQuery] Guid? tenantId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var query = _db.Invoices.Include(i => i.Tenant).ThenInclude(t => t.Settings).AsNoTracking().AsQueryable();
+
+        if (tenantId.HasValue)
+            query = query.Where(i => i.TenantId == tenantId.Value);
+
+        var total = await query.CountAsync();
+        var totalAmount = await query.SumAsync(i => i.Amount);
+
+        var items = await query
+            .OrderByDescending(i => i.IssueDate)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(i => new
+            {
+                i.Id,
+                i.TenantId,
+                CompanyName = i.Tenant.Settings != null ? i.Tenant.Settings.CompanyName : i.Tenant.Name,
+                TenantSlug = i.Tenant.Slug,
+                i.InvoiceNumber,
+                i.IssueDate,
+                i.PeriodStart,
+                i.PeriodEnd,
+                i.PlanName,
+                i.Amount,
+                i.Currency,
+                i.MolliePaymentId,
+                i.EmailSent,
+                i.EmailSentAt,
+            })
+            .ToListAsync();
+
+        return Ok(new { items, totalCount = total, page, pageSize, totalAmount });
+    }
+
+    /// <summary>Downloads the PDF of a single invoice.</summary>
+    [HttpGet("invoices/{id:guid}/pdf")]
+    public async Task<IActionResult> GetInvoicePdf(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var invoice = await _db.Invoices.AsNoTracking().FirstOrDefaultAsync(i => i.Id == id);
+        if (invoice == null) return NotFound();
+
+        return File(invoice.PdfContent, "application/pdf", $"Rechnung-{invoice.InvoiceNumber}.pdf");
+    }
+
     // ── Tenant Stats ──────────────────────────────────────────────────────
 
     /// <summary>Detailed booking + revenue stats for a single tenant (last 6 months).</summary>

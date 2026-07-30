@@ -152,6 +152,7 @@ builder.Services.AddHttpClient<CrmPushService>((sp, client) =>
 });
 
 builder.Services.AddScoped<MollieService>();
+builder.Services.AddScoped<InvoiceService>();
 builder.Services.AddSingleton<MollieReconciliationJob>();
 
 builder.Services.AddScoped<JwtService>();
@@ -292,8 +293,17 @@ if (app.Environment.IsDevelopment())
 // otherwise it keeps firing even though the code above no longer re-registers it.
 using (var scope = app.Services.CreateScope())
 {
-    scope.ServiceProvider.GetRequiredService<IRecurringJobManager>()
-        .RemoveIfExists("trial-expiration-check");
+    try
+    {
+        scope.ServiceProvider.GetRequiredService<IRecurringJobManager>()
+            .RemoveIfExists("trial-expiration-check");
+    }
+    catch (Exception ex)
+    {
+        // A transient Hangfire/SQL hiccup here must never take the whole app down —
+        // same resilience contract as the auto-migration block below.
+        Console.Error.WriteLine($"[HANGFIRE CLEANUP ERROR] {ex.Message}");
+    }
 }
 
 app.MapControllers();

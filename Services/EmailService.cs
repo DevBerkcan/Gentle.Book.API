@@ -493,6 +493,66 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
         }
     }
 
+    /// <summary>Emails a generated subscription invoice PDF to the tenant's billing contact.</summary>
+    public async Task<bool> SendSubscriptionInvoiceAsync(Invoice invoice, TenantSettings settings)
+    {
+        var toEmail = invoice.RecipientEmail ?? settings.Email;
+        if (string.IsNullOrWhiteSpace(toEmail))
+        {
+            _logger.LogWarning("No recipient email for invoice {InvoiceNumber}, cannot send.", invoice.InvoiceNumber);
+            return false;
+        }
+
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(invoice.RecipientName, toEmail));
+            message.Subject = $"Deine GentleBook-Rechnung {invoice.InvoiceNumber}";
+
+            var content = $@"
+                <div class='greeting'>Hallo,</div>
+                <p style='color: var(--text-secondary); margin-bottom: 24px;'>
+                    anbei deine Rechnung für den GentleBook {invoice.PlanName}-Plan, Zeitraum {invoice.PeriodStart:dd.MM.yyyy} – {invoice.PeriodEnd:dd.MM.yyyy}.
+                </p>
+                <div class='booking-card'>
+                    <div class='detail-row'><span class='detail-label'>Rechnungsnr.</span><span class='detail-value'>{invoice.InvoiceNumber}</span></div>
+                    <div class='detail-row'><span class='detail-label'>Betrag</span><span class='detail-value'>{invoice.Amount:0.00} {invoice.Currency}</span></div>
+                    <div class='detail-row'><span class='detail-label'>Bezahlt am</span><span class='detail-value'>{invoice.IssueDate:dd.MM.yyyy}</span></div>
+                </div>
+                <p style='color: var(--text-secondary); font-size: 13px; margin-top: 16px;'>Die Rechnung findest du im Anhang dieser E-Mail als PDF.</p>";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = GetBaseEmailTemplate($"Rechnung {invoice.InvoiceNumber}", content, "GentleBook", null, "#6355E4"),
+                TextBody = $@"GENTLEBOOK RECHNUNG
+
+Rechnungsnr.: {invoice.InvoiceNumber}
+Betrag: {invoice.Amount:0.00} {invoice.Currency}
+Zeitraum: {invoice.PeriodStart:dd.MM.yyyy} – {invoice.PeriodEnd:dd.MM.yyyy}
+
+Die Rechnung ist als PDF angehängt."
+            };
+            builder.Attachments.Add($"Rechnung-{invoice.InvoiceNumber}.pdf", invoice.PdfContent, ContentType.Parse("application/pdf"));
+
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Invoice {InvoiceNumber} emailed to {Email}", invoice.InvoiceNumber, toEmail);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to email invoice {InvoiceNumber}", invoice.InvoiceNumber);
+            return false;
+        }
+    }
+
     #region Internal Notifications
 
     private async Task<(string email, string name)> GetTenantAdminEmailAsync(Guid tenantId)

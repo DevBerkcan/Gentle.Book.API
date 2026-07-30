@@ -44,6 +44,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<WaitlistEntry> WaitlistEntries { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<MollieWebhookEvent> MollieWebhookEvents { get; set; }
+    public DbSet<Invoice> Invoices { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -165,6 +166,30 @@ public class GentleBookDbContext : DbContext
             entity.HasIndex(e => e.MollieResourceId)
                   .IsUnique()
                   .HasFilter("[ResourceType] = 'payment'");
+        });
+
+        // ── Invoice ───────────────────────────────────────────
+        modelBuilder.Entity<Invoice>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Tenant)
+                  .WithMany()
+                  .HasForeignKey(e => e.TenantId)
+                  .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(e => e.InvoiceNumber).IsRequired().HasMaxLength(32);
+            entity.HasIndex(e => e.InvoiceNumber).IsUnique();
+            entity.HasIndex(e => e.TenantId);
+            entity.HasIndex(e => e.MolliePaymentId);
+            entity.Property(e => e.Amount).HasPrecision(10, 2);
+            entity.Property(e => e.PlanName).HasMaxLength(100);
+            entity.Property(e => e.RecipientName).HasMaxLength(200);
+            entity.Property(e => e.RecipientVatId).HasMaxLength(50);
+            entity.Property(e => e.RecipientStreet).HasMaxLength(200);
+            entity.Property(e => e.RecipientZip).HasMaxLength(20);
+            entity.Property(e => e.RecipientCity).HasMaxLength(100);
+            entity.Property(e => e.RecipientCountry).HasMaxLength(2);
+            entity.Property(e => e.RecipientEmail).HasMaxLength(255);
+            entity.Property(e => e.Currency).HasMaxLength(3);
         });
 
         // ── PlatformUser ──────────────────────────────────────

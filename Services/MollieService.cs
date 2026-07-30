@@ -176,7 +176,7 @@ public class MollieService
                 await _db.SaveChangesAsync();
 
                 await _audit.LogAsync("mollie.subscription_activated", "Subscription", sub.Id.ToString(), sub.Plan.ToString(), sub.TenantId);
-                EnqueueCrmPush(sub.Id, payment.Id);
+                EnqueueInvoice(sub.Id, payment.Id);
             }
         }
         else if (payment.IsFailedOrExpired)
@@ -196,7 +196,7 @@ public class MollieService
             await _db.SaveChangesAsync();
 
             await _audit.LogAsync("mollie.recurring_payment_paid", "Subscription", sub.Id.ToString(), payment.Id, sub.TenantId);
-            EnqueueCrmPush(sub.Id, payment.Id);
+            EnqueueInvoice(sub.Id, payment.Id);
         }
         else if (payment.IsFailedOrExpired)
         {
@@ -213,6 +213,8 @@ public class MollieService
             ? parsed
             : SubscriptionPlan.Starter;
 
-    private void EnqueueCrmPush(Guid subscriptionId, string molliePaymentId) =>
-        _backgroundJobClient.Enqueue<CrmPushService>(s => s.PushSubscriptionPaymentAsync(subscriptionId, molliePaymentId, CancellationToken.None));
+    // GentleBook generates and emails its own invoice — no Gentle.Suite CRM dependency.
+    // CrmPushService remains in the codebase for a future CRM re-hook but is no longer called.
+    private void EnqueueInvoice(Guid subscriptionId, string molliePaymentId) =>
+        _backgroundJobClient.Enqueue<InvoiceService>(s => s.GenerateAndSendInvoiceAsync(subscriptionId, molliePaymentId, CancellationToken.None));
 }
