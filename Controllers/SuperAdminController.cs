@@ -934,6 +934,63 @@ public class SuperAdminController : ControllerBase
         return Ok(new { plan = planEnum.ToString(), monthlyPrice = dto.MonthlyPrice });
     }
 
+    /// <summary>Tenants that are about to churn: pending cancellation (access runs out at period
+    /// end) or in a payment-failure dunning grace period (auto-cancels after ~7 days).</summary>
+    [HttpGet("at-risk-subscriptions")]
+    public async Task<IActionResult> GetAtRiskSubscriptions()
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var now = DateTime.UtcNow;
+
+        var cancelling = await _db.Subscriptions
+            .Include(s => s.Tenant).ThenInclude(t => t.Settings)
+            .Where(s => s.CancelRequestedAt != null && s.Status != SubscriptionStatus.Cancelled)
+            .OrderBy(s => s.CurrentPeriodEnd)
+            .Select(s => new
+            {
+                s.TenantId,
+                CompanyName = s.Tenant.Settings != null ? s.Tenant.Settings.CompanyName : s.Tenant.Name,
+                TenantSlug = s.Tenant.Slug,
+                Plan = s.Plan.ToString(),
+                s.CancelRequestedAt,
+                s.CancelReason,
+                s.CurrentPeriodEnd,
+            })
+            .ToListAsync();
+
+        var pastDue = await _db.Subscriptions
+            .Include(s => s.Tenant).ThenInclude(t => t.Settings)
+            .Where(s => s.Status == SubscriptionStatus.PastDue && s.PastDueSince != null)
+            .OrderBy(s => s.PastDueSince)
+            .Select(s => new
+            {
+                s.TenantId,
+                CompanyName = s.Tenant.Settings != null ? s.Tenant.Settings.CompanyName : s.Tenant.Name,
+                TenantSlug = s.Tenant.Slug,
+                Plan = s.Plan.ToString(),
+                s.PastDueSince,
+                s.FailedPaymentCount,
+                s.DunningWarningEmailSent,
+            })
+            .ToListAsync();
+
+        const int gracePeriodDays = 7;
+        var dunning = pastDue.Select(s => new
+        {
+            s.TenantId,
+            s.CompanyName,
+            s.TenantSlug,
+            s.Plan,
+            s.PastDueSince,
+            s.FailedPaymentCount,
+            s.DunningWarningEmailSent,
+            DaysUntilAutoCancel = Math.Max(0, gracePeriodDays - (int)(now - s.PastDueSince!.Value).TotalDays),
+        });
+
+        return Ok(new { cancelling, dunning, totalAtRisk = cancelling.Count + pastDue.Count });
+    }
+
     // ── Tenant Stats ──────────────────────────────────────────────────────
 
     /// <summary>Detailed booking + revenue stats for a single tenant (last 6 months).</summary>
