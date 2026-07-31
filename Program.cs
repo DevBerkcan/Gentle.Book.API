@@ -573,7 +573,25 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-app.Run();
+// Diagnostic safety net: if the app fails to start (e.g. an IHostedService throws during
+// app.Run()'s host-startup sequence), write the real exception to a plain file — bypasses
+// IIS/ANCM stdout log redirection entirely, which has proven unreliable for capturing
+// early startup failures on this hosting environment.
+try
+{
+    app.Run();
+}
+catch (Exception ex)
+{
+    try
+    {
+        var diagDir = Path.Combine(AppContext.BaseDirectory, "logs");
+        Directory.CreateDirectory(diagDir);
+        File.WriteAllText(Path.Combine(diagDir, "crash-diagnostic.txt"), $"{DateTime.UtcNow:O}\n{ex}");
+    }
+    catch { /* best effort */ }
+    throw;
+}
 
 /// <summary>Hangfire dashboard: only allow requests from localhost.</summary>
 public class LocalOnlyDashboardAuthorizationFilter : Hangfire.Dashboard.IDashboardAuthorizationFilter

@@ -27,6 +27,16 @@ public class Subscription
     // ── CRM (Gentle.Suite invoicing) ──────────────────────────
     public string? CrmCustomerId { get; set; }
 
+    // ── Self-service cancellation (tenant clicked "cancel"; access continues to period end) ──
+    public DateTime? CancelRequestedAt { get; set; }
+    public string? CancelReason { get; set; }
+
+    // ── Dunning (failed recurring SEPA collection) ────────────
+    public DateTime? PastDueSince { get; set; }
+    public int FailedPaymentCount { get; set; }
+    public string? LastFailedMolliePaymentId { get; set; }
+    public bool DunningWarningEmailSent { get; set; }
+
     public DateTime? CancelledAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

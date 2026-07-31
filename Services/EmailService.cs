@@ -1864,6 +1864,201 @@ GentleBook · support@gentlegroup.de";
         }
     }
 
+    /// <summary>Confirms a tenant-initiated subscription cancellation. periodEnd is null when the
+    /// account has already been finalized (final notice) rather than just recorded.</summary>
+    public async Task SendSubscriptionCancelledConfirmationAsync(string recipientEmail, string firstName, string planName, DateTime? periodEnd)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = periodEnd != null ? "Ihre Kündigung wurde bestätigt" : "Ihr Zugang wurde beendet";
+
+            var periodText = periodEnd != null
+                ? $"Ihr Zugang zu GentleBook ({planName}-Plan) bleibt bis zum <strong>{periodEnd:dd.MM.yyyy}</strong> bestehen. Danach werden keine weiteren Zahlungen eingezogen."
+                : $"Ihr Zugang zu GentleBook ({planName}-Plan) wurde soeben beendet. Es werden keine weiteren Zahlungen eingezogen.";
+
+            var html = $@"<!DOCTYPE html>
+<html lang='de'>
+<head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:520px;margin:0 auto'>
+  <div style='background:linear-gradient(135deg,#374151,#6b7280);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>{(periodEnd != null ? "Kündigung bestätigt" : "Zugang beendet")}</h1>
+    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
+  </div>
+  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
+    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
+    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>{periodText}</p>
+    <p style='font-size:13px;color:#9ca3af;line-height:1.6;margin:0'>
+      Möchten Sie GentleBook doch weiter nutzen? Melden Sie sich einfach bei uns.
+    </p>
+    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
+      GentleBook · support@gentlegroup.de
+    </p>
+  </div>
+</div>
+</body>
+</html>";
+
+            var text = $@"{(periodEnd != null ? "Kündigung bestätigt" : "Zugang beendet")} – GentleBook
+
+Hallo {firstName},
+
+{periodText.Replace("<strong>", "").Replace("</strong>", "")}
+
+GentleBook · support@gentlegroup.de";
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Subscription cancellation confirmation sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send subscription cancellation confirmation to {Email}", recipientEmail);
+            throw;
+        }
+    }
+
+    /// <summary>Sent once, the first day a subscription is PastDue — warns the grace period is running.</summary>
+    public async Task SendDunningWarningEmailAsync(string recipientEmail, string firstName, string planName, int gracePeriodDays)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = "Zahlung fehlgeschlagen – bitte prüfen Sie Ihre Zahlungsdaten";
+
+            var html = $@"<!DOCTYPE html>
+<html lang='de'>
+<head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:520px;margin:0 auto'>
+  <div style='background:linear-gradient(135deg,#d97706,#f59e0b);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Zahlung fehlgeschlagen</h1>
+    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
+  </div>
+  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
+    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
+    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
+      Die letzte SEPA-Abbuchung für Ihren <strong>{planName}</strong>-Plan ist fehlgeschlagen. Ihr Zugang ist vorübergehend eingeschränkt.
+      Bitte kontaktieren Sie uns, damit wir das gemeinsam klären können. Sollte die Zahlung nicht innerhalb von
+      <strong>{gracePeriodDays} Tagen</strong> erfolgreich sein, wird Ihr Abonnement automatisch gekündigt.
+    </p>
+    <p style='font-size:13px;color:#9ca3af;line-height:1.6;margin:0'>
+      Kontaktieren Sie uns per E-Mail oder WhatsApp, wir helfen gerne weiter.
+    </p>
+    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
+      GentleBook · support@gentlegroup.de
+    </p>
+  </div>
+</div>
+</body>
+</html>";
+
+            var text = $@"Zahlung fehlgeschlagen – GentleBook
+
+Hallo {firstName},
+
+Die letzte SEPA-Abbuchung für Ihren {planName}-Plan ist fehlgeschlagen. Ihr Zugang ist vorübergehend eingeschränkt.
+Sollte die Zahlung nicht innerhalb von {gracePeriodDays} Tagen erfolgreich sein, wird Ihr Abonnement automatisch gekündigt.
+
+Kontaktieren Sie uns per E-Mail oder WhatsApp, wir helfen gerne weiter.
+
+GentleBook · support@gentlegroup.de";
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Dunning warning email sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send dunning warning email to {Email}", recipientEmail);
+            throw;
+        }
+    }
+
+    /// <summary>Sent once, when the dunning grace period expires and the subscription is auto-cancelled.</summary>
+    public async Task SendDunningFinalCancellationEmailAsync(string recipientEmail, string firstName, string planName)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = "Ihr GentleBook-Abonnement wurde gekündigt";
+
+            var html = $@"<!DOCTYPE html>
+<html lang='de'>
+<head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:520px;margin:0 auto'>
+  <div style='background:linear-gradient(135deg,#374151,#6b7280);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Abonnement gekündigt</h1>
+    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
+  </div>
+  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
+    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
+    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
+      Da die ausstehende Zahlung für Ihren <strong>{planName}</strong>-Plan innerhalb der Frist nicht beglichen wurde,
+      haben wir Ihr Abonnement gekündigt. Es werden keine weiteren Zahlungen eingezogen.
+    </p>
+    <p style='font-size:13px;color:#9ca3af;line-height:1.6;margin:0'>
+      Möchten Sie GentleBook wieder nutzen? Melden Sie sich einfach bei uns – wir richten Ihr Abo gerne neu ein.
+    </p>
+    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
+      GentleBook · support@gentlegroup.de
+    </p>
+  </div>
+</div>
+</body>
+</html>";
+
+            var text = $@"Abonnement gekündigt – GentleBook
+
+Hallo {firstName},
+
+Da die ausstehende Zahlung für Ihren {planName}-Plan innerhalb der Frist nicht beglichen wurde,
+haben wir Ihr Abonnement gekündigt. Es werden keine weiteren Zahlungen eingezogen.
+
+Möchten Sie GentleBook wieder nutzen? Melden Sie sich einfach bei uns.
+
+GentleBook · support@gentlegroup.de";
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("Dunning final-cancellation email sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send dunning final-cancellation email to {Email}", recipientEmail);
+            throw;
+        }
+    }
+
     /// <summary>
     /// Notifies the TenantAdmin that their plan request was declined.
     /// </summary>

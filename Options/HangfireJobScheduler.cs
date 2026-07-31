@@ -54,6 +54,18 @@ namespace GentleBook.Api.Options
                 j => j.ReconcileAsync(),
                 Cron.Hourly());
 
+            // Daily 02:00 UTC — finalize subscriptions whose CancelRequestedAt period has ended
+            _recurringJobManager.AddOrUpdate<SubscriptionService>(
+                "process-pending-cancellations",
+                s => s.ProcessPendingCancellationsAsync(),
+                Cron.Daily(2, 0));
+
+            // Daily 10:00 UTC — dunning: warn on first PastDue, auto-cancel after grace period
+            _recurringJobManager.AddOrUpdate<SubscriptionService>(
+                "process-dunning",
+                s => s.ProcessDunningAsync(),
+                Cron.Daily(10, 0));
+
             _logger.LogInformation("Hangfire jobs scheduled successfully");
 
             return Task.CompletedTask;

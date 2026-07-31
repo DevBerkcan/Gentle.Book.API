@@ -21,6 +21,7 @@ public class MollieService
     private readonly IOptions<MollieOptions> _options;
     private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly AuditService _audit;
+    private readonly EmailService _emailService;
     private readonly ILogger<MollieService> _logger;
 
     public MollieService(
@@ -29,6 +30,7 @@ public class MollieService
         IOptions<MollieOptions> options,
         IBackgroundJobClient backgroundJobClient,
         AuditService audit,
+        EmailService emailService,
         ILogger<MollieService> logger)
     {
         _db = db;
@@ -36,6 +38,7 @@ public class MollieService
         _options = options;
         _backgroundJobClient = backgroundJobClient;
         _audit = audit;
+        _emailService = emailService;
         _logger = logger;
     }
 
@@ -55,7 +58,7 @@ public class MollieService
         if (sub == null)
             return new MollieFlowResult(false, "Kein Abonnement gefunden.", null);
 
-        if (!string.IsNullOrEmpty(sub.MollieSubscriptionId))
+        if (!string.IsNullOrEmpty(sub.MollieSubscriptionId) && sub.Status != SubscriptionStatus.Cancelled)
             return new MollieFlowResult(false, "Es besteht bereits ein aktives Mollie-Abonnement.", null);
 
         // If there's an unresolved in-flight first payment, re-check it instead of creating a new one.
@@ -132,6 +135,12 @@ public class MollieService
         await _audit.LogAsync("mollie.webhook_unmatched_payment", "MolliePayment", payment.Id);
     }
 
+    // Does NOT unilaterally finalize Status → Cancelled anymore. A tenant-initiated cancel
+    // (CancelSubscriptionAsync below) or the dunning auto-cancel job calls Mollie's DELETE
+    // themselves and Mollie echoes it back here as a webhook — finalizing on that echo would
+    // deactivate the tenant immediately, violating "access continues until period end."
+    // Real finalization is owned by SubscriptionService.ProcessPendingCancellationsAsync
+    // (period-end) and SubscriptionService.ProcessDunningAsync (grace-period expiry).
     public async Task ProcessSubscriptionEventAsync(MollieSubscription subscription)
     {
         var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.MollieSubscriptionId == subscription.Id);
@@ -143,11 +152,29 @@ public class MollieService
 
         if (subscription.Status is "canceled" or "suspended" or "completed")
         {
-            sub.Status = SubscriptionStatus.Cancelled;
-            sub.CancelledAt = DateTime.UtcNow;
+            if (sub.Status == SubscriptionStatus.Cancelled)
+            {
+                // Our own DELETE call (cancel endpoint or dunning job) echoed back — audit only.
+                await _audit.LogAsync("mollie.subscription_cancel_confirmed", "Subscription", sub.Id.ToString(), subscription.Status, sub.TenantId);
+                return;
+            }
+
+            if (sub.CancelRequestedAt != null)
+            {
+                // Tenant-initiated cancellation already recorded; ProcessPendingCancellationsAsync
+                // finalizes Status at period end, not this webhook.
+                await _audit.LogAsync("mollie.subscription_cancel_confirmed_pending_period_end", "Subscription", sub.Id.ToString(), subscription.Status, sub.TenantId);
+                return;
+            }
+
+            // Genuinely unprompted external cancellation (Mollie dashboard, invalidated mandate).
+            // Treat like a tenant self-cancel so access still runs out gracefully at period end
+            // instead of an abrupt cutoff, but flag it for ops via a warning log.
+            sub.CancelRequestedAt = DateTime.UtcNow;
             sub.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
-            await _audit.LogAsync("mollie.subscription_ended", "Subscription", sub.Id.ToString(), subscription.Status, sub.TenantId);
+            _logger.LogWarning("Mollie subscription {MollieSubscriptionId} was cancelled externally for Subscription {SubscriptionId}", subscription.Id, sub.Id);
+            await _audit.LogAsync("mollie.subscription_cancelled_externally", "Subscription", sub.Id.ToString(), subscription.Status, sub.TenantId);
         }
     }
 
@@ -192,6 +219,11 @@ public class MollieService
             sub.Status = SubscriptionStatus.Active;
             sub.CurrentPeriodStart = DateTime.UtcNow;
             sub.CurrentPeriodEnd = DateTime.UtcNow.AddMonths(1);
+            // Clears any in-progress dunning episode — a recovered payment cancels the grace-period clock.
+            sub.PastDueSince = null;
+            sub.FailedPaymentCount = 0;
+            sub.LastFailedMolliePaymentId = null;
+            sub.DunningWarningEmailSent = false;
             sub.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
 
@@ -201,10 +233,131 @@ public class MollieService
         else if (payment.IsFailedOrExpired)
         {
             // Mollie retries failed SEPA collections itself — reflect the risk, don't cancel yet.
+            // SubscriptionService.ProcessDunningAsync auto-cancels after a grace period.
             sub.Status = SubscriptionStatus.PastDue;
+            if (sub.PastDueSince == null)
+                sub.PastDueSince = DateTime.UtcNow;
+
+            // Dedup against MollieReconciliationJob's hourly replay of the same still-failing
+            // payment — only count a genuinely new failed payment id.
+            if (payment.Id != sub.LastFailedMolliePaymentId)
+            {
+                sub.FailedPaymentCount++;
+                sub.LastFailedMolliePaymentId = payment.Id;
+            }
             sub.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
             await _audit.LogAsync("mollie.recurring_payment_failed", "Subscription", sub.Id.ToString(), payment.Id, sub.TenantId);
+        }
+    }
+
+    public record CancelResult(bool Success, string? Error, DateTime? CancelRequestedAt, DateTime? CurrentPeriodEnd, string Message);
+
+    /// <summary>
+    /// Tenant-initiated cancellation. Cancels the Mollie subscription (not the mandate)
+    /// immediately so no further charge is even attempted, while access stays available
+    /// until CurrentPeriodEnd — finalized later by ProcessPendingCancellationsAsync.
+    /// </summary>
+    public async Task<CancelResult> CancelSubscriptionAsync(Guid tenantId, string? reason)
+    {
+        var sub = await _db.Subscriptions.Include(s => s.Tenant).ThenInclude(t => t.Settings)
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (sub == null)
+            return new CancelResult(false, "Kein Abonnement gefunden.", null, null, "");
+
+        if (sub.Status == SubscriptionStatus.Cancelled)
+            return new CancelResult(true, null, sub.CancelRequestedAt, sub.CurrentPeriodEnd, "Das Abonnement ist bereits gekündigt.");
+
+        if (sub.CancelRequestedAt != null)
+            return new CancelResult(true, null, sub.CancelRequestedAt, sub.CurrentPeriodEnd, "Die Kündigung wurde bereits entgegengenommen.");
+
+        var reasonTrimmed = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+
+        // Trial has no paid period to run out — cancel finalizes immediately.
+        if (sub.Status == SubscriptionStatus.Trial)
+        {
+            sub.Status = SubscriptionStatus.Cancelled;
+            sub.CancelledAt = DateTime.UtcNow;
+            sub.CancelReason = reasonTrimmed;
+            sub.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+            await _audit.LogAsync("subscription.cancel_requested", "Subscription", sub.Id.ToString(), "Trial", sub.TenantId);
+            return new CancelResult(true, null, sub.CancelledAt, null, "Testphase beendet.");
+        }
+
+        var now = DateTime.UtcNow;
+
+        if (!string.IsNullOrEmpty(sub.MollieSubscriptionId))
+        {
+            try
+            {
+                await _mollie.CancelSubscriptionAsync(sub.MollieCustomerId!, sub.MollieSubscriptionId!);
+            }
+            catch (Exception ex)
+            {
+                // Never let a Mollie outage silently drop the tenant's cancellation intent —
+                // record it locally now, retry the Mollie-side DELETE via Hangfire.
+                _logger.LogError(ex, "Cancel: Mollie DELETE failed for Subscription {SubscriptionId}, queuing retry.", sub.Id);
+                sub.CancelRequestedAt = now;
+                sub.CancelReason = reasonTrimmed;
+                sub.UpdatedAt = now;
+                await _db.SaveChangesAsync();
+                _backgroundJobClient.Enqueue<MollieService>(s => s.RetryCancelMollieSubscriptionAsync(sub.Id, CancellationToken.None));
+                await _audit.LogAsync("subscription.cancel_mollie_call_failed_queued_retry", "Subscription", sub.Id.ToString(), ex.Message, sub.TenantId);
+                await SendCancelConfirmationEmailAsync(sub);
+                return new CancelResult(true, null, sub.CancelRequestedAt, sub.CurrentPeriodEnd,
+                    "Kündigung bestätigt. Ihr Zugang bleibt bis zum Ende der bezahlten Periode bestehen.");
+            }
+        }
+        // else: no Mollie subscription on file (e.g. manually activated tenant) — nothing to
+        // cancel at Mollie, the period-end job finalizes exactly the same way.
+
+        sub.CancelRequestedAt = now;
+        sub.CancelReason = reasonTrimmed;
+        sub.UpdatedAt = now;
+        await _db.SaveChangesAsync();
+
+        await _audit.LogAsync("subscription.cancel_requested", "Subscription", sub.Id.ToString(), reasonTrimmed ?? "", sub.TenantId);
+        await SendCancelConfirmationEmailAsync(sub);
+
+        return new CancelResult(true, null, sub.CancelRequestedAt, sub.CurrentPeriodEnd,
+            "Kündigung bestätigt. Ihr Zugang bleibt bis zum Ende der bezahlten Periode bestehen.");
+    }
+
+    [AutomaticRetry(Attempts = 5, DelaysInSeconds = new[] { 60, 300, 900, 3600, 3600 })]
+    public async Task RetryCancelMollieSubscriptionAsync(Guid subscriptionId, CancellationToken ct)
+    {
+        var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.Id == subscriptionId, ct);
+        if (sub?.MollieSubscriptionId == null || sub.MollieCustomerId == null) return;
+
+        try
+        {
+            await _mollie.CancelSubscriptionAsync(sub.MollieCustomerId, sub.MollieSubscriptionId, ct);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Gone)
+        {
+            // Already cancelled/gone on Mollie's side — treat as success.
+        }
+        await _audit.LogAsync("subscription.cancel_mollie_retry_succeeded", "Subscription", sub.Id.ToString(), "", sub.TenantId);
+    }
+
+    private async Task SendCancelConfirmationEmailAsync(Subscription sub)
+    {
+        try
+        {
+            var admin = await _db.PlatformUsers
+                .Where(u => u.TenantId == sub.TenantId && u.Role == PlatformRole.TenantAdmin)
+                .OrderBy(u => u.CreatedAt)
+                .FirstOrDefaultAsync();
+            if (admin == null) return;
+
+            var limits = PlanLimits.Get(sub.Plan);
+            await _emailService.SendSubscriptionCancelledConfirmationAsync(
+                admin.Email, admin.FirstName, limits.DisplayName, sub.CurrentPeriodEnd);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send cancellation confirmation email for Subscription {SubscriptionId}", sub.Id);
         }
     }
 

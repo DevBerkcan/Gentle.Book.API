@@ -150,6 +150,10 @@ public class GentleBookDbContext : DbContext
             entity.HasIndex(e => e.MollieCustomerId);
             entity.HasIndex(e => e.MollieSubscriptionId);
             entity.HasIndex(e => e.LastMolliePaymentId);
+            entity.Property(e => e.CancelReason).HasMaxLength(500);
+            entity.Property(e => e.LastFailedMolliePaymentId).HasMaxLength(64);
+            entity.HasIndex(e => e.CancelRequestedAt);
+            entity.HasIndex(e => e.PastDueSince);
             entity.Ignore(e => e.IsInTrial);
             entity.Ignore(e => e.TrialDaysRemaining);
             entity.Ignore(e => e.IsAccessAllowed);

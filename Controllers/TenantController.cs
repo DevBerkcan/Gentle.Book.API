@@ -572,9 +572,24 @@ public class TenantController : ControllerBase
                 sub.CurrentPeriodStart,
                 sub.CurrentPeriodEnd,
                 sub.CancelledAt,
+                sub.CancelRequestedAt,
                 sub.MollieSubscriptionId,
             }
         });
+    }
+
+    // POST /api/tenant/subscription/cancel
+    [HttpPost("subscription/cancel")]
+    public async Task<IActionResult> CancelSubscription([FromBody] CancelSubscriptionRequestDto dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var result = await _mollieService.CancelSubscriptionAsync(_tenantContext.TenantId!.Value, dto.Reason);
+        if (!result.Success)
+            return BadRequest(new { message = result.Error });
+
+        return Ok(new { cancelRequestedAt = result.CancelRequestedAt, currentPeriodEnd = result.CurrentPeriodEnd, message = result.Message });
     }
 
     // POST /api/tenant/subscription/mollie/start
@@ -767,6 +782,7 @@ public class TenantController : ControllerBase
 public record SupportMessageRequest(string Subject, string Message);
 public record SubscriptionRequestDto(string Plan, string ContactEmail, string? Note);
 public record MollieStartRequestDto(string Plan);
+public record CancelSubscriptionRequestDto(string? Reason);
 
 public record UpdateBusinessHoursItemDto(int DayOfWeek, bool IsOpen, string? OpenTime, string? CloseTime, string? BreakStartTime, string? BreakEndTime);
 public record BusinessLocationResponse(

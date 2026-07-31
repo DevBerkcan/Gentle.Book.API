@@ -1,3 +1,4 @@
+using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -118,5 +119,147 @@ public class SubscriptionService
         }
 
         _logger.LogInformation("Trial warning emails: {Count} email(s) sent.", upcoming.Count);
+    }
+
+    /// <summary>
+    /// Runs daily: finalizes subscriptions whose tenant-initiated cancellation period has
+    /// ended (Status -> Cancelled). Access stays available until this point.
+    /// </summary>
+    public async Task ProcessPendingCancellationsAsync()
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+        var emailService = scope.ServiceProvider.GetRequiredService<EmailService>();
+
+        var now = DateTime.UtcNow;
+
+        var due = await db.Subscriptions
+            .Include(s => s.Tenant).ThenInclude(t => t.Settings)
+            .Where(s => s.CancelRequestedAt != null
+                     && s.Status != SubscriptionStatus.Cancelled
+                     && (s.CurrentPeriodEnd == null || s.CurrentPeriodEnd <= now))
+            .ToListAsync();
+
+        if (due.Count == 0)
+        {
+            _logger.LogInformation("Pending cancellations: none due.");
+            return;
+        }
+
+        foreach (var sub in due)
+        {
+            sub.Status = SubscriptionStatus.Cancelled;
+            sub.CancelledAt = now;
+            sub.UpdatedAt = now;
+
+            try
+            {
+                var admin = await db.PlatformUsers
+                    .Where(u => u.TenantId == sub.TenantId && u.Role == PlatformRole.TenantAdmin)
+                    .OrderBy(u => u.CreatedAt)
+                    .FirstOrDefaultAsync();
+                if (admin != null)
+                {
+                    var limits = PlanLimits.Get(sub.Plan);
+                    await emailService.SendSubscriptionCancelledConfirmationAsync(admin.Email, admin.FirstName, limits.DisplayName, null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send final cancellation email for TenantId={TenantId}", sub.TenantId);
+            }
+        }
+
+        await db.SaveChangesAsync();
+        _logger.LogInformation("Pending cancellations: {Count} subscription(s) finalized.", due.Count);
+    }
+
+    private const int DunningGracePeriodDays = 7;
+
+    /// <summary>
+    /// Runs daily: warns tenants on their first day PastDue, then auto-cancels the Mollie
+    /// subscription and deactivates the account once the grace period has elapsed without
+    /// a successful payment. Time-based (PastDueSince), not failure-count-based, because
+    /// MollieReconciliationJob replays the same still-failing payment every hour.
+    /// </summary>
+    public async Task ProcessDunningAsync()
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+        var mollie = scope.ServiceProvider.GetRequiredService<MollieClient>();
+        var emailService = scope.ServiceProvider.GetRequiredService<EmailService>();
+        var audit = scope.ServiceProvider.GetRequiredService<AuditService>();
+
+        var now = DateTime.UtcNow;
+
+        var pastDue = await db.Subscriptions
+            .Include(s => s.Tenant).ThenInclude(t => t.Settings)
+            .Where(s => s.Status == SubscriptionStatus.PastDue && s.PastDueSince != null)
+            .ToListAsync();
+
+        if (pastDue.Count == 0)
+        {
+            _logger.LogInformation("Dunning: no PastDue subscriptions.");
+            return;
+        }
+
+        var warned = 0;
+        var cancelled = 0;
+
+        foreach (var sub in pastDue)
+        {
+            var daysPastDue = (now - sub.PastDueSince!.Value).TotalDays;
+
+            var admin = await db.PlatformUsers
+                .Where(u => u.TenantId == sub.TenantId && u.Role == PlatformRole.TenantAdmin)
+                .OrderBy(u => u.CreatedAt)
+                .FirstOrDefaultAsync();
+            var limits = PlanLimits.Get(sub.Plan);
+
+            if (!sub.DunningWarningEmailSent)
+            {
+                sub.DunningWarningEmailSent = true;
+                await db.SaveChangesAsync();
+                warned++;
+
+                if (admin != null)
+                {
+                    try { await emailService.SendDunningWarningEmailAsync(admin.Email, admin.FirstName, limits.DisplayName, DunningGracePeriodDays); }
+                    catch (Exception ex) { _logger.LogError(ex, "Failed to send dunning warning email for TenantId={TenantId}", sub.TenantId); }
+                }
+                continue; // give the tenant until the next day's run before considering cancel
+            }
+
+            if (daysPastDue < DunningGracePeriodDays) continue;
+
+            try
+            {
+                if (!string.IsNullOrEmpty(sub.MollieSubscriptionId) && !string.IsNullOrEmpty(sub.MollieCustomerId))
+                    await mollie.CancelSubscriptionAsync(sub.MollieCustomerId, sub.MollieSubscriptionId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Dunning auto-cancel: Mollie DELETE failed for Subscription {Id}, finalizing locally anyway.", sub.Id);
+                // A PastDue subscription past its grace period must stop regardless of whether
+                // Mollie's API is reachable right now.
+            }
+
+            sub.Status = SubscriptionStatus.Cancelled;
+            sub.CancelledAt = now;
+            sub.UpdatedAt = now;
+            await db.SaveChangesAsync();
+            cancelled++;
+
+            await audit.LogAsync("subscription.dunning_auto_cancelled", "Subscription", sub.Id.ToString(),
+                $"{sub.FailedPaymentCount} failed payment(s), {daysPastDue:F0} days past due", sub.TenantId);
+
+            if (admin != null)
+            {
+                try { await emailService.SendDunningFinalCancellationEmailAsync(admin.Email, admin.FirstName, limits.DisplayName); }
+                catch (Exception ex) { _logger.LogError(ex, "Failed to send dunning final-cancellation email for TenantId={TenantId}", sub.TenantId); }
+            }
+        }
+
+        _logger.LogInformation("Dunning: {Warned} warned, {Cancelled} auto-cancelled.", warned, cancelled);
     }
 }

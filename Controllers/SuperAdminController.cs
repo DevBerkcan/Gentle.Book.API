@@ -1183,6 +1183,12 @@ public class SuperAdminController : ControllerBase
             sub.CurrentPeriodStart = DateTime.UtcNow;
             sub.CurrentPeriodEnd = DateTime.UtcNow.AddMonths(1);
             sub.CancelledAt = null;
+            sub.CancelRequestedAt = null;
+            sub.CancelReason = null;
+            sub.PastDueSince = null;
+            sub.FailedPaymentCount = 0;
+            sub.LastFailedMolliePaymentId = null;
+            sub.DunningWarningEmailSent = false;
         }
 
         request.Status = "Activated";
