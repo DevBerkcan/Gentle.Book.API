@@ -97,6 +97,11 @@ public class EmployeesController : ControllerBase
         [FromQuery] DateOnly? from, [FromQuery] DateOnly? to)
     {
         var currentUserId = GetCurrentEmployeeId();
+        var role = JwtService.GetRole(User);
+        var isAdmin = role == "TenantAdmin" || role == "SuperAdmin";
+        if (!isAdmin && currentUserId != id)
+            return StatusCode(403, new { message = "Sie dürfen nur Ihre eigenen Statistiken einsehen." });
+
         var stats = await _employeeService.GetStatsAsync(id, from, to);
 
         if (stats == null) return NotFound();

@@ -30,7 +30,8 @@ public class AvailabilityController : ControllerBase
         Guid serviceId,
         [FromQuery] string date,
         [FromQuery] Guid? employeeId = null,
-        [FromQuery] string? waitlistToken = null)
+        [FromQuery] string? waitlistToken = null,
+        [FromQuery] string? tenantSlug = null)
     {
         if (!DateOnly.TryParse(date, out var bookingDate))
             return BadRequest(new { message = "Ungültiges Datumsformat" });
@@ -38,7 +39,7 @@ public class AvailabilityController : ControllerBase
         try
         {
             var availability = await _availabilityService.GetAvailableTimeSlotsAsync(
-                serviceId, bookingDate, employeeId, waitlistToken);
+                serviceId, bookingDate, employeeId, waitlistToken, tenantSlug);
             return Ok(availability);
         }
         catch (ArgumentException ex)
@@ -55,13 +56,14 @@ public class AvailabilityController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<Dictionary<Guid, List<TimeSlotDto>>>> GetAllEmployeesAvailability(
         [FromQuery] string date,
-        [FromQuery] int serviceDuration)
+        [FromQuery] int serviceDuration,
+        [FromQuery] string? tenantSlug = null)
     {
         if (!DateOnly.TryParse(date, out var bookingDate))
             return BadRequest(new { message = "Ungültiges Datumsformat" });
 
         var availability = await _availabilityService.GetAllEmployeesAvailabilityAsync(
-            bookingDate, serviceDuration);
+            bookingDate, serviceDuration, tenantSlug);
         return Ok(availability);
     }
 
@@ -75,7 +77,8 @@ public class AvailabilityController : ControllerBase
         [FromQuery] string date,
         [FromQuery] string startTime,
         [FromQuery] string endTime,
-        [FromQuery] Guid employeeId)
+        [FromQuery] Guid employeeId,
+        [FromQuery] string? tenantSlug = null)
     {
         if (!DateOnly.TryParse(date, out var bookingDate))
             return BadRequest(new { message = "Ungültiges Datumsformat" });
@@ -86,8 +89,8 @@ public class AvailabilityController : ControllerBase
         if (!TimeOnly.TryParse(endTime, out var end))
             return BadRequest(new { message = "Ungültiges Endzeit-Format" });
 
-        var isAvailable = await _availabilityService.IsTimeSlotAvailableForEmployeeAsync(
-            bookingDate, start, end, employeeId);
+        var isAvailable = await _availabilityService.CheckSlotAvailabilityAsync(
+            bookingDate, start, end, employeeId, tenantSlug);
 
         return Ok(isAvailable);
     }
@@ -101,7 +104,8 @@ public class AvailabilityController : ControllerBase
     public async Task<ActionResult<List<Guid>>> GetAvailableEmployees(
         [FromQuery] string date,
         [FromQuery] string startTime,
-        [FromQuery] string endTime)
+        [FromQuery] string endTime,
+        [FromQuery] string? tenantSlug = null)
     {
         if (!DateOnly.TryParse(date, out var bookingDate))
             return BadRequest(new { message = "Ungültiges Datumsformat" });
@@ -113,7 +117,7 @@ public class AvailabilityController : ControllerBase
             return BadRequest(new { message = "Ungültiges Endzeit-Format" });
 
         var availableEmployees = await _availabilityService.GetAvailableEmployeesForTimeSlotAsync(
-            bookingDate, start, end);
+            bookingDate, start, end, tenantSlug);
 
         return Ok(availableEmployees);
     }

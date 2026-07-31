@@ -9,11 +9,32 @@ public class AvailabilityService
 {
     private readonly GentleBookDbContext _context;
     private readonly ILogger<AvailabilityService> _logger;
+    private readonly ITenantContext _tenantContext;
 
-    public AvailabilityService(GentleBookDbContext context, ILogger<AvailabilityService> logger)
+    public AvailabilityService(GentleBookDbContext context, ILogger<AvailabilityService> logger, ITenantContext tenantContext)
     {
         _context = context;
         _logger = logger;
+        _tenantContext = tenantContext;
+    }
+
+    // Mirrors ServiceService/EmployeeService: prefer the authenticated tenant (from the JWT),
+    // fall back to a client-supplied slug for the unauthenticated public booking widget.
+    // Every query below must filter by the resolved TenantId explicitly — this endpoint is
+    // reachable without authentication, so the EF global query filter (which is a no-op when
+    // no tenant is set) cannot be relied on here.
+    private async Task<Guid?> ResolveTenantIdAsync(string? tenantSlug)
+    {
+        if (_tenantContext.TenantId.HasValue)
+            return _tenantContext.TenantId.Value;
+
+        if (string.IsNullOrWhiteSpace(tenantSlug))
+            return null;
+
+        return await _context.Tenants
+            .Where(t => t.Slug == tenantSlug.Trim().ToLower() && t.IsActive)
+            .Select(t => (Guid?)t.Id)
+            .FirstOrDefaultAsync();
     }
 
     /// <summary>
@@ -25,10 +46,16 @@ public class AvailabilityService
         Guid serviceId,
         DateOnly date,
         Guid? employeeId = null,
-        string? waitlistToken = null)
+        string? waitlistToken = null,
+        string? tenantSlug = null)
     {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            throw new ArgumentException("Tenant not found", nameof(tenantSlug));
+
         // 1. Service abrufen
-        var service = await _context.Services.FindAsync(serviceId);
+        var service = await _context.Services
+            .FirstOrDefaultAsync(s => s.Id == serviceId && s.TenantId == tenantId.Value);
         if (service == null || !service.IsActive)
         {
             throw new ArgumentException("Service not found or inactive", nameof(serviceId));
@@ -37,7 +64,7 @@ public class AvailabilityService
         // 2. Öffnungszeiten für den Wochentag abrufen
         var dayOfWeek = date.DayOfWeek;
         var businessHours = await _context.BusinessHours
-            .FirstOrDefaultAsync(bh => bh.DayOfWeek == dayOfWeek);
+            .FirstOrDefaultAsync(bh => bh.TenantId == tenantId.Value && bh.DayOfWeek == dayOfWeek);
 
         if (businessHours == null || !businessHours.IsOpen)
         {
@@ -54,7 +81,7 @@ public class AvailabilityService
         }
 
         // 3. Buchungsintervall aus Settings holen
-        var tenantSettings = await _context.TenantSettings.FirstOrDefaultAsync();
+        var tenantSettings = await _context.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
         var intervalMinutes = tenantSettings?.BookingIntervalMinutes ?? 15;
 
         // 4. Alle Zeitslots generieren
@@ -72,7 +99,8 @@ public class AvailabilityService
             timeSlots,
             date,
             employeeId,
-            service.DurationMinutes
+            service.DurationMinutes,
+            tenantId.Value
         );
         availableSlots = await ApplyWaitlistReservationsAsync(
             availableSlots, serviceId, date, employeeId, waitlistToken);
@@ -81,7 +109,7 @@ public class AvailabilityService
         string? message = null;
         if (employeeId.HasValue && availableSlots.All(s => !s.IsAvailable))
         {
-            message = await BuildEmployeeUnavailableMessageAsync(date, employeeId.Value);
+            message = await BuildEmployeeUnavailableMessageAsync(date, employeeId.Value, tenantId.Value);
         }
 
         return new AvailabilityResponseDto(
@@ -137,15 +165,15 @@ public class AvailabilityService
     /// <summary>
     /// Builds a human-readable reason why an employee has no free slots on a date.
     /// </summary>
-    private async Task<string?> BuildEmployeeUnavailableMessageAsync(DateOnly date, Guid employeeId)
+    private async Task<string?> BuildEmployeeUnavailableMessageAsync(DateOnly date, Guid employeeId, Guid tenantId)
     {
         var isOnVacation = await _context.EmployeeVacations
-            .AnyAsync(v => v.EmployeeId == employeeId && v.StartDate <= date && v.EndDate >= date);
+            .AnyAsync(v => v.TenantId == tenantId && v.EmployeeId == employeeId && v.StartDate <= date && v.EndDate >= date);
         if (isOnVacation)
             return "Der ausgewählte Mitarbeiter ist an diesem Tag abwesend (Urlaub/Abwesenheit).";
 
         var schedule = await _context.EmployeeSchedules
-            .FirstOrDefaultAsync(s => s.EmployeeId == employeeId && s.DayOfWeek == date.DayOfWeek);
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.EmployeeId == employeeId && s.DayOfWeek == date.DayOfWeek);
 
         if (schedule != null && !schedule.IsWorkingDay)
             return "Der ausgewählte Mitarbeiter arbeitet laut Arbeitszeiten an diesem Wochentag nicht.";
@@ -161,17 +189,22 @@ public class AvailabilityService
     /// </summary>
     public async Task<Dictionary<Guid, List<TimeSlotDto>>> GetAllEmployeesAvailabilityAsync(
         DateOnly date,
-        int serviceDuration)
+        int serviceDuration,
+        string? tenantSlug = null)
     {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return new Dictionary<Guid, List<TimeSlotDto>>();
+
         var employees = await _context.Employees
-            .Where(e => e.IsActive)
+            .Where(e => e.TenantId == tenantId.Value && e.IsActive)
             .ToListAsync();
 
         var result = new Dictionary<Guid, List<TimeSlotDto>>();
 
         foreach (var employee in employees)
         {
-            var slots = await GetAvailableTimeSlotsForEmployeeAsync(date, serviceDuration, employee.Id);
+            var slots = await GetAvailableTimeSlotsForEmployeeAsync(date, serviceDuration, employee.Id, tenantId.Value);
             result[employee.Id] = slots;
         }
 
@@ -184,16 +217,17 @@ public class AvailabilityService
     public async Task<List<TimeSlotDto>> GetAvailableTimeSlotsForEmployeeAsync(
         DateOnly date,
         int serviceDuration,
-        Guid employeeId)
+        Guid employeeId,
+        Guid tenantId)
     {
         var dayOfWeek = date.DayOfWeek;
         var businessHours = await _context.BusinessHours
-            .FirstOrDefaultAsync(bh => bh.DayOfWeek == dayOfWeek);
+            .FirstOrDefaultAsync(bh => bh.TenantId == tenantId && bh.DayOfWeek == dayOfWeek);
 
         if (businessHours == null || !businessHours.IsOpen)
             return new List<TimeSlotDto>();
 
-        var tenantSettings = await _context.TenantSettings.FirstOrDefaultAsync();
+        var tenantSettings = await _context.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId);
         var intervalMinutes = tenantSettings?.BookingIntervalMinutes ?? 15;
 
         var timeSlots = GenerateTimeSlots(
@@ -209,7 +243,8 @@ public class AvailabilityService
             timeSlots,
             date,
             employeeId,
-            serviceDuration
+            serviceDuration,
+            tenantId
         );
     }
 
@@ -220,14 +255,16 @@ public class AvailabilityService
         DateOnly date,
         TimeOnly startTime,
         TimeOnly endTime,
-        Guid employeeId)
+        Guid employeeId,
+        Guid tenantId)
     {
         // Check for any non-cancelled booking for this employee at this time.
         // EndTime is extended by the existing booking's service BufferTimeMinutes
         // to block the cleanup/preparation gap after each appointment.
         var existingBooking = await _context.Bookings
             .Include(b => b.Service)
-            .AnyAsync(b => b.BookingDate == date &&
+            .AnyAsync(b => b.TenantId == tenantId &&
+                          b.BookingDate == date &&
                           b.EmployeeId == employeeId &&
                           b.Status != BookingStatus.Cancelled &&
                           b.StartTime < endTime &&
@@ -238,7 +275,8 @@ public class AvailabilityService
 
         // Check for blocked slots: employee-specific OR studio-wide (EmployeeId == null)
         var isBlocked = await _context.BlockedTimeSlots
-            .AnyAsync(bs => bs.BlockDate == date &&
+            .AnyAsync(bs => bs.TenantId == tenantId &&
+                           bs.BlockDate == date &&
                            (bs.EmployeeId == employeeId || bs.EmployeeId == null) &&
                            bs.StartTime < endTime &&
                            bs.EndTime > startTime);
@@ -247,22 +285,47 @@ public class AvailabilityService
     }
 
     /// <summary>
+    /// Public entry point for callers (e.g. the controller) that only have a tenant slug,
+    /// not an already-resolved TenantId. Resolves the tenant, then delegates.
+    /// </summary>
+    public async Task<bool> CheckSlotAvailabilityAsync(
+        DateOnly date,
+        TimeOnly startTime,
+        TimeOnly endTime,
+        Guid employeeId,
+        string? tenantSlug = null)
+    {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return false;
+
+        return await IsTimeSlotAvailableForEmployeeAsync(date, startTime, endTime, employeeId, tenantId.Value);
+    }
+
+    /// <summary>
     /// Legacy method for backward compatibility
     /// </summary>
-    public async Task<bool> IsTimeSlotAvailableAsync(Guid serviceId, DateOnly date, TimeOnly startTime)
+    public async Task<bool> IsTimeSlotAvailableAsync(Guid serviceId, DateOnly date, TimeOnly startTime, string? tenantSlug = null)
     {
-        var service = await _context.Services.FindAsync(serviceId);
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return false;
+
+        var service = await _context.Services.FirstOrDefaultAsync(s => s.Id == serviceId && s.TenantId == tenantId.Value);
         if (service == null || !service.IsActive)
             return false;
 
         var endTime = startTime.AddMinutes(service.DurationMinutes);
 
         // For backward compatibility, check if ANY employee is available
-        var employees = await _context.Employees.Where(e => e.IsActive).Select(e => e.Id).ToListAsync();
+        var employees = await _context.Employees
+            .Where(e => e.TenantId == tenantId.Value && e.IsActive)
+            .Select(e => e.Id)
+            .ToListAsync();
 
         foreach (var employeeId in employees)
         {
-            var isAvailable = await IsTimeSlotAvailableForEmployeeAsync(date, startTime, endTime, employeeId);
+            var isAvailable = await IsTimeSlotAvailableForEmployeeAsync(date, startTime, endTime, employeeId, tenantId.Value);
             if (isAvailable)
                 return true;
         }
@@ -276,10 +339,15 @@ public class AvailabilityService
     public async Task<List<Guid>> GetAvailableEmployeesForTimeSlotAsync(
         DateOnly date,
         TimeOnly startTime,
-        TimeOnly endTime)
+        TimeOnly endTime,
+        string? tenantSlug = null)
     {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return new List<Guid>();
+
         var activeEmployees = await _context.Employees
-            .Where(e => e.IsActive)
+            .Where(e => e.TenantId == tenantId.Value && e.IsActive)
             .Select(e => e.Id)
             .ToListAsync();
 
@@ -287,7 +355,7 @@ public class AvailabilityService
 
         foreach (var employeeId in activeEmployees)
         {
-            var isAvailable = await IsTimeSlotAvailableForEmployeeAsync(date, startTime, endTime, employeeId);
+            var isAvailable = await IsTimeSlotAvailableForEmployeeAsync(date, startTime, endTime, employeeId, tenantId.Value);
             if (isAvailable)
                 availableEmployees.Add(employeeId);
         }
@@ -334,7 +402,8 @@ public class AvailabilityService
         List<(TimeOnly Start, TimeOnly End)> timeSlots,
         DateOnly date,
         Guid? employeeId,
-        int serviceDuration)
+        int serviceDuration,
+        Guid tenantId)
     {
         var availableSlots = new List<TimeSlotDto>();
 
@@ -342,13 +411,13 @@ public class AvailabilityService
         {
             // Check availability for specific employee
             availableSlots = await DetermineAvailableSlotsForEmployee(
-                timeSlots, date, employeeId.Value, serviceDuration);
+                timeSlots, date, employeeId.Value, serviceDuration, tenantId);
         }
         else
         {
             // Check if ANY employee is available for each slot
             var activeEmployees = await _context.Employees
-                .Where(e => e.IsActive)
+                .Where(e => e.TenantId == tenantId && e.IsActive)
                 .Select(e => e.Id)
                 .ToListAsync();
 
@@ -358,7 +427,7 @@ public class AvailabilityService
                 foreach (var empId in activeEmployees)
                 {
                     var available = await IsTimeSlotAvailableForEmployeeAsync(
-                        date, slot.Start, slot.End, empId);
+                        date, slot.Start, slot.End, empId, tenantId);
                     if (available)
                     {
                         isAvailable = true;
@@ -381,13 +450,14 @@ public class AvailabilityService
         List<(TimeOnly Start, TimeOnly End)> timeSlots,
         DateOnly date,
         Guid employeeId,
-        int serviceDuration)
+        int serviceDuration,
+        Guid tenantId)
     {
         var availableSlots = new List<TimeSlotDto>();
 
         // Check if employee is on vacation this day
         var isOnVacation = await _context.EmployeeVacations
-            .AnyAsync(v => v.EmployeeId == employeeId && v.StartDate <= date && v.EndDate >= date);
+            .AnyAsync(v => v.TenantId == tenantId && v.EmployeeId == employeeId && v.StartDate <= date && v.EndDate >= date);
         if (isOnVacation)
         {
             return timeSlots.Select(slot => new TimeSlotDto(
@@ -400,7 +470,7 @@ public class AvailabilityService
         // Check employee's personal schedule for this day
         var dayOfWeek = date.DayOfWeek;
         var employeeSchedule = await _context.EmployeeSchedules
-            .FirstOrDefaultAsync(s => s.EmployeeId == employeeId && s.DayOfWeek == dayOfWeek);
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.EmployeeId == employeeId && s.DayOfWeek == dayOfWeek);
 
         // If schedule exists and employee is not working → all slots unavailable
         if (employeeSchedule != null && !employeeSchedule.IsWorkingDay)
@@ -414,7 +484,8 @@ public class AvailabilityService
 
         // Get all bookings for this employee on this date
         var employeeBookings = await _context.Bookings
-            .Where(b => b.BookingDate == date &&
+            .Where(b => b.TenantId == tenantId &&
+                       b.BookingDate == date &&
                        b.EmployeeId == employeeId &&
                        b.Status != BookingStatus.Cancelled)
             .Select(b => new { b.StartTime, b.EndTime })
@@ -423,7 +494,8 @@ public class AvailabilityService
         // Get all blocked slots for this employee on this date,
         // including studio-wide blocks (EmployeeId == null) created by the admin
         var employeeBlocked = await _context.BlockedTimeSlots
-            .Where(bs => bs.BlockDate == date &&
+            .Where(bs => bs.TenantId == tenantId &&
+                        bs.BlockDate == date &&
                         (bs.EmployeeId == employeeId || bs.EmployeeId == null))
             .Select(bs => new { bs.StartTime, bs.EndTime })
             .ToListAsync();

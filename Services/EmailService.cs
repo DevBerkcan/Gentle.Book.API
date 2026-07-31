@@ -1,3 +1,4 @@
+using System.Reflection;
 using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
@@ -22,6 +23,26 @@ public class EmailService
     public string FrontendUrl => string.IsNullOrEmpty(_emailOptions.FrontendUrl)
         ? _emailOptions.BaseUrl
         : _emailOptions.FrontendUrl;
+
+    // The real GentleBook mark (white variant, for dark email headers/footers), embedded as a
+    // resource — not a loose file — so it can never be missed on deploy, then inlined as a
+    // base64 data URI. This template already relies on CSS custom properties and gradients that
+    // classic desktop Outlook can't render anyway, so a data URI (which that same client also
+    // doesn't support) costs nothing extra there while working in every modern client (Gmail,
+    // Apple Mail, Outlook.com, mobile) without depending on an externally hosted image staying up.
+    private static string? _logoBase64;
+    private static string LogoBase64
+    {
+        get
+        {
+            if (_logoBase64 != null) return _logoBase64;
+            using var stream = Assembly.GetExecutingAssembly()
+                .GetManifestResourceStream("GentleBook.Api.Assets.gentlebook-mark-white.png");
+            using var ms = new MemoryStream();
+            stream?.CopyTo(ms);
+            return _logoBase64 = Convert.ToBase64String(ms.ToArray());
+        }
+    }
 
     public EmailService(
         IOptions<EmailOptions> emailOptions,
@@ -529,7 +550,7 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
                 </div>
                 <p style='color: var(--text-secondary); font-size: 13px; margin-top: 16px;'>Die Rechnung findest du im Anhang dieser E-Mail als PDF.</p>
                 <div class='cancel-section'>
-                    <a href='{subscriptionUrl}' style='display: inline-block; background: linear-gradient(135deg, #6355E4 0%, #4338CA 100%); color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 40px; font-weight: 600; font-size: 14px;'>
+                    <a href='{subscriptionUrl}' style='display: inline-block; background: linear-gradient(135deg, #6355E4 0%, {DarkenHex("#6355E4")} 100%); color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 40px; font-weight: 600; font-size: 14px;'>
                         Zu deinem Abonnement →
                     </a>
                 </div>";
@@ -637,9 +658,9 @@ Dein Abonnement verwalten: {subscriptionUrl}"
     <meta charset='UTF-8'>
     <title>Neue Buchung</title>
 </head>
-<body style='font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px; margin: 0;'>
+<body style='font-family: 'Plus Jakarta Sans', Arial, sans-serif; background-color: #f5f5f5; padding: 20px; margin: 0;'>
     <div style='max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
-        <div style='background: linear-gradient(135deg, #14162B 0%, #1e2240 50%, #14162B 100%); padding: 30px; text-align: center; border-bottom: 3px solid {primaryColor};'>
+        <div style='background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); padding: 30px; text-align: center; border-bottom: 3px solid {primaryColor};'>
             {(tenantLogoUrl != null ? $"<img src='{tenantLogoUrl}' alt='{tenantName}' style='max-height:50px;max-width:160px;object-fit:contain;margin-bottom:10px;'/><br/>" : $"<p style='color: {primaryColor}; font-size: 32px; margin: 0 0 10px 0;'>✧</p>")}
             <h1 style='color: #ffffff; font-size: 20px; margin: 0 0 6px 0;'>Neue Buchung eingegangen</h1>
             <p style='color: {primaryColor}; font-size: 13px; margin: 0; letter-spacing: 1px; text-transform: uppercase;'>{tenantName}</p>
@@ -692,7 +713,7 @@ Dein Abonnement verwalten: {subscriptionUrl}"
                 Diese Nachricht wurde automatisch vom GentleBook Buchungssystem generiert.
             </p>
         </div>
-        <div style='background: linear-gradient(135deg, #14162B 0%, #1e2240 100%); padding: 20px; text-align: center; border-top: 3px solid {primaryColor};'>
+        <div style='background: linear-gradient(135deg, #14162B 0%, #201F47 100%); padding: 20px; text-align: center; border-top: 3px solid {primaryColor};'>
             <p style='color: {primaryColor}; font-size: 18px; margin: 0 0 8px 0;'>✧</p>
             <p style='color: #ffffff; font-size: 13px; font-weight: 700; margin: 0 0 4px 0;'>{tenantName}</p>
             <p style='color: #a3a3a3; font-size: 12px; margin: 0;'>GentleBook – Online Buchungssystem</p>
@@ -730,9 +751,9 @@ Diese Nachricht wurde automatisch generiert.";
     <meta charset='UTF-8'>
     <title>Stornierung</title>
 </head>
-<body style='font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px; margin: 0;'>
+<body style='font-family: 'Plus Jakarta Sans', Arial, sans-serif; background-color: #f5f5f5; padding: 20px; margin: 0;'>
     <div style='max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1);'>
-        <div style='background: linear-gradient(135deg, #14162B 0%, #1e2240 50%, #14162B 100%); padding: 30px; text-align: center; border-bottom: 3px solid {primaryColor};'>
+        <div style='background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); padding: 30px; text-align: center; border-bottom: 3px solid {primaryColor};'>
             {(tenantLogoUrl != null ? $"<img src='{tenantLogoUrl}' alt='{tenantName}' style='max-height:50px;max-width:160px;object-fit:contain;margin-bottom:10px;'/><br/>" : $"<p style='color: {primaryColor}; font-size: 32px; margin: 0 0 10px 0;'>✧</p>")}
             <h1 style='color: #ffffff; font-size: 20px; margin: 0 0 6px 0;'>Buchung storniert</h1>
             <p style='color: {primaryColor}; font-size: 13px; margin: 0; letter-spacing: 1px; text-transform: uppercase;'>{tenantName}</p>
@@ -781,7 +802,7 @@ Diese Nachricht wurde automatisch generiert.";
                 Diese Nachricht wurde automatisch vom GentleBook Buchungssystem generiert.
             </p>
         </div>
-        <div style='background: linear-gradient(135deg, #14162B 0%, #1e2240 100%); padding: 20px; text-align: center; border-top: 3px solid {primaryColor};'>
+        <div style='background: linear-gradient(135deg, #14162B 0%, #201F47 100%); padding: 20px; text-align: center; border-top: 3px solid {primaryColor};'>
             <p style='color: {primaryColor}; font-size: 18px; margin: 0 0 8px 0;'>✧</p>
             <p style='color: #ffffff; font-size: 13px; font-weight: 700; margin: 0 0 4px 0;'>{tenantName}</p>
             <p style='color: #a3a3a3; font-size: 12px; margin: 0;'>GentleBook – Online Buchungssystem</p>
@@ -836,7 +857,7 @@ Diese Nachricht wurde automatisch generiert.";
 <body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
 <div style='max-width:600px;margin:0 auto'>
   <!-- Header -->
-  <div style='background:linear-gradient(135deg,#017172,#01a0a2);border-radius:16px 16px 0 0;padding:28px 32px;'>
+  <div style='background:linear-gradient(135deg,#17A398,#1EC4B0);border-radius:16px 16px 0 0;padding:28px 32px;'>
     <h1 style='color:#fff;margin:0;font-size:20px;font-weight:700'>📩 Support-Anfrage</h1>
     <p style='color:rgba(255,255,255,0.75);margin:6px 0 0;font-size:13px'>Eingegangen über GentleBook Dashboard</p>
   </div>
@@ -850,7 +871,7 @@ Diese Nachricht wurde automatisch generiert.";
       </tr>
       <tr style='border-bottom:1px solid #e5e7eb'>
         <td style='padding:12px 16px;font-size:12px;color:#6b7280;font-weight:600'>Tenant-ID</td>
-        <td style='padding:12px 16px;font-size:14px;color:#017172;font-family:monospace'>{tenantSlug}</td>
+        <td style='padding:12px 16px;font-size:14px;color:#17A398;font-family:monospace'>{tenantSlug}</td>
       </tr>
       <tr style='border-bottom:1px solid #e5e7eb'>
         <td style='padding:12px 16px;font-size:12px;color:#6b7280;font-weight:600'>Absender</td>
@@ -858,7 +879,7 @@ Diese Nachricht wurde automatisch generiert.";
       </tr>
       <tr>
         <td style='padding:12px 16px;font-size:12px;color:#6b7280;font-weight:600'>E-Mail</td>
-        <td style='padding:12px 16px;font-size:14px;'><a href='mailto:{senderEmail}' style='color:#017172'>{senderEmail}</a></td>
+        <td style='padding:12px 16px;font-size:14px;'><a href='mailto:{senderEmail}' style='color:#17A398'>{senderEmail}</a></td>
       </tr>
     </table>
     <!-- Betreff -->
@@ -866,10 +887,10 @@ Diese Nachricht wurde automatisch generiert.";
     <p style='font-size:16px;font-weight:700;color:#111827;margin:0 0 20px'>{subject}</p>
     <!-- Nachricht -->
     <p style='font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px'>Nachricht</p>
-    <div style='background:#f8fafc;border-left:4px solid #017172;border-radius:0 8px 8px 0;padding:16px 20px;font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap'>{messageBody}</div>
+    <div style='background:#f8fafc;border-left:4px solid #17A398;border-radius:0 8px 8px 0;padding:16px 20px;font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap'>{messageBody}</div>
     <!-- CTA -->
     <div style='margin-top:28px;padding-top:20px;border-top:1px solid #e5e7eb;text-align:center'>
-      <a href='mailto:{senderEmail}' style='background:linear-gradient(135deg,#017172,#01a0a2);color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:600;font-size:14px;display:inline-block'>
+      <a href='mailto:{senderEmail}' style='background:linear-gradient(135deg,#17A398,#1EC4B0);color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:600;font-size:14px;display:inline-block'>
         Direkt antworten →
       </a>
     </div>
@@ -948,9 +969,14 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
     private string GetBaseEmailTemplate(string title, string content, string tenantName = "GentleBook", string? tenantLogoUrl = null, string primaryColor = "#6355E4")
     {
         var darkenedColor = DarkenHex(primaryColor);
+        var isGentleBookOwnEmail = string.Equals(tenantName, "GentleBook", StringComparison.OrdinalIgnoreCase);
         var headerContent = tenantLogoUrl != null
             ? $@"<img src='{tenantLogoUrl}' alt='{tenantName}' style='max-height:60px; max-width:200px; object-fit:contain; margin-bottom:12px;' /><br/><p style='color: {primaryColor}; font-size: 14px; margin: 0; letter-spacing: 1px; text-transform: uppercase; opacity: 0.9;'>{tenantName}</p>"
-            : $@"<div style='color: {primaryColor}; font-size: 44px; font-weight: 300; margin-bottom: 16px; line-height: 1;'>✧</div>
+            : isGentleBookOwnEmail
+                ? $@"<img src='data:image/png;base64,{LogoBase64}' alt='gentlebook' width='40' height='40' style='display:block; margin: 0 auto 12px;' />
+            <p style='color: #ffffff; font-size: 24px; font-weight: 700; margin: 0 0 8px 0; letter-spacing: -0.3px; font-family: ''Plus Jakarta Sans'',Arial,sans-serif;'>gentlebook</p>
+            <p style='color: {primaryColor}; font-size: 14px; margin: 0; letter-spacing: 1px; text-transform: uppercase; opacity: 0.9;'>Online Buchungssystem</p>"
+                : $@"<div style='color: {primaryColor}; font-size: 44px; font-weight: 300; margin-bottom: 16px; line-height: 1;'>✧</div>
             <p style='color: {primaryColor}; font-size: 26px; font-weight: 600; margin: 0 0 8px 0; letter-spacing: 0.5px; font-family: Arial, sans-serif;'>{tenantName}</p>
             <p style='color: {primaryColor}; font-size: 14px; margin: 0; letter-spacing: 1px; text-transform: uppercase; opacity: 0.9;'>Online Buchungssystem</p>";
         return $@"<!DOCTYPE html>
@@ -969,7 +995,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
         }}
         
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             line-height: 1.6;
             margin: 0;
             padding: 20px;
@@ -1033,7 +1059,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
         }}
         
         .header {{
-            background: linear-gradient(135deg, #14162B 0%, #1e2240 50%, #14162B 100%);
+            background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%);
             padding: 40px 30px;
             text-align: center;
             border-bottom: 3px solid {primaryColor};
@@ -1212,7 +1238,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
         }}
 
         .footer {{
-            background: linear-gradient(135deg, #14162B 0%, #1e2240 100%);
+            background: linear-gradient(135deg, #14162B 0%, #201F47 100%);
             padding: 30px;
             text-align: center;
             font-size: 14px;
@@ -1288,21 +1314,24 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 </head>
 <body>
     <div class='container'>
-        <div style='background: linear-gradient(135deg, #14162B 0%, #1e2240 50%, #14162B 100%); padding: 40px 30px; text-align: center; border-bottom: 3px solid {primaryColor};'>
+        <div style='background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); padding: 40px 30px; text-align: center;'>
             {headerContent}
         </div>
+        <div style='height:3px; background: linear-gradient(90deg, {primaryColor} 0%, #17A398 100%);'></div>
 
         <div class='content'>
             {content}
         </div>
 
         <div class='footer'>
-            <div style='color: {primaryColor}; font-size: 22px; margin-bottom: 12px;'>✧</div>
-            <div class='footer-brand'>{tenantName}</div>
+            {(isGentleBookOwnEmail
+                ? $"<img src='data:image/png;base64,{LogoBase64}' alt='gentlebook' width='24' height='24' style='display:block; margin: 0 auto 10px;' />"
+                : $"<div style='color: {primaryColor}; font-size: 22px; margin-bottom: 12px;'>✧</div>")}
+            <div class='footer-brand'>{(isGentleBookOwnEmail ? "gentlebook" : tenantName)}</div>
             <div class='footer-links'>
-                <a href='{_emailOptions.BaseUrl}/datenschutz'>Datenschutz</a>
+                <a href='{FrontendUrl}/datenschutz'>Datenschutz</a>
                 <span class='footer-divider'>|</span>
-                <a href='{_emailOptions.BaseUrl}/impressum'>Impressum</a>
+                <a href='{FrontendUrl}/impressum'>Impressum</a>
             </div>
             <div class='footer-copy'>
                 © {DateTime.UtcNow.Year} {tenantName}. Buchungssystem powered by GentleBook.
@@ -1748,7 +1777,7 @@ STORNIERUNG:
 <head><meta charset='UTF-8'></head>
 <body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
 <div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#017172,#01a0a2);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+  <div style='background:linear-gradient(135deg,#17A398,#1EC4B0);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
     <div style='width:56px;height:56px;background:rgba(255,255,255,0.2);border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px'>
       <span style='font-size:28px'>🔐</span>
     </div>
@@ -1761,7 +1790,7 @@ STORNIERUNG:
       Du hast eine Anfrage zum Zurücksetzen deines Passworts gestellt. Klicke auf den Button unten, um ein neues Passwort festzulegen.
     </p>
     <div style='text-align:center;margin:28px 0'>
-      <a href='{resetUrl}' style='background:linear-gradient(135deg,#017172,#01a0a2);color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block;box-shadow:0 4px 14px rgba(1,113,114,0.3)'>
+      <a href='{resetUrl}' style='background:linear-gradient(135deg,#17A398,#1EC4B0);color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block;box-shadow:0 4px 14px rgba(23,163,152,0.3)'>
         Passwort zurücksetzen →
       </a>
     </div>
@@ -1828,7 +1857,7 @@ GentleBook · support@gentlegroup.de";
 <head><meta charset='UTF-8'></head>
 <body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
 <div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#16a34a,#22c55e);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+  <div style='background:linear-gradient(135deg,#14162B,#201F47);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
     <div style='width:56px;height:56px;background:rgba(255,255,255,0.2);border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px'>
       <span style='font-size:28px'>🎉</span>
     </div>
@@ -1903,7 +1932,7 @@ GentleBook · support@gentlegroup.de";
 <head><meta charset='UTF-8'></head>
 <body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
 <div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#374151,#6b7280);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+  <div style='background:linear-gradient(135deg,#14162B,#201F47);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
     <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>{(periodEnd != null ? "Kündigung bestätigt" : "Zugang beendet")}</h1>
     <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
   </div>
@@ -2028,7 +2057,7 @@ GentleBook · support@gentlegroup.de";
 <head><meta charset='UTF-8'></head>
 <body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
 <div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#374151,#6b7280);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+  <div style='background:linear-gradient(135deg,#14162B,#201F47);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
     <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Abonnement gekündigt</h1>
     <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
   </div>
@@ -2095,7 +2124,7 @@ GentleBook · support@gentlegroup.de";
 <head><meta charset='UTF-8'></head>
 <body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
 <div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#374151,#6b7280);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+  <div style='background:linear-gradient(135deg,#14162B,#201F47);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
     <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Zu Ihrer Plan-Anfrage</h1>
     <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
   </div>
@@ -2106,7 +2135,7 @@ GentleBook · support@gentlegroup.de";
       Bitte melden Sie sich bei unserem Support, damit wir gemeinsam eine Lösung finden.
     </p>
     <div style='text-align:center;margin:24px 0'>
-      <a href='mailto:support@gentlegroup.de' style='background:#111318;color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block'>
+      <a href='mailto:support@gentlegroup.de' style='background:#14162B;color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block'>
         Support kontaktieren
       </a>
     </div>
@@ -2339,7 +2368,7 @@ GentleBook · support@gentlegroup.de";
                             <table cellpadding="0" cellspacing="0" width="100%" style="background:#fff;border-radius:12px;border:1px solid #E5E7EB;overflow:hidden;">
                               <tr style="background:#F3F4F6;">
                                 <td style="padding:10px 16px;color:#6B7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;width:50%;">Ihr Paket</td>
-                                <td style="padding:10px 16px;color:#4F46E5;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;">{nextPlanName} &mdash; {nextPrice}</td>
+                                <td style="padding:10px 16px;color:#6355E4;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;">{nextPlanName} &mdash; {nextPrice}</td>
                               </tr>
                               <tr>
                                 <td style="padding:10px 16px;color:#888;font-size:13px;border-top:1px solid #F3F4F6;">{empText}</td>
@@ -2357,7 +2386,7 @@ GentleBook · support@gentlegroup.de";
                               {apiRow}
                             </table>
                             <div style="margin-top:16px;text-align:center;">
-                              <a href="{upgradeHref}" style="display:inline-block;background:linear-gradient(135deg,#4F46E5,#7C3AED);color:#fff;text-decoration:none;padding:12px 32px;border-radius:10px;font-weight:700;font-size:14px;">
+                              <a href="{upgradeHref}" style="display:inline-block;background:linear-gradient(135deg,#6355E4,#5448C1);color:#fff;text-decoration:none;padding:12px 32px;border-radius:10px;font-weight:700;font-size:14px;">
                                 Upgrade anfragen &rarr;
                               </a>
                               <p style="margin:8px 0 0;color:#AAAAAA;font-size:11px;">Einfach antworten — wir kümmern uns um den Rest.</p>
@@ -2392,7 +2421,7 @@ GentleBook · support@gentlegroup.de";
 
                         <!-- HEADER -->
                         <tr>
-                          <td style="background:linear-gradient(135deg,#1E293B 0%,#334155 60%,#1E293B 100%);border-radius:20px 20px 0 0;padding:44px 32px 40px;text-align:center;">
+                          <td style="background:linear-gradient(135deg,#14162B 0%,#201F47 60%,#14162B 100%);border-radius:20px 20px 0 0;padding:44px 32px 40px;text-align:center;">
                             <div style="display:inline-block;width:72px;height:72px;background:rgba(255,255,255,0.12);border-radius:50%;line-height:72px;font-size:36px;margin-bottom:18px;">{industryEmoji}</div>
                             <h1 style="margin:0;color:#ffffff;font-size:27px;font-weight:700;letter-spacing:-0.5px;">Herzlich willkommen!</h1>
                             <p style="margin:10px 0 0;color:rgba(255,255,255,0.7);font-size:15px;">Ihr {industryLabel} ist einsatzbereit</p>
@@ -2416,7 +2445,7 @@ GentleBook · support@gentlegroup.de";
                         <tr>
                           <td style="background:#ffffff;padding:0 32px 28px;">
                             <div style="background:#F8FAFF;border-radius:14px;border:1px solid #E5E7EB;overflow:hidden;">
-                              <div style="background:linear-gradient(135deg,#4F46E5,#7C3AED);padding:14px 20px;">
+                              <div style="background:linear-gradient(135deg,#6355E4,#5448C1);padding:14px 20px;">
                                 <p style="margin:0;color:#fff;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:1px;">&#128230; Ihr Paket</p>
                                 <p style="margin:4px 0 0;color:rgba(255,255,255,0.85);font-size:18px;font-weight:700;">{planDisplayName} &mdash; {planPrice}</p>
                               </div>
@@ -2442,7 +2471,7 @@ GentleBook · support@gentlegroup.de";
                         <tr>
                           <td style="background:#ffffff;padding:0 32px 36px;text-align:center;">
                             <a href="{setupUrl}"
-                               style="display:inline-block;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);color:#fff;text-decoration:none;padding:18px 52px;border-radius:14px;font-weight:700;font-size:17px;letter-spacing:0.3px;box-shadow:0 6px 20px rgba(201,168,164,0.5);">
+                               style="display:inline-block;background:linear-gradient(135deg,#6355E4,#17A398);color:#fff;text-decoration:none;padding:18px 52px;border-radius:14px;font-weight:700;font-size:17px;letter-spacing:0.3px;box-shadow:0 6px 20px rgba(99,85,228,0.35);">
                               &#128274; Passwort festlegen &rarr;
                             </a>
                             <p style="margin:12px 0 0;color:#AAAAAA;font-size:12px;">
@@ -2454,7 +2483,7 @@ GentleBook · support@gentlegroup.de";
                         <!-- DIVIDER -->
                         <tr>
                           <td style="background:#ffffff;padding:0 32px;">
-                            <div style="border-top:1px solid #F0E8E7;"></div>
+                            <div style="border-top:1px solid #E5E7EB;"></div>
                           </td>
                         </tr>
 
@@ -2466,7 +2495,7 @@ GentleBook · support@gentlegroup.de";
 
                               <tr>
                                 <td valign="top" style="width:36px;padding:0 0 18px;">
-                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">1</div>
+                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#6355E4,#17A398);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">1</div>
                                 </td>
                                 <td style="padding:0 0 18px 10px;">
                                   <p style="margin:0 0 3px;color:#1E1E1E;font-size:14px;font-weight:600;">Passwort festlegen &amp; einloggen</p>
@@ -2478,25 +2507,25 @@ GentleBook · support@gentlegroup.de";
 
                               <tr>
                                 <td valign="top" style="width:36px;padding:0 0 18px;">
-                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">2</div>
+                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#6355E4,#17A398);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">2</div>
                                 </td>
                                 <td style="padding:0 0 18px 10px;">
                                   <p style="margin:0 0 3px;color:#1E1E1E;font-size:14px;font-weight:600;">Profil &amp; Branding einrichten</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
                                     Laden Sie Ihr Logo hoch, wählen Sie Ihre Farbe und passen Sie Profiltext &amp; Öffnungszeiten an.
-                                    <a href="{settingsUrl}" style="color:#C9A8A4;text-decoration:none;">&rarr; Einstellungen</a>
+                                    <a href="{settingsUrl}" style="color:#6355E4;text-decoration:none;">&rarr; Einstellungen</a>
                                   </p>
                                 </td>
                               </tr>
 
                               <tr>
                                 <td valign="top" style="width:36px;padding:0 0 18px;">
-                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">3</div>
+                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#6355E4,#17A398);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">3</div>
                                 </td>
                                 <td style="padding:0 0 18px 10px;">
                                   <p style="margin:0 0 3px;color:#1E1E1E;font-size:14px;font-weight:600;">{step3Label}</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
-                                    Unter <a href="{linksUrl}" style="color:#C9A8A4;text-decoration:none;">Meine Links</a> können Sie Instagram, WhatsApp &amp; Co. hinzufügen
+                                    Unter <a href="{linksUrl}" style="color:#6355E4;text-decoration:none;">Meine Links</a> können Sie Instagram, WhatsApp &amp; Co. hinzufügen
                                     und ein passendes Design-Template wählen.
                                   </p>
                                 </td>
@@ -2504,7 +2533,7 @@ GentleBook · support@gentlegroup.de";
 
                               <tr>
                                 <td valign="top" style="width:36px;padding:0 0 18px;">
-                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">4</div>
+                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#6355E4,#17A398);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">4</div>
                                 </td>
                                 <td style="padding:0 0 18px 10px;">
                                   <p style="margin:0 0 3px;color:#1E1E1E;font-size:14px;font-weight:600;">Leistungen &amp; Mitarbeiter anlegen</p>
@@ -2516,12 +2545,12 @@ GentleBook · support@gentlegroup.de";
 
                               <tr>
                                 <td valign="top" style="width:36px;">
-                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#E8C7C3,#C9A8A4);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">5</div>
+                                  <div style="width:30px;height:30px;background:linear-gradient(135deg,#6355E4,#17A398);border-radius:50%;text-align:center;line-height:30px;font-size:13px;font-weight:700;color:#fff;">5</div>
                                 </td>
                                 <td style="padding:0 0 0 10px;">
                                   <p style="margin:0 0 3px;color:#1E1E1E;font-size:14px;font-weight:600;">Buchungslink teilen</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.5;">
-                                    Teilen Sie <a href="{profileUrl}" style="color:#C9A8A4;text-decoration:none;">{profileUrl}</a>
+                                    Teilen Sie <a href="{profileUrl}" style="color:#6355E4;text-decoration:none;">{profileUrl}</a>
                                     per WhatsApp, Instagram Bio oder als QR-Code &mdash; und die ersten Buchungen kommen rein.
                                   </p>
                                 </td>
@@ -2536,13 +2565,13 @@ GentleBook · support@gentlegroup.de";
                         <!-- SUPPORT -->
                         <tr>
                           <td style="background:#ffffff;padding:24px 32px 32px;">
-                            <table cellpadding="0" cellspacing="0" width="100%" style="background:#F5EDEB;border-radius:12px;padding:20px 24px;">
+                            <table cellpadding="0" cellspacing="0" width="100%" style="background:#EEEBFC;border-radius:12px;padding:20px 24px;">
                               <tr>
                                 <td>
                                   <p style="margin:0 0 6px;color:#1E1E1E;font-size:14px;font-weight:700;">&#128172; Fragen? Wir sind f&uuml;r Sie da!</p>
                                   <p style="margin:0;color:#888;font-size:13px;line-height:1.6;">
                                     Bei Fragen oder W&uuml;nschen schreiben Sie uns einfach &mdash; wir antworten innerhalb eines Werktages.<br>
-                                    <a href="mailto:support@gentlegroup.de" style="color:#C9A8A4;font-weight:600;text-decoration:none;">support@gentlegroup.de</a>
+                                    <a href="mailto:support@gentlegroup.de" style="color:#6355E4;font-weight:600;text-decoration:none;">support@gentlegroup.de</a>
                                   </p>
                                 </td>
                               </tr>
@@ -2552,14 +2581,14 @@ GentleBook · support@gentlegroup.de";
 
                         <!-- FOOTER -->
                         <tr>
-                          <td style="background:#EEE4E2;border-radius:0 0 20px 20px;padding:20px 32px;text-align:center;">
+                          <td style="background:#F3F4F6;border-radius:0 0 20px 20px;padding:20px 32px;text-align:center;">
                             <p style="margin:0 0 4px;color:#AAA;font-size:12px;">
                               Diese E-Mail wurde automatisch von GentleBook versandt.
                             </p>
                             <p style="margin:0;color:#AAA;font-size:12px;">
                               &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
-                              <a href="mailto:support@gentlegroup.de" style="color:#C9A8A4;text-decoration:none;">support@gentlegroup.de</a>
-                              &middot; <a href="{profileUrl}" style="color:#C9A8A4;text-decoration:none;">Ihr Profil</a>
+                              <a href="mailto:support@gentlegroup.de" style="color:#6355E4;text-decoration:none;">support@gentlegroup.de</a>
+                              &middot; <a href="{profileUrl}" style="color:#6355E4;text-decoration:none;">Ihr Profil</a>
                             </p>
                           </td>
                         </tr>
@@ -2662,7 +2691,7 @@ GentleBook · support@gentlegroup.de";
                       <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
 
                         <!-- Header -->
-                        <tr><td style="background:linear-gradient(135deg,#1a1a2e 0%,#2d1f3d 100%);border-radius:16px 16px 0 0;padding:36px 32px;text-align:center">
+                        <tr><td style="background:linear-gradient(135deg,#14162B 0%,#201F47 100%);border-radius:16px 16px 0 0;padding:36px 32px;text-align:center">
                           <div style="width:64px;height:64px;background:rgba(255,255,255,0.1);border-radius:16px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px">
                             <span style="font-size:32px">⏰</span>
                           </div>
@@ -2698,7 +2727,7 @@ GentleBook · support@gentlegroup.de";
                                 </div>
                               </td>
                               <td style="width:33%;padding:4px">
-                                <div style="background:#017172;border:1px solid #015f60;border-radius:12px;padding:16px;text-align:center">
+                                <div style="background:#17A398;border:1px solid #128577;border-radius:12px;padding:16px;text-align:center">
                                   <p style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);margin:0 0 4px;text-transform:uppercase">Professional ⭐</p>
                                   <p style="font-size:28px;font-weight:900;color:#fff;margin:0;line-height:1">€59</p>
                                   <p style="font-size:11px;color:rgba(255,255,255,0.6);margin:2px 0 8px">/Monat</p>
@@ -2727,7 +2756,7 @@ GentleBook · support@gentlegroup.de";
                               </td>
                               <td style="padding-left:8px;width:50%">
                                 <a href="{subscriptionUrl}"
-                                   style="display:block;background:#017172;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center">
+                                   style="display:block;background:#17A398;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center">
                                   Plan anfragen
                                 </a>
                               </td>
@@ -2735,12 +2764,12 @@ GentleBook · support@gentlegroup.de";
                           </table>
 
                           <p style="font-size:13px;color:#9ca3af;text-align:center;margin:0">
-                            Direkt zur <a href="{subscriptionUrl}" style="color:#017172;text-decoration:none;font-weight:600">Abonnement-Seite</a>
+                            Direkt zur <a href="{subscriptionUrl}" style="color:#17A398;text-decoration:none;font-weight:600">Abonnement-Seite</a>
                           </p>
                         </td></tr>
 
                         <!-- Footer -->
-                        <tr><td style="background:#1e1e1e;border-radius:0 0 16px 16px;padding:20px 32px;text-align:center">
+                        <tr><td style="background:#14162B;border-radius:0 0 16px 16px;padding:20px 32px;text-align:center">
                           <p style="margin:0;color:#666;font-size:12px">
                             &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
                             <a href="mailto:support@gentlegroup.de" style="color:#6355E4;text-decoration:none">support@gentlegroup.de</a>
@@ -2827,7 +2856,7 @@ GentleBook · support@gentlegroup.de";
                       <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
 
                         <!-- Header -->
-                        <tr><td style="background:linear-gradient(135deg,#1a1a2e 0%,#2d1f3d 100%);border-radius:16px 16px 0 0;padding:36px 32px;text-align:center">
+                        <tr><td style="background:linear-gradient(135deg,#14162B 0%,#201F47 100%);border-radius:16px 16px 0 0;padding:36px 32px;text-align:center">
                           <div style="width:64px;height:64px;background:rgba(239,68,68,0.2);border-radius:16px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px">
                             <span style="font-size:32px">🔒</span>
                           </div>
@@ -2842,7 +2871,7 @@ GentleBook · support@gentlegroup.de";
                             vielen Dank, dass Sie GentleBook getestet haben! Ihr kostenloser Testzeitraum ist leider abgelaufen.
                           </p>
                           <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 28px">
-                            Um Ihr Buchungssystem weiter zu nutzen und keine Kundentermine zu verpassen, wählen Sie jetzt Ihren Plan — ab <strong style="color:#017172">€29 pro Monat</strong>.
+                            Um Ihr Buchungssystem weiter zu nutzen und keine Kundentermine zu verpassen, wählen Sie jetzt Ihren Plan — ab <strong style="color:#17A398">€29 pro Monat</strong>.
                           </p>
 
                           <!-- Pricing plans -->
@@ -2858,7 +2887,7 @@ GentleBook · support@gentlegroup.de";
                                 </div>
                               </td>
                               <td style="width:33%;padding:4px">
-                                <div style="background:#017172;border:1px solid #015f60;border-radius:12px;padding:16px;text-align:center">
+                                <div style="background:#17A398;border:1px solid #128577;border-radius:12px;padding:16px;text-align:center">
                                   <p style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);margin:0 0 4px;text-transform:uppercase">Professional ⭐</p>
                                   <p style="font-size:28px;font-weight:900;color:#fff;margin:0;line-height:1">€59</p>
                                   <p style="font-size:11px;color:rgba(255,255,255,0.6);margin:2px 0 8px">/Monat</p>
@@ -2887,7 +2916,7 @@ GentleBook · support@gentlegroup.de";
                               </td>
                               <td style="padding-left:8px;width:50%">
                                 <a href="{subscriptionUrl}"
-                                   style="display:block;background:#017172;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center">
+                                   style="display:block;background:#17A398;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center">
                                   Plan anfragen
                                 </a>
                               </td>
@@ -2895,12 +2924,12 @@ GentleBook · support@gentlegroup.de";
                           </table>
 
                           <p style="font-size:13px;color:#9ca3af;text-align:center;margin:0">
-                            Mehr Infos: <a href="{subscriptionUrl}" style="color:#017172;text-decoration:none;font-weight:600">Abonnement-Seite</a>
+                            Mehr Infos: <a href="{subscriptionUrl}" style="color:#17A398;text-decoration:none;font-weight:600">Abonnement-Seite</a>
                           </p>
                         </td></tr>
 
                         <!-- Footer -->
-                        <tr><td style="background:#1e1e1e;border-radius:0 0 16px 16px;padding:20px 32px;text-align:center">
+                        <tr><td style="background:#14162B;border-radius:0 0 16px 16px;padding:20px 32px;text-align:center">
                           <p style="margin:0;color:#666;font-size:12px">
                             &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
                             <a href="mailto:support@gentlegroup.de" style="color:#6355E4;text-decoration:none">support@gentlegroup.de</a>
@@ -2981,7 +3010,7 @@ GentleBook · support@gentlegroup.de";
                       <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
 
                         <!-- Header -->
-                        <tr><td style="background:linear-gradient(135deg,#017172 0%,#015f60 100%);padding:28px 32px;text-align:center">
+                        <tr><td style="background:linear-gradient(135deg,#17A398 0%,#128577 100%);padding:28px 32px;text-align:center">
                           <p style="font-size:22px;font-weight:800;color:#fff;margin:0;letter-spacing:-0.5px">✨ GentleBook</p>
                           <p style="font-size:12px;color:rgba(255,255,255,0.7);margin:4px 0 0">Buchungssystem</p>
                         </td></tr>
@@ -2990,21 +3019,21 @@ GentleBook · support@gentlegroup.de";
                         <tr><td style="background:#fff;padding:36px 32px;border:1px solid #e5e7eb;border-top:none">
                           <p style="font-size:16px;color:#1e1e1e;margin:0 0 8px;font-weight:600">Hallo {firstName},</p>
                           <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 24px">
-                            wir haben Ihre Anfrage für den <strong style="color:#017172">{planName}-Plan</strong> für <strong>{tenantName}</strong> erhalten.
+                            wir haben Ihre Anfrage für den <strong style="color:#17A398">{planName}-Plan</strong> für <strong>{tenantName}</strong> erhalten.
                             Wir aktivieren Ihren Plan innerhalb von 24 Stunden und benachrichtigen Sie per E-Mail.
                           </p>
 
                           <!-- Requested plan box -->
                           <div style="background:#f0fdfc;border:1px solid #99f6e4;border-radius:12px;padding:20px 24px;margin:0 0 24px;text-align:center">
-                            <p style="font-size:12px;font-weight:700;color:#0f766e;margin:0 0 4px;text-transform:uppercase">Angefragter Plan</p>
-                            <p style="font-size:32px;font-weight:900;color:#017172;margin:0;line-height:1">{planName}</p>
-                            <p style="font-size:18px;color:#0f766e;margin:4px 0 0;font-weight:600">{planPrice} / Monat</p>
+                            <p style="font-size:12px;font-weight:700;color:#128577;margin:0 0 4px;text-transform:uppercase">Angefragter Plan</p>
+                            <p style="font-size:32px;font-weight:900;color:#17A398;margin:0;line-height:1">{planName}</p>
+                            <p style="font-size:18px;color:#128577;margin:4px 0 0;font-weight:600">{planPrice} / Monat</p>
                           </div>
 
                           <p style="font-size:13px;color:#9ca3af;line-height:1.6;margin:0">
                             Bei Fragen schreiben Sie uns auf
-                            <a href="https://wa.me/491754701892" style="color:#017172;font-weight:600;text-decoration:none">WhatsApp</a> oder
-                            <a href="mailto:support@gentlegroup.de" style="color:#017172;font-weight:600;text-decoration:none">support@gentlegroup.de</a>.
+                            <a href="https://wa.me/491754701892" style="color:#17A398;font-weight:600;text-decoration:none">WhatsApp</a> oder
+                            <a href="mailto:support@gentlegroup.de" style="color:#17A398;font-weight:600;text-decoration:none">support@gentlegroup.de</a>.
                           </p>
                         </td></tr>
 
@@ -3012,7 +3041,7 @@ GentleBook · support@gentlegroup.de";
                         <tr><td style="background:#f9fafb;border-radius:0 0 16px 16px;padding:16px 32px;text-align:center;border:1px solid #e5e7eb;border-top:none">
                           <p style="margin:0;color:#9ca3af;font-size:12px">
                             &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
-                            <a href="mailto:support@gentlegroup.de" style="color:#017172;text-decoration:none">support@gentlegroup.de</a>
+                            <a href="mailto:support@gentlegroup.de" style="color:#17A398;text-decoration:none">support@gentlegroup.de</a>
                           </p>
                         </td></tr>
 
@@ -3078,7 +3107,7 @@ GentleBook · support@gentlegroup.de";
                       <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
 
                         <!-- Header -->
-                        <tr><td style="background:linear-gradient(135deg,#017172 0%,#015f60 100%);padding:28px 32px;text-align:center">
+                        <tr><td style="background:linear-gradient(135deg,#17A398 0%,#128577 100%);padding:28px 32px;text-align:center">
                           <p style="font-size:22px;font-weight:800;color:#fff;margin:0">🔔 Neue Abo-Anfrage</p>
                           <p style="font-size:12px;color:rgba(255,255,255,0.7);margin:4px 0 0">GentleBook Superadmin</p>
                         </td></tr>
@@ -3086,7 +3115,7 @@ GentleBook · support@gentlegroup.de";
                         <!-- Body -->
                         <tr><td style="background:#fff;padding:36px 32px;border:1px solid #e5e7eb;border-top:none">
                           <p style="font-size:15px;color:#1e1e1e;margin:0 0 20px">
-                            <strong>{tenantName}</strong> hat eine Anfrage für den <strong style="color:#017172">{planName}-Plan</strong> gesendet.
+                            <strong>{tenantName}</strong> hat eine Anfrage für den <strong style="color:#17A398">{planName}-Plan</strong> gesendet.
                           </p>
 
                           <table cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 24px">
@@ -3096,7 +3125,7 @@ GentleBook · support@gentlegroup.de";
                             </tr>
                             <tr>
                               <td style="padding:8px 0;font-size:13px;color:#6b7280">Plan:</td>
-                              <td style="padding:8px 0;font-size:13px;color:#017172;font-weight:700">{planName} — {planPrice}/Monat</td>
+                              <td style="padding:8px 0;font-size:13px;color:#17A398;font-weight:700">{planName} — {planPrice}/Monat</td>
                             </tr>
                             <tr>
                               <td style="padding:8px 0;font-size:13px;color:#6b7280">Kontakt:</td>
@@ -3105,12 +3134,12 @@ GentleBook · support@gentlegroup.de";
                           </table>
 
                           <a href="{adminUrl}"
-                             style="display:block;background:#017172;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;margin:0 0 16px">
+                             style="display:block;background:#17A398;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;margin:0 0 16px">
                             Anfrage im Superadmin verwalten →
                           </a>
 
                           <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0">
-                            Direkt zum Dashboard: <a href="{adminUrl}" style="color:#017172;text-decoration:none">{adminUrl}</a>
+                            Direkt zum Dashboard: <a href="{adminUrl}" style="color:#17A398;text-decoration:none">{adminUrl}</a>
                           </p>
                         </td></tr>
 
