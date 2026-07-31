@@ -625,6 +625,27 @@ public class TenantController : ControllerBase
         });
     }
 
+    // GET /api/tenant/plan-pricing
+    // Current, live plan prices — reads the same PlanLimits cache the SuperAdmin pricing
+    // editor writes to, so the checkout page never shows a stale price.
+    [HttpGet("plan-pricing")]
+    public IActionResult GetPlanPricing()
+    {
+        var items = PlanLimits.All
+            .Where(kv => kv.Key != SubscriptionPlan.Trial)
+            .OrderBy(kv => kv.Value.MonthlyPrice)
+            .Select(kv => new
+            {
+                Plan = kv.Key.ToString(),
+                kv.Value.DisplayName,
+                kv.Value.MonthlyPrice,
+                kv.Value.MaxEmployees,
+                kv.Value.MaxServices,
+            });
+
+        return Ok(items);
+    }
+
     // GET /api/tenant/usage
     [HttpGet("usage")]
     public async Task<IActionResult> GetUsage()
