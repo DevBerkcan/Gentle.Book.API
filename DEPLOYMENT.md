@@ -84,18 +84,21 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ## Schritt 3: Projekt publishen
 
-```bash
-cd Skinbloom.API-main
+**WICHTIG — `-r win-x86` ist Pflicht, nicht optional.** Der MonsterASP-IIS-App-Pool für
+site62449 läuft als 32-Bit-Prozess. Ein mit `-r win-x64` (oder ganz ohne `-r`) gebautes
+Deployment lädt dort **überhaupt nicht** — nicht mal eine Zeile eigener Code läuft an, keine
+Exception, kein Log, einfach dauerhaft HTTP 500.30. Das hat am 2026-07-31 einen mehrstündigen
+Ausfall verursacht, bis der Bitness-Mismatch gefunden wurde (verräterisches Zeichen:
+`Microsoft.Data.SqlClient.SNI.dll` im aktuell laufenden `wwwroot` ist exakt 414248 Byte groß —
+das ist die x86-Variante; die x64-Variante hat eine andere Dateigröße. Vor jedem Deploy zur
+Sicherheit vergleichen.)
 
-# Publish als self-contained für Windows (MonsterASP Standard)
+```bash
 dotnet publish GentleBook.Api.csproj \
   -c Release \
   -r win-x86 \
   --self-contained false \
   -o ./publish
-
-# Oder als Framework-dependent (wenn .NET 8 auf Server installiert)
-dotnet publish GentleBook.Api.csproj -c Release -o ./publish
 ```
 
 ---

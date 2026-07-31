@@ -13,7 +13,30 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using System.Threading.RateLimiting;
 
+// Global last-resort diagnostic: catches truly unhandled exceptions anywhere in the process
+// (including background threads) that would otherwise crash silently with no trace on this
+// host's unreliable stdout capture.
+AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+{
+    try
+    {
+        var dir = Path.Combine(AppContext.BaseDirectory, "logs");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "crash-diagnostic.txt"),
+            $"{DateTime.UtcNow:O} AppDomain.UnhandledException (IsTerminating={e.IsTerminating})\n{e.ExceptionObject}");
+    }
+    catch { /* best effort */ }
+};
+
 var builder = WebApplication.CreateBuilder(args);
+
+try
+{
+    var earlyDiagDir = Path.Combine(AppContext.BaseDirectory, "logs");
+    Directory.CreateDirectory(earlyDiagDir);
+    File.WriteAllText(Path.Combine(earlyDiagDir, "checkpoint.txt"), $"{DateTime.UtcNow:O} BUILDER_CREATED\n");
+}
+catch { /* best effort */ }
 
 builder.Services.AddControllers()
     .AddJsonOptions(opts =>
@@ -239,7 +262,22 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Diagnostic checkpoints — bypass IIS/ANCM stdout capture entirely (proven unreliable for
+// early startup failures on this host) so we can see exactly how far startup gets even if
+// nothing else survives to write a log. Harmless no-op once startup is actually healthy.
+try
+{
+    File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "logs", "checkpoint.txt"), $"{DateTime.UtcNow:O} PRE_BUILD\n");
+}
+catch { /* best effort */ }
+
 var app = builder.Build();
+
+try
+{
+    File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "logs", "checkpoint.txt"), $"{DateTime.UtcNow:O} BUILD_OK\n");
+}
+catch { /* best effort */ }
 
 // ── Middleware Pipeline ───────────────────────────────────────────────────────
 if (app.Environment.IsDevelopment())
@@ -572,6 +610,12 @@ using (var scope = app.Services.CreateScope())
         Console.Error.WriteLine($"[SCHEMA-FALLBACK ERROR] {ex.Message}");
     }
 }
+
+try
+{
+    File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "logs", "checkpoint.txt"), $"{DateTime.UtcNow:O} PRE_RUN\n");
+}
+catch { /* best effort */ }
 
 // Diagnostic safety net: if the app fails to start (e.g. an IHostedService throws during
 // app.Run()'s host-startup sequence), write the real exception to a plain file — bypasses
