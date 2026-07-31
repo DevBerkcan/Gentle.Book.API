@@ -26,4 +26,19 @@ public static class PlanLimits
         _limits.TryGetValue(plan, out var limits) ? limits : _limits[SubscriptionPlan.Trial];
 
     public static bool IsUnlimited(int value) => value == int.MaxValue;
+
+    public static IReadOnlyDictionary<SubscriptionPlan, Limits> All => _limits;
+
+    /// <summary>
+    /// Overrides a plan's MonthlyPrice at runtime (in-memory, single-process). Called once at
+    /// startup for every persisted Data.Entities.PlanPrice row, and again whenever a SuperAdmin
+    /// edits a price via the plan-pricing endpoint — so the very next signup uses the new price
+    /// immediately. Existing Mollie subscriptions are unaffected: their amount was fixed at
+    /// creation time and Mollie never re-reads GentleBook's price on recurring collections.
+    /// </summary>
+    public static void SetPrice(SubscriptionPlan plan, decimal monthlyPrice)
+    {
+        if (_limits.TryGetValue(plan, out var existing))
+            _limits[plan] = existing with { MonthlyPrice = monthlyPrice };
+    }
 }

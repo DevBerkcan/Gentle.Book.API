@@ -875,6 +875,65 @@ public class SuperAdminController : ControllerBase
         return File(invoice.PdfContent, "application/pdf", $"Rechnung-{invoice.InvoiceNumber}.pdf");
     }
 
+    // ── Plan Pricing ──────────────────────────────────────────────────────
+
+    /// <summary>Current monthly price per paid plan (Trial excluded — always free).</summary>
+    [HttpGet("plan-pricing")]
+    public IActionResult GetPlanPricing()
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var items = PlanLimits.All
+            .Where(kv => kv.Key != SubscriptionPlan.Trial)
+            .OrderBy(kv => kv.Value.MonthlyPrice)
+            .Select(kv => new
+            {
+                Plan = kv.Key.ToString(),
+                kv.Value.DisplayName,
+                kv.Value.MonthlyPrice,
+                kv.Value.MaxEmployees,
+                kv.Value.MaxServices,
+            });
+
+        return Ok(items);
+    }
+
+    /// <summary>Updates a plan's monthly price. Takes effect immediately for new signups;
+    /// tenants with an existing Mollie subscription keep the price they signed up at.</summary>
+    [HttpPut("plan-pricing/{plan}")]
+    public async Task<IActionResult> UpdatePlanPricing(string plan, [FromBody] UpdatePlanPriceDto dto)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        if (!Enum.TryParse<SubscriptionPlan>(plan, ignoreCase: true, out var planEnum) || planEnum == SubscriptionPlan.Trial)
+            return BadRequest(new { message = "Ungültiger Plan." });
+
+        if (dto.MonthlyPrice < 0)
+            return BadRequest(new { message = "Preis darf nicht negativ sein." });
+
+        var row = await _db.PlanPrices.FirstOrDefaultAsync(p => p.Plan == planEnum);
+        var oldPrice = PlanLimits.Get(planEnum).MonthlyPrice;
+
+        if (row == null)
+        {
+            row = new PlanPrice { Plan = planEnum, MonthlyPrice = dto.MonthlyPrice, UpdatedAt = DateTime.UtcNow };
+            _db.PlanPrices.Add(row);
+        }
+        else
+        {
+            row.MonthlyPrice = dto.MonthlyPrice;
+            row.UpdatedAt = DateTime.UtcNow;
+        }
+        await _db.SaveChangesAsync();
+
+        PlanLimits.SetPrice(planEnum, dto.MonthlyPrice);
+
+        await _audit.LogAsync("plan_pricing.changed", "PlanPrice", planEnum.ToString(),
+            $"{oldPrice:0.00} € → {dto.MonthlyPrice:0.00} €");
+
+        return Ok(new { plan = planEnum.ToString(), monthlyPrice = dto.MonthlyPrice });
+    }
+
     // ── Tenant Stats ──────────────────────────────────────────────────────
 
     /// <summary>Detailed booking + revenue stats for a single tenant (last 6 months).</summary>
@@ -1339,3 +1398,4 @@ public record CreateTenantUserDto(string Email, string? Password, string FirstNa
 public record ExtendTrialDto(int Days);
 public record ActivateRequestDto(string? Note, bool ConfirmOverrideMollie = false);
 public record ChangePlanDto(string Plan);
+public record UpdatePlanPriceDto(decimal MonthlyPrice);

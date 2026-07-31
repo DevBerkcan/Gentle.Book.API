@@ -45,6 +45,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<MollieWebhookEvent> MollieWebhookEvents { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
+    public DbSet<PlanPrice> PlanPrices { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -194,6 +195,14 @@ public class GentleBookDbContext : DbContext
             entity.Property(e => e.RecipientCountry).HasMaxLength(2);
             entity.Property(e => e.RecipientEmail).HasMaxLength(255);
             entity.Property(e => e.Currency).HasMaxLength(3);
+        });
+
+        // ── PlanPrice ─────────────────────────────────────────
+        modelBuilder.Entity<PlanPrice>(entity =>
+        {
+            entity.HasKey(e => e.Plan);
+            entity.Property(e => e.Plan).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.MonthlyPrice).HasPrecision(10, 2);
         });
 
         // ── PlatformUser ──────────────────────────────────────

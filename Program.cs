@@ -363,6 +363,24 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Load any SuperAdmin-edited plan prices into PlanLimits' in-memory cache. Rows are only
+// written when a price is actually changed, so absence here just means "use the compiled default".
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+    try
+    {
+        var prices = await db.PlanPrices.AsNoTracking().ToListAsync();
+        foreach (var p in prices)
+            GentleBook.Api.Configuration.PlanLimits.SetPrice(p.Plan, p.MonthlyPrice);
+        Console.WriteLine($"[PLAN-PRICING] Loaded {prices.Count} price override(s).");
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[PLAN-PRICING LOAD ERROR] {ex.Message}");
+    }
+}
+
 // Normalize legacy service rows that still carry a currency different from the
 // tenant-wide setting. This is idempotent and also fixes existing installations.
 using (var scope = app.Services.CreateScope())
