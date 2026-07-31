@@ -41,6 +41,16 @@ public class InvoiceService
         var settings = sub.Tenant.Settings
             ?? throw new InvalidOperationException($"TenantSettings missing for tenant {sub.TenantId}, cannot invoice.");
 
+        // Prefer the TenantAdmin's actual account email — same lookup the cancellation/dunning
+        // emails already use — over TenantSettings.Email (an optional "Kontakt"-field that's
+        // often unset or points somewhere else, and previously caused invoices to be marked
+        // "sent" while going to an address nobody checks).
+        var admin = await _db.PlatformUsers
+            .Where(u => u.TenantId == sub.TenantId && u.Role == PlatformRole.TenantAdmin)
+            .OrderBy(u => u.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+        var recipientEmail = admin?.Email ?? settings.Email;
+
         var limits = PlanLimits.Get(sub.Plan);
         var periodStart = sub.CurrentPeriodStart ?? DateTime.UtcNow;
         var periodEnd = sub.CurrentPeriodEnd ?? periodStart.AddMonths(1);
@@ -64,7 +74,7 @@ public class InvoiceService
             RecipientZip = settings.BillingZipCode,
             RecipientCity = settings.BillingCity,
             RecipientCountry = settings.BillingCountry,
-            RecipientEmail = settings.Email,
+            RecipientEmail = recipientEmail,
         };
         invoice.PdfContent = InvoicePdfBuilder.Build(invoice);
 
