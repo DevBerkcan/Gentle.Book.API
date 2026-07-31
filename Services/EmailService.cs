@@ -13,6 +13,7 @@ namespace GentleBook.Api.Services;
 public class EmailService
 {
     private readonly EmailOptions _emailOptions;
+    private readonly InvoiceEmailOptions _invoiceEmailOptions;
     private readonly GentleBookDbContext _context;
     private readonly ILogger<EmailService> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -24,12 +25,14 @@ public class EmailService
 
     public EmailService(
         IOptions<EmailOptions> emailOptions,
+        IOptions<InvoiceEmailOptions> invoiceEmailOptions,
         GentleBookDbContext context,
         ILogger<EmailService> logger,
         IServiceScopeFactory scopeFactory,
         IConfiguration config)
     {
         _emailOptions = emailOptions.Value;
+        _invoiceEmailOptions = invoiceEmailOptions.Value;
         _context = context;
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -505,8 +508,12 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
 
         try
         {
+            var subscriptionUrl = $"{FrontendUrl.TrimEnd('/')}/admin/subscription";
+
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
+            message.From.Add(new MailboxAddress(
+                string.IsNullOrEmpty(_invoiceEmailOptions.SenderName) ? "GentleBook" : _invoiceEmailOptions.SenderName,
+                string.IsNullOrEmpty(_invoiceEmailOptions.SenderEmail) ? _emailOptions.SenderEmail : _invoiceEmailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(invoice.RecipientName, toEmail));
             message.Subject = $"Deine GentleBook-Rechnung {invoice.InvoiceNumber}";
 
@@ -520,7 +527,12 @@ Ihre Daten werden ausschließlich für die Terminverwaltung verwendet."
                     <div class='detail-row'><span class='detail-label'>Betrag</span><span class='detail-value'>{invoice.Amount:0.00} {invoice.Currency}</span></div>
                     <div class='detail-row'><span class='detail-label'>Bezahlt am</span><span class='detail-value'>{invoice.IssueDate:dd.MM.yyyy}</span></div>
                 </div>
-                <p style='color: var(--text-secondary); font-size: 13px; margin-top: 16px;'>Die Rechnung findest du im Anhang dieser E-Mail als PDF.</p>";
+                <p style='color: var(--text-secondary); font-size: 13px; margin-top: 16px;'>Die Rechnung findest du im Anhang dieser E-Mail als PDF.</p>
+                <div class='cancel-section'>
+                    <a href='{subscriptionUrl}' style='display: inline-block; background: linear-gradient(135deg, #6355E4 0%, #4338CA 100%); color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 40px; font-weight: 600; font-size: 14px;'>
+                        Zu deinem Abonnement →
+                    </a>
+                </div>";
 
             var builder = new BodyBuilder
             {
@@ -531,15 +543,22 @@ Rechnungsnr.: {invoice.InvoiceNumber}
 Betrag: {invoice.Amount:0.00} {invoice.Currency}
 Zeitraum: {invoice.PeriodStart:dd.MM.yyyy} – {invoice.PeriodEnd:dd.MM.yyyy}
 
-Die Rechnung ist als PDF angehängt."
+Die Rechnung ist als PDF angehängt.
+
+Dein Abonnement verwalten: {subscriptionUrl}"
             };
             builder.Attachments.Add($"Rechnung-{invoice.InvoiceNumber}.pdf", invoice.PdfContent, ContentType.Parse("application/pdf"));
 
             message.Body = builder.ToMessageBody();
 
+            var smtpServer = string.IsNullOrEmpty(_invoiceEmailOptions.SmtpServer) ? _emailOptions.SmtpServer : _invoiceEmailOptions.SmtpServer;
+            var smtpPort = _invoiceEmailOptions.SmtpPort != 0 ? _invoiceEmailOptions.SmtpPort : _emailOptions.SmtpPort;
+            var smtpUser = string.IsNullOrEmpty(_invoiceEmailOptions.SmtpUsername) ? _emailOptions.SmtpUsername : _invoiceEmailOptions.SmtpUsername;
+            var smtpPass = string.IsNullOrEmpty(_invoiceEmailOptions.SmtpPassword) ? _emailOptions.SmtpPassword : _invoiceEmailOptions.SmtpPassword;
+
             using var smtp = new SmtpClient();
-            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
-            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.ConnectAsync(smtpServer, smtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(smtpUser, smtpPass);
             await smtp.SendAsync(message);
             await smtp.DisconnectAsync(true);
 

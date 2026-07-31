@@ -24,4 +24,9 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Embedded (not a loose file) so it can never be missed on deploy — see InvoicePdfBuilder.cs -->
+    <EmbeddedResource Include="Assets\gentlebook-mark.png" />
+  </ItemGroup>
+
 </Project>

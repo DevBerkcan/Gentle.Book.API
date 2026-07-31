@@ -156,6 +156,7 @@ builder.Services.AddDbContext<GentleBookDbContext>((serviceProvider, options) =>
 
 // ── Application Services ──────────────────────────────────────────────────────
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email"));
+builder.Services.Configure<InvoiceEmailOptions>(builder.Configuration.GetSection("InvoiceEmail"));
 builder.Services.Configure<MollieOptions>(builder.Configuration.GetSection("Mollie"));
 builder.Services.Configure<CrmOptions>(builder.Configuration.GetSection("Crm"));
 
