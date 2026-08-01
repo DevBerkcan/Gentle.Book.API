@@ -57,6 +57,28 @@ public class MollieReconciliationJob
             }
         }
 
-        _logger.LogInformation("Mollie reconciliation: checked {Count} subscription(s).", overdue.Count + pastDue.Count);
+        // First-time signups: mandate/first-payment initiated but never resolved locally — most
+        // likely a dropped/missed webhook for the "paid" status. Self-heals a customer who paid
+        // but never got activated, without needing them to retry the checkout themselves.
+        var stuckSignups = await db.Subscriptions
+            .Where(s => s.MollieSubscriptionId == null
+                     && s.LastMolliePaymentId != null
+                     && s.Status != SubscriptionStatus.Cancelled)
+            .ToListAsync();
+
+        foreach (var sub in stuckSignups)
+        {
+            try
+            {
+                var payment = await mollie.GetPaymentAsync(sub.LastMolliePaymentId!);
+                await mollieService.ProcessPaymentEventAsync(payment);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Mollie reconciliation (stuck signup) failed for Subscription {SubscriptionId}", sub.Id);
+            }
+        }
+
+        _logger.LogInformation("Mollie reconciliation: checked {Count} subscription(s).", overdue.Count + pastDue.Count + stuckSignups.Count);
     }
 }

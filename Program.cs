@@ -209,6 +209,11 @@ builder.Services.AddHangfireServer();
 builder.Services.AddSingleton<IHostedService, HangfireJobScheduler>();
 builder.Services.AddScoped<NoShowService>();
 
+// Alerts the owner by email whenever a recurring job exhausts its retries and fails for good —
+// see HangfireFailureAlertFilter for why this matters (dashboard is dev-only, ILogger alone
+// reaches nobody in production).
+builder.Services.AddSingleton<GentleBook.Api.Services.HangfireFailureAlertFilter>();
+
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
 builder.Services.AddRateLimiter(options =>
 {
@@ -314,6 +319,8 @@ app.UseAuthorization();
 app.UseMiddleware<TenantMiddleware>();
 
 // ── Hangfire Jobs ─────────────────────────────────────────────────────────────
+Hangfire.GlobalJobFilters.Filters.Add(app.Services.GetRequiredService<GentleBook.Api.Services.HangfireFailureAlertFilter>());
+
 if (app.Environment.IsDevelopment())
 {
     // Dashboard nur in Development UND nur für lokale Requests — verhindert

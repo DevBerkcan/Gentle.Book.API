@@ -67,6 +67,17 @@ public class MollieService
             var pending = await _mollie.GetPaymentAsync(sub.LastMolliePaymentId);
             if (pending.Status is "open" or "pending")
                 return new MollieFlowResult(false, "Es läuft bereits ein Zahlungsvorgang für dieses Abonnement. Bitte schließe diesen zuerst ab oder warte kurz.", null);
+
+            // The payment already succeeded at Mollie but never got processed locally (e.g. a
+            // dropped/missed webhook) — self-heal right here instead of letting a second
+            // mandate/first-payment be created for the same customer, which would risk a
+            // real double SEPA charge.
+            if (pending.IsPaid && string.IsNullOrEmpty(sub.MollieSubscriptionId))
+            {
+                await ProcessPaymentEventAsync(pending);
+                if (!string.IsNullOrEmpty(sub.MollieSubscriptionId))
+                    return new MollieFlowResult(false, "Dein Abonnement wurde soeben aktiviert. Bitte lade die Seite neu.", null);
+            }
         }
 
         // Starting the Mollie flow supersedes any pending manual request.
@@ -214,6 +225,24 @@ public class MollieService
 
     private async Task HandleRecurringPaymentResultAsync(Subscription sub, MolliePayment payment)
     {
+        // A chargeback/refund can arrive weeks after the payment was originally marked "paid" —
+        // Mollie sends a fresh webhook call for the same payment id when it happens. Flag the
+        // subscription for review via the existing dunning/PastDue flow rather than silently
+        // leaving it Active despite the reclaimed funds.
+        if (payment.HasChargeback || payment.HasRefund)
+        {
+            sub.Status = SubscriptionStatus.PastDue;
+            if (sub.PastDueSince == null)
+                sub.PastDueSince = DateTime.UtcNow;
+            sub.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            var kind = payment.HasChargeback ? "chargeback" : "refund";
+            _logger.LogWarning("Mollie payment {PaymentId} for Subscription {SubscriptionId} has a {Kind} — flagged PastDue for review.", payment.Id, sub.Id, kind);
+            await _audit.LogAsync($"mollie.payment_{kind}", "Subscription", sub.Id.ToString(), payment.Id, sub.TenantId);
+            return;
+        }
+
         if (payment.IsPaid)
         {
             sub.Status = SubscriptionStatus.Active;

@@ -155,6 +155,8 @@ public class MolliePayment
     public string? MandateId { get; set; }
     public string? SubscriptionId { get; set; }
     public MollieAmount? Amount { get; set; }
+    public MollieAmount? AmountChargedBack { get; set; }
+    public MollieAmount? AmountRefunded { get; set; }
     public Dictionary<string, string>? Metadata { get; set; }
 
     [JsonPropertyName("_links")]
@@ -162,6 +164,8 @@ public class MolliePayment
 
     public bool IsPaid => Status == "paid";
     public bool IsFailedOrExpired => Status is "failed" or "canceled" or "expired";
+    public bool HasChargeback => AmountChargedBack?.AsDecimal > 0;
+    public bool HasRefund => AmountRefunded?.AsDecimal > 0;
     public string? CheckoutUrl() => Links?.Checkout?.Href;
 }
 

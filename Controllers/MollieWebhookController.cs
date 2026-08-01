@@ -40,48 +40,26 @@ public class MollieWebhookController : ControllerBase
 
         var resourceType = id.StartsWith("sub_") ? "subscription" : "payment";
 
-        // Idempotency: a payment id only ever needs full processing once. Mollie delivers
-        // webhooks at-least-once, so duplicate calls for the same payment are expected.
         if (resourceType == "payment")
         {
-            var alreadyProcessed = await _db.MollieWebhookEvents
-                .AnyAsync(e => e.MollieResourceId == id && e.ResourceType == "payment" && e.ProcessedAt != null);
-            if (alreadyProcessed)
-                return Ok();
-        }
-
-        var eventRow = new MollieWebhookEvent { MollieResourceId = id, ResourceType = resourceType };
-        try
-        {
-            _db.MollieWebhookEvents.Add(eventRow);
-            await _db.SaveChangesAsync();
-        }
-        catch (DbUpdateException)
-        {
-            // Unique-index race: another concurrent delivery is already handling this payment id.
+            await HandlePaymentAsync(id);
             return Ok();
         }
 
+        // Subscription-resource webhooks carry a bare subscription id with no customerId,
+        // so the owning Subscription row (and thus its MollieCustomerId) must be resolved
+        // from our own DB before we can call Mollie's customer-scoped subscription endpoint.
+        // Not dedup-guarded: ProcessSubscriptionEventAsync is already idempotent by design.
+        var eventRow = new MollieWebhookEvent { MollieResourceId = id, ResourceType = "subscription" };
+        _db.MollieWebhookEvents.Add(eventRow);
         try
         {
-            if (resourceType == "payment")
+            var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.MollieSubscriptionId == id);
+            if (sub?.MollieCustomerId != null)
             {
-                var payment = await _mollie.GetPaymentAsync(id);
-                await _mollieService.ProcessPaymentEventAsync(payment);
-                eventRow.ResultStatus = payment.Status;
-            }
-            else
-            {
-                // Subscription-resource webhooks carry a bare subscription id with no customerId,
-                // so the owning Subscription row (and thus its MollieCustomerId) must be resolved
-                // from our own DB before we can call Mollie's customer-scoped subscription endpoint.
-                var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.MollieSubscriptionId == id);
-                if (sub?.MollieCustomerId != null)
-                {
-                    var subscription = await _mollie.GetSubscriptionAsync(sub.MollieCustomerId, id);
-                    await _mollieService.ProcessSubscriptionEventAsync(subscription);
-                    eventRow.ResultStatus = subscription.Status;
-                }
+                var subscription = await _mollie.GetSubscriptionAsync(sub.MollieCustomerId, id);
+                await _mollieService.ProcessSubscriptionEventAsync(subscription);
+                eventRow.ResultStatus = subscription.Status;
             }
 
             eventRow.ProcessedAt = DateTime.UtcNow;
@@ -91,11 +69,71 @@ public class MollieWebhookController : ControllerBase
         {
             // Log and still return 200 — Mollie retries indefinitely on non-2xx, and the hourly
             // reconciliation job is the real safety net for anything that fails here.
-            _logger.LogError(ex, "Mollie webhook processing failed for {ResourceType} {Id}", resourceType, id);
+            _logger.LogError(ex, "Mollie webhook processing failed for subscription {Id}", id);
             eventRow.Notes = ex.Message;
             try { await _db.SaveChangesAsync(); } catch { /* best effort */ }
         }
 
         return Ok();
+    }
+
+    // Fetches the payment's real, current status/amounts from Mollie first — the dedup key is
+    // then computed FROM that live state (status, plus a marker if a chargeback/refund has
+    // appeared), not assumed up front. This is what lets a later webhook call for the same
+    // payment id (e.g. pending -> paid, or a chargeback arriving weeks after "paid") still get
+    // processed instead of being dropped as a duplicate of an earlier, different-status call.
+    private async Task HandlePaymentAsync(string id)
+    {
+        MolliePayment payment;
+        try
+        {
+            payment = await _mollie.GetPaymentAsync(id);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Mollie webhook: failed to fetch payment {Id}", id);
+            return; // let Mollie retry the delivery; reconciliation job is the backstop either way
+        }
+
+        var dedupStatus = ComputeDedupStatus(payment);
+
+        var alreadyProcessed = await _db.MollieWebhookEvents.AnyAsync(e =>
+            e.MollieResourceId == id && e.ResourceType == "payment"
+            && e.ResultStatus == dedupStatus && e.ProcessedAt != null);
+        if (alreadyProcessed)
+            return;
+
+        var eventRow = new MollieWebhookEvent { MollieResourceId = id, ResourceType = "payment", ResultStatus = dedupStatus };
+        try
+        {
+            _db.MollieWebhookEvents.Add(eventRow);
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // Unique-index race: another concurrent delivery for this exact (id, status) is already handling it.
+            return;
+        }
+
+        try
+        {
+            await _mollieService.ProcessPaymentEventAsync(payment);
+            eventRow.ProcessedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Mollie webhook processing failed for payment {Id}", id);
+            eventRow.Notes = ex.Message;
+            try { await _db.SaveChangesAsync(); } catch { /* best effort */ }
+        }
+    }
+
+    private static string ComputeDedupStatus(MolliePayment payment)
+    {
+        var parts = new List<string> { payment.Status };
+        if (payment.HasChargeback) parts.Add("chargedback");
+        if (payment.HasRefund) parts.Add("refunded");
+        return string.Join("+", parts);
     }
 }

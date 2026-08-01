@@ -166,11 +166,17 @@ public class GentleBookDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.MollieResourceId).IsRequired().HasMaxLength(64);
             entity.Property(e => e.ResourceType).IsRequired().HasMaxLength(20);
-            // Payment IDs must only ever be fully processed once; subscription-resource
-            // webhook pings for the same id can legitimately arrive more than once.
-            entity.HasIndex(e => e.MollieResourceId)
+            entity.Property(e => e.ResultStatus).HasMaxLength(40);
+            // Keyed on (id, status) rather than id alone: Mollie fires a fresh webhook call
+            // every time a payment's status changes (open -> pending -> paid is normal for
+            // SEPA, which settles over several days), so the SAME payment id legitimately
+            // needs processing more than once as its status progresses. Only a second delivery
+            // reporting the SAME status is a true duplicate. Subscription-resource webhook
+            // pings are exempt (no dedup) since ProcessSubscriptionEventAsync is already
+            // idempotent by design.
+            entity.HasIndex(e => new { e.MollieResourceId, e.ResultStatus })
                   .IsUnique()
-                  .HasFilter("[ResourceType] = 'payment'");
+                  .HasFilter("[ResourceType] = 'payment' AND [ResultStatus] IS NOT NULL");
         });
 
         // ── Invoice ───────────────────────────────────────────
