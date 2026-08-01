@@ -60,7 +60,29 @@ Erstelle lokal diese Datei (NIEMALS committen — steht in .gitignore):
     "SmtpPassword": "DEIN_SMTP_PASSWORT",
     "SenderEmail": "noreply@deinedomain.de",
     "SenderName": "GentleBook",
-    "BaseUrl": "https://DEINE_FRONTEND_URL.vercel.app"
+    "BaseUrl": "https://DEINE_API_URL",
+    "FrontendUrl": "https://DEINE_FRONTEND_URL.vercel.app"
+  },
+  "InvoiceEmail": {
+    "SmtpServer": "smtp.ionos.de",
+    "SmtpPort": 587,
+    "SmtpUsername": "invoice@deinedomain.de",
+    "SmtpPassword": "DEIN_SMTP_PASSWORT",
+    "SenderEmail": "invoice@deinedomain.de",
+    "SenderName": "GentleBook"
+  },
+  "Mollie": {
+    "ApiKey": "live_ODER_test_DEIN_MOLLIE_API_KEY",
+    "BaseUrl": "https://api.mollie.com/v2/",
+    "WebhookUrl": "https://DEINE_API_URL/api/webhooks/mollie",
+    "RedirectUrlBase": "https://DEINE_FRONTEND_URL.vercel.app"
+  },
+  "Crm": {
+    "BaseUrl": "",
+    "ApiKey": ""
+  },
+  "Storage": {
+    "LogoUploadPath": "wwwroot/uploads/logos"
   },
   "Cors": {
     "AllowedOrigins": [
@@ -70,6 +92,13 @@ Erstelle lokal diese Datei (NIEMALS committen — steht in .gitignore):
   }
 }
 ```
+
+**Hinweis zu den einzelnen Abschnitten:**
+- `Email.FrontendUrl` wird für alle kundenseitigen Links in E-Mails verwendet (Buchungsbestätigung, Stornierung, Rechnungen, "Zurück zur Website" etc.) — **muss** gesetzt sein, sonst fallen Links auf `Email.BaseUrl` (die API-Domain) zurück.
+- `InvoiceEmail` ist eine **separate** SMTP-Identität nur für Rechnungs-E-Mails (z.B. `invoice@deinedomain.de` statt der allgemeinen `noreply@`-Adresse) — fehlt dieser Abschnitt, schlägt der Rechnungs-Mail-Versand fehl, alles andere läuft weiter.
+- `Mollie` ist zwingend für jede Zahlungsfunktion — ohne diesen Abschnitt schlagen Abo-Zahlungen komplett fehl.
+- `Crm` kann leer bleiben (`""`) — der CRM-Push ist aktuell nicht aktiv und die Felder werden dann übersprungen, nicht als Fehler behandelt.
+- `Storage.LogoUploadPath` steuert, wohin Tenant-Logo-Uploads gespeichert werden — ohne diesen Abschnitt greift der Code-Default, sollte aber trotzdem explizit gesetzt sein.
 
 **Secrets generieren (in Terminal):**
 ```bash

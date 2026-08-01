@@ -338,7 +338,7 @@ public class BookingsController : ControllerBase
                 <body>
                     <h1 class='error'>❌ Ungültiger Bestätigungslink</h1>
                     <p>Der Bestätigungslink ist ungültig oder abgelaufen.</p>
-                    <p><a href='https://gentlebook.app'>Zurück zur Website</a></p>
+                    <p><a href='{_emailService.FrontendUrl}'>Zurück zur Website</a></p>
                 </body>
                 </html>", "text/html");
             }
@@ -376,7 +376,7 @@ public class BookingsController : ControllerBase
                     <p><strong>Preis:</strong> {booking.Booking.Price:C}</p>
                     <p><strong>Status:</strong> <span style='color: #28a745; font-weight: bold;'>{booking.Status}</span></p>
                 </div>
-                <p><a href='https://gentlebook.app' style='color: #007bff; text-decoration: none;'>Zurück zur Website</a></p>
+                <p><a href='{_emailService.FrontendUrl}' style='color: #007bff; text-decoration: none;'>Zurück zur Website</a></p>
             </body>
             </html>", "text/html");
         }
@@ -398,7 +398,7 @@ public class BookingsController : ControllerBase
                 <h1 class='error'> Fehler bei der Bestätigung</h1>
                 <p><strong>Fehler:</strong> {ex.Message}</p>
                 <p>Bitte kontaktieren Sie uns telefonisch oder per Email.</p>
-                <p><a href='https://www.gentlebook.app/'>Zurück zur Website</a></p>
+                <p><a href='{_emailService.FrontendUrl}'>Zurück zur Website</a></p>
             </body>
             </html>", "text/html");
         }
@@ -462,7 +462,7 @@ public class BookingsController : ControllerBase
                         text-align: center; 
                         padding: 0; 
                         margin: 0;
-                        background-color: #F5EDEB;
+                        background-color: #EEEBFC;
                         color: #1E1E1E;
                         line-height: 1.6;
                     }
@@ -475,27 +475,27 @@ public class BookingsController : ControllerBase
                         overflow: hidden;
                     }
                     .header {
-                        background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995;
+                        background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4;
                         padding: 40px 20px;
                     }
                     .content { padding: 40px; }
-                    .error { color: #D8B0AC; font-size: 48px; margin-bottom: 20px; }
+                    .error { color: #6355E4; font-size: 48px; margin-bottom: 20px; }
                     .title { font-size: 24px; font-weight: 700; color: #1E1E1E; margin-bottom: 20px; }
                     .message { color: #8A8A8A; margin-bottom: 30px; }
                     .button {
                         display: inline-block;
-                        background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995;
+                        background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4;
                         color: #FFFFFF; text-decoration: none; padding: 14px 32px;
                         border-radius: 40px; font-weight: 600; font-size: 16px;
-                        box-shadow: 0 4px 12px rgba(232,199,195,0.3);
+                        box-shadow: 0 4px 12px rgba(99,85,228,0.3);
                     }
-                    .footer { background-color: #F5EDEB; padding: 24px; color: #8A8A8A; font-size: 14px; }
+                    .footer { background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }
                 </style>
             </head>
             <body>
                 <div class='container'>
                     <div class='header'>
-                        <div style='color: #C09995; font-size: 44px; font-weight: 300; margin-bottom: 12px;'>✧</div>
+                        <div style='color: #6355E4; font-size: 44px; font-weight: 300; margin-bottom: 12px;'>✧</div>
                         <h1 style='color: #FFFFFF; font-size: 28px; font-weight: 600; margin: 0;'>GentleBook</h1>
                     </div>
                     <div class='content'>
@@ -503,10 +503,10 @@ public class BookingsController : ControllerBase
                         <h2 class='title'>Ungültiger Stornierungslink</h2>
                         <p class='message'>Der Stornierungslink ist ungültig oder abgelaufen.</p>
                         <p style='margin-top: 30px;'>
-                            <a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a>
+                            <a href='{_emailService.FrontendUrl}' class='button'>Zurück zur Website</a>
                         </p>
                     </div>
-                    <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
+                    <div class='footer'><p style='margin: 0;'>Girardetstraße 17, 42109 Wuppertal</p></div>
                 </div>
             </body>
             </html>", "text/html");
@@ -523,15 +523,15 @@ public class BookingsController : ControllerBase
                 <meta charset='utf-8'>
                 <meta name='viewport' content='width=device-width, initial-scale=1.0'>
                 <style>
-                    body { font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #F5EDEB; color: #1E1E1E; }
+                    body { font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #EEEBFC; color: #1E1E1E; }
                     .container { max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.05); overflow: hidden; }
-                    .header { background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; padding: 40px 20px; }
+                    .header { background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; padding: 40px 20px; }
                     .content { padding: 40px; }
-                    .error { color: #D8B0AC; font-size: 48px; margin-bottom: 20px; }
+                    .error { color: #6355E4; font-size: 48px; margin-bottom: 20px; }
                     .title { font-size: 24px; font-weight: 700; color: #1E1E1E; margin-bottom: 20px; }
                     .message { color: #8A8A8A; margin-bottom: 30px; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; }
-                    .footer { background-color: #F5EDEB; padding: 24px; color: #8A8A8A; font-size: 14px; }
+                    .button { display: inline-block; background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; }
+                    .footer { background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }
                 </style>
             </head>
             <body>
@@ -541,9 +541,9 @@ public class BookingsController : ControllerBase
                         <div class='error'>✧</div>
                         <h2 class='title'>Buchung nicht gefunden</h2>
                         <p class='message'>Die Buchung konnte nicht gefunden werden.</p>
-                        <p style='margin-top: 30px;'><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
+                        <p style='margin-top: 30px;'><a href='{_emailService.FrontendUrl}' class='button'>Zurück zur Website</a></p>
                     </div>
-                    <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
+                    <div class='footer'><p style='margin: 0;'>Girardetstraße 17, 42109 Wuppertal</p></div>
                 </div>
             </body>
             </html>", "text/html");
@@ -559,26 +559,26 @@ public class BookingsController : ControllerBase
                 <meta charset='utf-8'>
                 <meta name='viewport' content='width=device-width, initial-scale=1.0'>
                 <style>
-                    body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #F5EDEB; color: #1E1E1E; line-height: 1.6; }}
+                    body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #EEEBFC; color: #1E1E1E; line-height: 1.6; }}
                     .container {{ max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.05); overflow: hidden; }}
-                    .header {{ background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; padding: 40px 20px; }}
+                    .header {{ background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; padding: 40px 20px; }}
                     .content {{ padding: 40px; }}
                     .title {{ font-size: 28px; font-weight: 700; color: #1E1E1E; margin-bottom: 10px; }}
-                    .booking-number {{ background-color: #F5EDEB; padding: 12px 24px; border-radius: 40px; display: inline-block; color: #8A8A8A; font-size: 14px; font-weight: 600; margin-bottom: 30px; }}
-                    .details-card {{ background-color: #F5EDEB; border-radius: 16px; padding: 30px; text-align: left; margin-bottom: 30px; }}
-                    .detail-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #E8C7C3; }}
+                    .booking-number {{ background-color: #EEEBFC; padding: 12px 24px; border-radius: 40px; display: inline-block; color: #8A8A8A; font-size: 14px; font-weight: 600; margin-bottom: 30px; }}
+                    .details-card {{ background-color: #EEEBFC; border-radius: 16px; padding: 30px; text-align: left; margin-bottom: 30px; }}
+                    .detail-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #E5E7EB; }}
                     .detail-row:last-child {{ border-bottom: none; }}
                     .detail-label {{ width: 120px; color: #8A8A8A; font-weight: 500; }}
                     .detail-value {{ flex: 1; color: #1E1E1E; font-weight: 600; }}
-                    .status-cancelled {{ color: #D8B0AC; font-weight: 700; }}
-                    .button {{ display: inline-block; background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(232,199,195,0.3); }}
-                    .footer {{ background-color: #F5EDEB; padding: 24px; color: #8A8A8A; font-size: 14px; }}
+                    .status-cancelled {{ color: #6355E4; font-weight: 700; }}
+                    .button {{ display: inline-block; background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(99,85,228,0.3); }}
+                    .footer {{ background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }}
                 </style>
             </head>
             <body>
                 <div class='container'>
                     <div class='header'>
-                        <div style='color: #C09995; font-size: 44px; font-weight: 300; margin-bottom: 12px;'>✧</div>
+                        <div style='color: #6355E4; font-size: 44px; font-weight: 300; margin-bottom: 12px;'>✧</div>
                         <h1 style='color: #FFFFFF; font-size: 28px; font-weight: 600; margin: 0;'>GentleBook</h1>
                     </div>
                     <div class='content'>
@@ -589,12 +589,12 @@ public class BookingsController : ControllerBase
                             <div class='detail-row'><span class='detail-label'>Leistung</span><span class='detail-value'>{booking.Booking.ServiceName}</span></div>
                             <div class='detail-row'><span class='detail-label'>Datum</span><span class='detail-value'>{booking.Booking.BookingDate}</span></div>
                             <div class='detail-row'><span class='detail-label'>Uhrzeit</span><span class='detail-value'>{booking.Booking.StartTime} - {booking.Booking.EndTime}</span></div>
-                            <div class='detail-row'><span class='detail-label'>Preis</span><span class='detail-value'>{booking.Booking.Price:0.00} CHF</span></div>
+                            <div class='detail-row'><span class='detail-label'>Preis</span><span class='detail-value'>{booking.Booking.Price:0.00} {booking.Booking.Currency}</span></div>
                             <div class='detail-row'><span class='detail-label'>Status</span><span class='detail-value'><span class='status-cancelled'>Storniert</span></span></div>
                         </div>
-                        <p style='margin-top: 30px;'><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
+                        <p style='margin-top: 30px;'><a href='{_emailService.FrontendUrl}' class='button'>Zurück zur Website</a></p>
                     </div>
-                    <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
+                    <div class='footer'><p style='margin: 0;'>Girardetstraße 17, 42109 Wuppertal</p></div>
                 </div>
             </body>
             </html>", "text/html");
@@ -610,27 +610,27 @@ public class BookingsController : ControllerBase
                 <meta charset='utf-8'>
                 <meta name='viewport' content='width=device-width, initial-scale=1.0'>
                 <style>
-                    body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #F5EDEB; color: #1E1E1E; line-height: 1.6; }}
+                    body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #EEEBFC; color: #1E1E1E; line-height: 1.6; }}
                     .container {{ max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.05); overflow: hidden; }}
-                    .header {{ background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; padding: 40px 20px; }}
+                    .header {{ background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; padding: 40px 20px; }}
                     .content {{ padding: 40px; }}
                     .title {{ font-size: 28px; font-weight: 700; color: #1E1E1E; margin-bottom: 10px; }}
-                    .booking-number {{ background-color: #F5EDEB; padding: 12px 24px; border-radius: 40px; display: inline-block; color: #8A8A8A; font-size: 14px; font-weight: 600; margin-bottom: 30px; }}
-                    .details-card {{ background-color: #F5EDEB; border-radius: 16px; padding: 30px; text-align: left; margin-bottom: 30px; }}
-                    .detail-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #E8C7C3; }}
+                    .booking-number {{ background-color: #EEEBFC; padding: 12px 24px; border-radius: 40px; display: inline-block; color: #8A8A8A; font-size: 14px; font-weight: 600; margin-bottom: 30px; }}
+                    .details-card {{ background-color: #EEEBFC; border-radius: 16px; padding: 30px; text-align: left; margin-bottom: 30px; }}
+                    .detail-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #E5E7EB; }}
                     .detail-row:last-child {{ border-bottom: none; }}
                     .detail-label {{ width: 120px; color: #8A8A8A; font-weight: 500; }}
                     .detail-value {{ flex: 1; color: #1E1E1E; font-weight: 600; }}
-                    .status-completed {{ color: #C09995; font-weight: 700; }}
-                    .button {{ display: inline-block; background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(232,199,195,0.3); }}
-                    .footer {{ background-color: #F5EDEB; padding: 24px; color: #8A8A8A; font-size: 14px; }}
+                    .status-completed {{ color: #6355E4; font-weight: 700; }}
+                    .button {{ display: inline-block; background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(99,85,228,0.3); }}
+                    .footer {{ background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }}
                 </style>
             </head>
             <body>
                 <div class='container'>
                     <div class='header'><h1 style='color: #FFFFFF; font-size: 28px; font-weight: 600; margin: 0;'>GentleBook</h1></div>
                     <div class='content'>
-                        <div style='color: #C09995; font-size: 48px; margin-bottom: 20px;'>✓</div>
+                        <div style='color: #6355E4; font-size: 48px; margin-bottom: 20px;'>✓</div>
                         <h2 class='title'>Buchung abgeschlossen</h2>
                         <div class='booking-number'>Buchungsnummer: {booking.BookingNumber}</div>
                         <div class='details-card'>
@@ -639,9 +639,9 @@ public class BookingsController : ControllerBase
                             <div class='detail-row'><span class='detail-label'>Uhrzeit</span><span class='detail-value'>{booking.Booking.StartTime} - {booking.Booking.EndTime}</span></div>
                             <div class='detail-row'><span class='detail-label'>Status</span><span class='detail-value'><span class='status-completed'>Abgeschlossen</span></span></div>
                         </div>
-                        <p style='margin-top: 30px;'><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
+                        <p style='margin-top: 30px;'><a href='{_emailService.FrontendUrl}' class='button'>Zurück zur Website</a></p>
                     </div>
-                    <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
+                    <div class='footer'><p style='margin: 0;'>Girardetstraße 17, 42109 Wuppertal</p></div>
                 </div>
             </body>
             </html>", "text/html");
@@ -660,24 +660,24 @@ public class BookingsController : ControllerBase
                 <meta charset='utf-8'>
                 <meta name='viewport' content='width=device-width, initial-scale=1.0'>
                 <style>
-                    body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #F5EDEB; color: #1E1E1E; line-height: 1.6; }}
+                    body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #EEEBFC; color: #1E1E1E; line-height: 1.6; }}
                     .container {{ max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 24px; overflow: hidden; }}
-                    .header {{ background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; padding: 40px 20px; }}
+                    .header {{ background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; padding: 40px 20px; }}
                     .content {{ padding: 40px; }}
-                    .button {{ display: inline-block; background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; }}
-                    .footer {{ background-color: #F5EDEB; padding: 24px; color: #8A8A8A; font-size: 14px; }}
+                    .button {{ display: inline-block; background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; }}
+                    .footer {{ background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }}
                 </style>
             </head>
             <body>
                 <div class='container'>
                     <div class='header'><h1 style='color: #FFFFFF; font-size: 28px; font-weight: 600; margin: 0;'>GentleBook</h1></div>
                     <div class='content'>
-                        <div style='color: #D8B0AC; font-size: 48px; margin-bottom: 20px;'>✧</div>
+                        <div style='color: #6355E4; font-size: 48px; margin-bottom: 20px;'>✧</div>
                         <h2 style='font-size: 24px; font-weight: 700; color: #1E1E1E;'>Stornierung fehlgeschlagen</h2>
                         <p style='color: #8A8A8A; margin-bottom: 30px;'>{result.Message}</p>
-                        <p><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
+                        <p><a href='{_emailService.FrontendUrl}' class='button'>Zurück zur Website</a></p>
                     </div>
-                    <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
+                    <div class='footer'><p style='margin: 0;'>Girardetstraße 17, 42109 Wuppertal</p></div>
                 </div>
             </body>
             </html>", "text/html");
@@ -691,21 +691,21 @@ public class BookingsController : ControllerBase
             <meta charset='utf-8'>
             <meta name='viewport' content='width=device-width, initial-scale=1.0'>
             <style>
-                body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #F5EDEB; color: #1E1E1E; line-height: 1.6; }}
+                body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #EEEBFC; color: #1E1E1E; line-height: 1.6; }}
                 .container {{ max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.05); overflow: hidden; }}
-                .header {{ background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; padding: 40px 20px; }}
+                .header {{ background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; padding: 40px 20px; }}
                 .content {{ padding: 40px; }}
                 .title {{ font-size: 28px; font-weight: 700; color: #1E1E1E; margin-bottom: 10px; }}
-                .booking-number {{ background-color: #F5EDEB; padding: 12px 24px; border-radius: 40px; display: inline-block; color: #8A8A8A; font-size: 14px; font-weight: 600; margin-bottom: 30px; }}
-                .details-card {{ background-color: #F5EDEB; border-radius: 16px; padding: 30px; text-align: left; margin-bottom: 30px; }}
-                .detail-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #E8C7C3; }}
+                .booking-number {{ background-color: #EEEBFC; padding: 12px 24px; border-radius: 40px; display: inline-block; color: #8A8A8A; font-size: 14px; font-weight: 600; margin-bottom: 30px; }}
+                .details-card {{ background-color: #EEEBFC; border-radius: 16px; padding: 30px; text-align: left; margin-bottom: 30px; }}
+                .detail-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #E5E7EB; }}
                 .detail-row:last-child {{ border-bottom: none; }}
                 .detail-label {{ width: 120px; color: #8A8A8A; font-weight: 500; }}
                 .detail-value {{ flex: 1; color: #1E1E1E; font-weight: 600; }}
-                .status-cancelled {{ color: #D8B0AC; font-weight: 700; }}
-                .button {{ display: inline-block; background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(232,199,195,0.3); margin: 10px; }}
-                .button-secondary {{ display: inline-block; background-color: #F5EDEB; color: #1E1E1E; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; border: 2px solid #E8C7C3; margin: 10px; }}
-                .footer {{ background-color: #F5EDEB; padding: 24px; color: #8A8A8A; font-size: 14px; }}
+                .status-cancelled {{ color: #6355E4; font-weight: 700; }}
+                .button {{ display: inline-block; background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(99,85,228,0.3); margin: 10px; }}
+                .button-secondary {{ display: inline-block; background-color: #EEEBFC; color: #1E1E1E; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; border: 2px solid #E5E7EB; margin: 10px; }}
+                .footer {{ background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }}
                 .price {{ color: #1E1E1E; font-size: 20px; font-weight: 700; }}
                 .email-notice {{ color: #8A8A8A; font-size: 12px; margin-top: 30px; }}
             </style>
@@ -713,26 +713,26 @@ public class BookingsController : ControllerBase
         <body>
             <div class='container'>
                 <div class='content'>
-                    <div style='color: #E8C7C3; font-size: 64px; margin-bottom: 20px;'>✓</div>
+                    <div style='color: #E5E7EB; font-size: 64px; margin-bottom: 20px;'>✓</div>
                     <h2 class='title'>{result.Message}</h2>
                     <div class='booking-number'>Buchungsnummer: {booking.BookingNumber}</div>
                     <div class='details-card'>
                         <div class='detail-row'><span class='detail-label'>Leistung</span><span class='detail-value'>{booking.Booking.ServiceName}</span></div>
                         <div class='detail-row'><span class='detail-label'>Datum</span><span class='detail-value'>{booking.Booking.BookingDate}</span></div>
                         <div class='detail-row'><span class='detail-label'>Uhrzeit</span><span class='detail-value'>{booking.Booking.StartTime} - {booking.Booking.EndTime}</span></div>
-                        <div class='detail-row'><span class='detail-label'>Preis</span><span class='detail-value'><span class='price'>{booking.Booking.Price:0.00} CHF</span></span></div>
+                        <div class='detail-row'><span class='detail-label'>Preis</span><span class='detail-value'><span class='price'>{booking.Booking.Price:0.00} {booking.Booking.Currency}</span></span></div>
                         <div class='detail-row'><span class='detail-label'>Status</span><span class='detail-value'><span class='status-cancelled'>Storniert</span></span></div>
                         <div class='detail-row'><span class='detail-label'>Grund</span><span class='detail-value'>Storniert vom Kunden per E-Mail-Link</span></div>
                     </div>
                     <div style='margin: 30px 0;'>
-                        <a href='https://gentlebook.runasp.net/booking' class='button'>Neuen Termin buchen</a>
-                        <a href='https://www.gentlebook.app/' class='button-secondary'>Zurück zur Website</a>
+                        <a href='{_emailService.FrontendUrl}' class='button'>Neuen Termin buchen</a>
+                        <a href='{_emailService.FrontendUrl}' class='button-secondary'>Zurück zur Website</a>
                     </div>
                     <p class='email-notice'>* Sie erhalten eine Bestätigungs-Email an: {booking.Customer.Email}</p>
                 </div>
                 <div class='footer'>
-                    <p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p>
-                    <p style='margin: 10px 0 0 0;'>www.gentlebook.app</p>
+                    <p style='margin: 0;'>Girardetstraße 17, 42109 Wuppertal</p>
+                    <p style='margin: 10px 0 0 0;'>www.gentlebook.de</p>
                     <p style='margin: 10px 0 0 0;'>© 2026 GentleBook</p>
                 </div>
             </div>
@@ -748,24 +748,24 @@ public class BookingsController : ControllerBase
             <title>Fehler - GentleBook</title>
             <meta charset='utf-8'>
             <style>
-                body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #F5EDEB; color: #1E1E1E; }}
+                body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #EEEBFC; color: #1E1E1E; }}
                 .container {{ max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 24px; overflow: hidden; }}
-                .header {{ background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; padding: 40px 20px; }}
+                .header {{ background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; padding: 40px 20px; }}
                 .content {{ padding: 40px; }}
-                .button {{ display: inline-block; background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; }}
-                .footer {{ background-color: #F5EDEB; padding: 24px; color: #8A8A8A; font-size: 14px; }}
+                .button {{ display: inline-block; background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; }}
+                .footer {{ background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }}
             </style>
         </head>
         <body>
             <div class='container'>
                 <div class='header'><h1 style='color: #FFFFFF; font-size: 28px; font-weight: 600; margin: 0;'>GentleBook</h1></div>
                 <div class='content'>
-                    <div style='color: #D8B0AC; font-size: 48px; margin-bottom: 20px;'>✧</div>
+                    <div style='color: #6355E4; font-size: 48px; margin-bottom: 20px;'>✧</div>
                     <h2 style='font-size: 24px; font-weight: 700; color: #1E1E1E; margin-bottom: 20px;'>Fehler bei der Stornierung</h2>
                     <p style='color: #8A8A8A; margin-bottom: 30px;'>{ex.Message}</p>
-                    <p><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
+                    <p><a href='{_emailService.FrontendUrl}' class='button'>Zurück zur Website</a></p>
                 </div>
-                <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
+                <div class='footer'><p style='margin: 0;'>Girardetstraße 17, 42109 Wuppertal</p></div>
             </div>
         </body>
         </html>", "text/html");
@@ -781,24 +781,24 @@ public class BookingsController : ControllerBase
             <title>Fehler - GentleBook</title>
             <meta charset='utf-8'>
             <style>
-                body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #F5EDEB; color: #1E1E1E; }}
+                body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #EEEBFC; color: #1E1E1E; }}
                 .container {{ max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 24px; overflow: hidden; }}
-                .header {{ background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; padding: 40px 20px; }}
+                .header {{ background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; padding: 40px 20px; }}
                 .content {{ padding: 40px; }}
-                .button {{ display: inline-block; background: linear-gradient(135deg, #1a1a1a 0%, #2d2824 50%, #1a1a1a 100%); border-bottom: 3px solid #C09995; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; }}
-                .footer {{ background-color: #F5EDEB; padding: 24px; color: #8A8A8A; font-size: 14px; }}
+                .button {{ display: inline-block; background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; }}
+                .footer {{ background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }}
             </style>
         </head>
         <body>
             <div class='container'>
                 <div class='header'><h1 style='color: #FFFFFF; font-size: 28px; font-weight: 600; margin: 0;'>GentleBook</h1></div>
                 <div class='content'>
-                    <div style='color: #D8B0AC; font-size: 48px; margin-bottom: 20px;'>✧</div>
+                    <div style='color: #6355E4; font-size: 48px; margin-bottom: 20px;'>✧</div>
                     <h2 style='font-size: 24px; font-weight: 700; color: #1E1E1E; margin-bottom: 20px;'>Unerwarteter Fehler</h2>
                     <p style='color: #8A8A8A; margin-bottom: 30px;'>Ein unerwarteter Fehler ist aufgetreten. Bitte versuchen Sie es später erneut oder kontaktieren Sie uns.</p>
-                    <p><a href='https://www.gentlebook.app/' class='button'>Zurück zur Website</a></p>
+                    <p><a href='{_emailService.FrontendUrl}' class='button'>Zurück zur Website</a></p>
                 </div>
-                <div class='footer'><p style='margin: 0;'>Elisabethenstrasse 41, 4051 Basel, Schweiz</p></div>
+                <div class='footer'><p style='margin: 0;'>Girardetstraße 17, 42109 Wuppertal</p></div>
             </div>
         </body>
         </html>", "text/html");

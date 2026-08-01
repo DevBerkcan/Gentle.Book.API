@@ -26,29 +26,40 @@ public class NoShowService
     {
         var now = DateTime.UtcNow;
 
-        // Same simplified single-timezone approach as ReminderService.SendDailyRemindersAsync
-        // (uses the first TenantSettings row found) — kept consistent with existing behavior.
-        var defaultTzId = await _context.TenantSettings
+        // Computed PER TENANT — a single global timezone (the previous "first TenantSettings
+        // row found" approach) would mark bookings as NoShow too early/late for every tenant
+        // except whichever one happened to be first in the table, once tenants span timezones.
+        var tenants = await _context.TenantSettings
             .IgnoreQueryFilters()
-            .Select(t => t.TimeZone)
-            .FirstOrDefaultAsync() ?? "Europe/Berlin";
-
-        TimeZoneInfo tz;
-        try { tz = TimeZoneInfo.FindSystemTimeZoneById(defaultTzId); }
-        catch { tz = TimeZoneInfo.Utc; }
-
-        var localCutoff = TimeZoneInfo.ConvertTimeFromUtc(now - GracePeriod, tz);
-
-        // Only bookings still Confirmed (never checked in / completed / cancelled) whose
-        // end time plus the grace period is in the past. Pending bookings are intentionally
-        // left untouched — they were never confirmed in the first place.
-        var overdue = await _context.Bookings
-            .IgnoreQueryFilters()
-            .Where(b =>
-                b.Status == BookingStatus.Confirmed &&
-                (b.BookingDate < DateOnly.FromDateTime(localCutoff) ||
-                 (b.BookingDate == DateOnly.FromDateTime(localCutoff) && b.EndTime <= TimeOnly.FromDateTime(localCutoff))))
+            .Select(t => new { t.TenantId, t.TimeZone })
             .ToListAsync();
+
+        var overdue = new List<Booking>();
+
+        foreach (var tenant in tenants)
+        {
+            TimeZoneInfo tz;
+            try { tz = TimeZoneInfo.FindSystemTimeZoneById(tenant.TimeZone ?? "Europe/Berlin"); }
+            catch { tz = TimeZoneInfo.Utc; }
+
+            var localCutoff = TimeZoneInfo.ConvertTimeFromUtc(now - GracePeriod, tz);
+            var cutoffDate = DateOnly.FromDateTime(localCutoff);
+            var cutoffTime = TimeOnly.FromDateTime(localCutoff);
+
+            // Only bookings still Confirmed (never checked in / completed / cancelled) whose
+            // end time plus the grace period is in the past. Pending bookings are intentionally
+            // left untouched — they were never confirmed in the first place.
+            var tenantOverdue = await _context.Bookings
+                .IgnoreQueryFilters()
+                .Where(b =>
+                    b.TenantId == tenant.TenantId &&
+                    b.Status == BookingStatus.Confirmed &&
+                    (b.BookingDate < cutoffDate ||
+                     (b.BookingDate == cutoffDate && b.EndTime <= cutoffTime)))
+                .ToListAsync();
+
+            overdue.AddRange(tenantOverdue);
+        }
 
         if (overdue.Count == 0)
         {
@@ -64,6 +75,6 @@ public class NoShowService
 
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("No-show check: {Count} booking(s) marked as NoShow.", overdue.Count);
+        _logger.LogInformation("No-show check: {Count} booking(s) marked as NoShow across {TenantCount} tenant(s).", overdue.Count, tenants.Count);
     }
 }

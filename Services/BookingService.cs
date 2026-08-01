@@ -43,11 +43,22 @@ public class BookingService
             throw new ArgumentException("Ungültiges Zeitformat");
 
         var endTime = startTime.AddMinutes(service.DurationMinutes);
-
-        if (bookingDate < DateOnly.FromDateTime(DateTime.UtcNow.Date))
-            throw new InvalidOperationException("Termine in der Vergangenheit können nicht gebucht werden.");
-
         var tenantId = service.TenantId;
+
+        // Reject past date/time in the tenant's own timezone — checking only the calendar date
+        // (as before) let a customer book a same-day slot that had already started/passed,
+        // since nothing compared the requested time-of-day against "now".
+        var tenantTimeZoneId = await _context.TenantSettings
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => s.TimeZone)
+            .FirstOrDefaultAsync() ?? "Europe/Berlin";
+        TimeZoneInfo tenantTz;
+        try { tenantTz = TimeZoneInfo.FindSystemTimeZoneById(tenantTimeZoneId); }
+        catch { tenantTz = TimeZoneInfo.Utc; }
+        var tenantLocalNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tenantTz);
+
+        if (bookingDate.ToDateTime(startTime) < tenantLocalNow)
+            throw new InvalidOperationException("Termine in der Vergangenheit können nicht gebucht werden.");
 
         // 2b. Tenant must be active and have a valid trial/subscription.
         // Anonymous requests bypass TenantMiddleware, so this is enforced here:
