@@ -325,14 +325,14 @@ public class BookingsController : ControllerBase
 
             if (bookingId == Guid.Empty || action != "confirm")
             {
-                return Content(@"
+                return Content($@"
                 <!DOCTYPE html>
                 <html>
                 <head>
                     <title>Fehler - GentleBook</title>
                     <style>
-                        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
-                        .error { color: #dc3545; }
+                        body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                        .error {{ color: #dc3545; }}
                     </style>
                 </head>
                 <body>
@@ -449,7 +449,7 @@ public class BookingsController : ControllerBase
 
             if (bookingId == Guid.Empty || action != "cancel")
             {
-                return Content(@"
+                return Content($@"
             <!DOCTYPE html>
             <html>
             <head>
@@ -457,39 +457,39 @@ public class BookingsController : ControllerBase
                 <meta charset='utf-8'>
                 <meta name='viewport' content='width=device-width, initial-scale=1.0'>
                 <style>
-                    body { 
-                        font-family: 'Helvetica', 'Arial', sans-serif; 
-                        text-align: center; 
-                        padding: 0; 
+                    body {{
+                        font-family: 'Helvetica', 'Arial', sans-serif;
+                        text-align: center;
+                        padding: 0;
                         margin: 0;
                         background-color: #EEEBFC;
                         color: #1E1E1E;
                         line-height: 1.6;
-                    }
-                    .container {
+                    }}
+                    .container {{
                         max-width: 600px;
                         margin: 40px auto;
                         background-color: #FFFFFF;
                         border-radius: 24px;
                         box-shadow: 0 20px 40px rgba(0,0,0,0.05);
                         overflow: hidden;
-                    }
-                    .header {
+                    }}
+                    .header {{
                         background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4;
                         padding: 40px 20px;
-                    }
-                    .content { padding: 40px; }
-                    .error { color: #6355E4; font-size: 48px; margin-bottom: 20px; }
-                    .title { font-size: 24px; font-weight: 700; color: #1E1E1E; margin-bottom: 20px; }
-                    .message { color: #8A8A8A; margin-bottom: 30px; }
-                    .button {
+                    }}
+                    .content {{ padding: 40px; }}
+                    .error {{ color: #6355E4; font-size: 48px; margin-bottom: 20px; }}
+                    .title {{ font-size: 24px; font-weight: 700; color: #1E1E1E; margin-bottom: 20px; }}
+                    .message {{ color: #8A8A8A; margin-bottom: 30px; }}
+                    .button {{
                         display: inline-block;
                         background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4;
                         color: #FFFFFF; text-decoration: none; padding: 14px 32px;
                         border-radius: 40px; font-weight: 600; font-size: 16px;
                         box-shadow: 0 4px 12px rgba(99,85,228,0.3);
-                    }
-                    .footer { background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }
+                    }}
+                    .footer {{ background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }}
                 </style>
             </head>
             <body>
@@ -515,7 +515,7 @@ public class BookingsController : ControllerBase
             var booking = await _bookingService.GetBookingByIdAsync(bookingId);
             if (booking == null)
             {
-                return Content(@"
+                return Content($@"
             <!DOCTYPE html>
             <html>
             <head>
@@ -523,15 +523,15 @@ public class BookingsController : ControllerBase
                 <meta charset='utf-8'>
                 <meta name='viewport' content='width=device-width, initial-scale=1.0'>
                 <style>
-                    body { font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #EEEBFC; color: #1E1E1E; }
-                    .container { max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.05); overflow: hidden; }
-                    .header { background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; padding: 40px 20px; }
-                    .content { padding: 40px; }
-                    .error { color: #6355E4; font-size: 48px; margin-bottom: 20px; }
-                    .title { font-size: 24px; font-weight: 700; color: #1E1E1E; margin-bottom: 20px; }
-                    .message { color: #8A8A8A; margin-bottom: 30px; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; }
-                    .footer { background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }
+                    body {{ font-family: 'Helvetica', 'Arial', sans-serif; text-align: center; padding: 0; margin: 0; background-color: #EEEBFC; color: #1E1E1E; }}
+                    .container {{ max-width: 600px; margin: 40px auto; background-color: #FFFFFF; border-radius: 24px; box-shadow: 0 20px 40px rgba(0,0,0,0.05); overflow: hidden; }}
+                    .header {{ background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; padding: 40px 20px; }}
+                    .content {{ padding: 40px; }}
+                    .error {{ color: #6355E4; font-size: 48px; margin-bottom: 20px; }}
+                    .title {{ font-size: 24px; font-weight: 700; color: #1E1E1E; margin-bottom: 20px; }}
+                    .message {{ color: #8A8A8A; margin-bottom: 30px; }}
+                    .button {{ display: inline-block; background: linear-gradient(135deg, #14162B 0%, #201F47 50%, #14162B 100%); border-bottom: 3px solid #6355E4; color: #FFFFFF; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px; }}
+                    .footer {{ background-color: #EEEBFC; padding: 24px; color: #8A8A8A; font-size: 14px; }}
                 </style>
             </head>
             <body>
