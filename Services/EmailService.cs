@@ -84,7 +84,7 @@ public class EmailService
             TenantId = booking.TenantId,
             BookingId = bookingId,
             EmailType = EmailType.Confirmation,
-            RecipientEmail = booking.Customer.Email,
+            RecipientEmail = booking.Customer.Email!,
             Subject = $"Ihre Buchungsbestätigung – {tenantName1}",
             Status = EmailStatus.Pending,
             CreatedAt = DateTime.UtcNow
@@ -94,7 +94,7 @@ public class EmailService
         {
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress(tenantName1, _emailOptions.SenderEmail));
-            message.To.Add(new MailboxAddress(booking.Customer.FullName, booking.Customer.Email));
+            message.To.Add(new MailboxAddress(booking.Customer.FullName, booking.Customer.Email!));
             message.Subject = emailLog.Subject;
 
             var builder = new BodyBuilder();
@@ -147,7 +147,7 @@ public class EmailService
             TenantId = booking.TenantId,
             BookingId = booking.Id,
             EmailType = EmailType.Confirmation,
-            RecipientEmail = customer.Email,
+            RecipientEmail = customer.Email!,
             Subject = $"Buchungsbestätigung: {service.Name} am {booking.BookingDate:dd.MM.yyyy}",
             Status = EmailStatus.Pending,
             CreatedAt = DateTime.UtcNow
@@ -163,7 +163,7 @@ public class EmailService
             var currency2        = tenantSettings2?.DefaultCurrency ?? "EUR";
 
             message.From.Add(new MailboxAddress(tenantName2, _emailOptions.SenderEmail));
-            message.To.Add(new MailboxAddress(customer.FullName, customer.Email));
+            message.To.Add(new MailboxAddress(customer.FullName, customer.Email!));
             message.Subject = emailLog.Subject;
 
             var builder = new BodyBuilder();
@@ -215,7 +215,7 @@ public class EmailService
             TenantId = booking.TenantId,
             BookingId = booking.Id,
             EmailType = EmailType.Cancellation,
-            RecipientEmail = customer.Email,
+            RecipientEmail = customer.Email!,
             Status = EmailStatus.Pending,
             CreatedAt = DateTime.UtcNow
         };
@@ -232,7 +232,7 @@ public class EmailService
             emailLog.Subject = $"Ihre Stornierung – {tenantName3}";
 
             message.From.Add(new MailboxAddress(tenantName3, _emailOptions.SenderEmail));
-            message.To.Add(new MailboxAddress(customer.FullName, customer.Email));
+            message.To.Add(new MailboxAddress(customer.FullName, customer.Email!));
             message.Subject = emailLog.Subject;
 
             var builder = new BodyBuilder();
@@ -291,7 +291,7 @@ public class EmailService
             TenantId = booking.TenantId,
             BookingId = bookingId,
             EmailType = EmailType.Reminder,
-            RecipientEmail = booking.Customer.Email,
+            RecipientEmail = booking.Customer.Email!,
             Subject = $"Erinnerung: Termin am {booking.BookingDate:dd.MM.yyyy}",
             Status = EmailStatus.Pending,
             CreatedAt = DateTime.UtcNow
@@ -306,7 +306,7 @@ public class EmailService
             var primaryColor4 = booking.Tenant?.Settings?.PrimaryColor ?? "#6355E4";
 
             message.From.Add(new MailboxAddress(tenantName4, _emailOptions.SenderEmail));
-            message.To.Add(new MailboxAddress(booking.Customer.FullName, booking.Customer.Email));
+            message.To.Add(new MailboxAddress(booking.Customer.FullName, booking.Customer.Email!));
             message.Subject = emailLog.Subject;
 
             var builder = new BodyBuilder();
@@ -372,7 +372,7 @@ public class EmailService
         {
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress(tenantName, _emailOptions.SenderEmail));
-            message.To.Add(new MailboxAddress(customer.FullName, customer.Email));
+            message.To.Add(new MailboxAddress(customer.FullName, customer.Email!));
             message.Subject = subject;
 
             var content = $@"

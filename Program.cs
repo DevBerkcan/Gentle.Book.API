@@ -2,6 +2,7 @@ using GentleBook.Api.Data;
 using GentleBook.Api.Middleware;
 using GentleBook.Api.Options;
 using GentleBook.Api.Services;
+using GentleBook.Api.Services.AI;
 using Hangfire;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
@@ -159,6 +160,7 @@ builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection("Email
 builder.Services.Configure<InvoiceEmailOptions>(builder.Configuration.GetSection("InvoiceEmail"));
 builder.Services.Configure<MollieOptions>(builder.Configuration.GetSection("Mollie"));
 builder.Services.Configure<CrmOptions>(builder.Configuration.GetSection("Crm"));
+builder.Services.Configure<AiProviderOptions>(builder.Configuration.GetSection("Ai"));
 
 // Mollie: first real outbound-HTTP integration in this codebase.
 builder.Services.AddHttpClient<MollieClient>((sp, client) =>
@@ -194,6 +196,29 @@ builder.Services.AddScoped<TrackingService>();
 builder.Services.AddScoped<ServiceService>();
 builder.Services.AddScoped<EmployeeAuthService>();
 builder.Services.AddScoped<CustomerPortalTokenService>();
+builder.Services.AddScoped<IServiceFinderEngine, ServiceFinderEngine>();
+// No real AI provider implemented yet — NullAiProviderAdapter is the only IAiProviderAdapter
+// today, so this stays a direct binding rather than a config-switched factory. AiProviderOptions
+// above is the prepared seam: once a real provider is added, register it here (conditioned on
+// AiProviderOptions.Provider) with NullAiProviderAdapter kept as the fallback when unconfigured.
+builder.Services.AddScoped<IAiProviderAdapter, NullAiProviderAdapter>();
+builder.Services.AddScoped<IAiUsageMeter, AiUsageMeter>();
+builder.Services.AddScoped<IKnowledgeRetrievalService, KnowledgeRetrievalService>();
+builder.Services.AddScoped<IAiOrchestrator, AiOrchestrator>();
+builder.Services.AddScoped<IBookingDraftService, BookingDraftService>();
+builder.Services.AddScoped<IAiToolRegistry, AiToolRegistry>();
+
+// AI Brand Import: admin enters an existing company website URL and GentleBook derives a
+// branding draft (colors/fonts/logo/template) for the booking-hub page. UrlSecurityValidator +
+// SafeWebsiteFetcher are the SSRF-protection layer — see Services/BrandImport for details.
+builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IUrlSecurityValidator, GentleBook.Api.Services.BrandImport.UrlSecurityValidator>();
+builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.ISafeWebsiteFetcher, GentleBook.Api.Services.BrandImport.SafeWebsiteFetcher>();
+builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IHtmlBrandExtractor, GentleBook.Api.Services.BrandImport.HtmlBrandExtractor>();
+// No real AI provider is wired in yet (see IAiProviderAdapter above) — DeterministicBrandAnalyzer
+// is the always-available, no-AI fallback path described in the feature spec.
+builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IBrandAiAnalyzer, GentleBook.Api.Services.BrandImport.DeterministicBrandAnalyzer>();
+builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IWebsiteBrandAnalysisService, GentleBook.Api.Services.BrandImport.WebsiteBrandAnalysisService>();
+builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IBrandImportApplyService, GentleBook.Api.Services.BrandImport.BrandImportApplyService>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddSingleton<SubscriptionService>();
@@ -237,6 +262,36 @@ builder.Services.AddRateLimiter(options =>
             {
                 Window = TimeSpan.FromMinutes(10),
                 PermitLimit = 20,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
+
+    // AI Finder abuse/cost protection: max 15 evaluate/booking-draft calls per IP per 10 minutes.
+    // Anonymous + triggers the AI orchestrator (real cost once a real provider is wired in), so it
+    // gets its own tighter policy rather than reusing booking-limit's 20/10min.
+    options.AddPolicy("finder-limit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(10),
+                PermitLimit = 15,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
+
+    // Brand Import abuse protection: each analyze/reanalyze call fetches an external website —
+    // partitioned per authenticated tenant (not IP) since this is an admin-only, authenticated
+    // feature. Max 6 analyses per tenant per 10 minutes.
+    options.AddPolicy("brand-import-limit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.User.FindFirst("tenantId")?.Value
+                ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(10),
+                PermitLimit = 6,
                 QueueLimit = 0,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             }));
@@ -368,6 +423,94 @@ using (var scope = app.Services.CreateScope())
         Console.Error.WriteLine($"[MIGRATION ERROR] {ex.Message}");
         Console.Error.WriteLine(ex.ToString());
         // App continues even if migration fails — so we can diagnose via API
+    }
+}
+
+// Seed default AI industry playbooks. This is idempotent and only creates missing keys.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+    try
+    {
+        var now = DateTime.UtcNow;
+        var requiredProfiles = new[]
+        {
+            new
+            {
+                Key = "beauty_aesthetics",
+                Name = "Beauty und Asthetik",
+                Description = "Playbook fur Beauty-, Kosmetik-, Nails- und Lash-Studios.",
+                Capabilities = new[]
+                {
+                    "staff", "consultation", "serviceSeries", "rebooking", "deposits",
+                    "beforeAfterPhotos", "consentForms", "preparationGuidance", "aftercareGuidance", "healthInformation"
+                }
+            },
+            new
+            {
+                Key = "barbershop_hairdresser",
+                Name = "Barbershop und Friseur",
+                Description = "Playbook fur Barber- und Friseurbetriebe.",
+                Capabilities = new[]
+                {
+                    "staff", "portfolio", "referenceImages", "rebooking", "rooms", "equipment", "preparationGuidance"
+                }
+            },
+            new
+            {
+                Key = "tattoo",
+                Name = "Tattoo",
+                Description = "Playbook fur Tattoo- und Piercingstudios.",
+                Capabilities = new[]
+                {
+                    "staff", "referenceImages", "consultation", "deposits", "aftercareGuidance", "multipleSessions", "consentForms"
+                }
+            }
+        };
+
+        foreach (var profileSeed in requiredProfiles)
+        {
+            var profile = await db.IndustryProfiles.FirstOrDefaultAsync(p => p.Key == profileSeed.Key);
+            if (profile == null)
+            {
+                profile = new GentleBook.Api.Data.Entities.IndustryProfile
+                {
+                    Key = profileSeed.Key,
+                    Name = profileSeed.Name,
+                    Description = profileSeed.Description,
+                    IsActive = true,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+                db.IndustryProfiles.Add(profile);
+                await db.SaveChangesAsync();
+            }
+
+            var existing = await db.IndustryCapabilities
+                .Where(c => c.IndustryProfileId == profile.Id)
+                .Select(c => c.CapabilityKey)
+                .ToListAsync();
+
+            var missing = profileSeed.Capabilities
+                .Where(c => !existing.Contains(c, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var capability in missing)
+            {
+                db.IndustryCapabilities.Add(new GentleBook.Api.Data.Entities.IndustryCapability
+                {
+                    IndustryProfileId = profile.Id,
+                    CapabilityKey = capability,
+                    DefaultEnabled = true
+                });
+            }
+        }
+
+        await db.SaveChangesAsync();
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[AI PLAYBOOK SEED ERROR] {ex.Message}");
     }
 }
 

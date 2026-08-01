@@ -46,6 +46,25 @@ public class GentleBookDbContext : DbContext
     public DbSet<MollieWebhookEvent> MollieWebhookEvents { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
     public DbSet<PlanPrice> PlanPrices { get; set; }
+    public DbSet<IndustryProfile> IndustryProfiles { get; set; }
+    public DbSet<IndustryCapability> IndustryCapabilities { get; set; }
+    public DbSet<TenantIndustrySetting> TenantIndustrySettings { get; set; }
+    public DbSet<TenantIndustryCapability> TenantIndustryCapabilities { get; set; }
+    public DbSet<ServiceFinderQuestion> ServiceFinderQuestions { get; set; }
+    public DbSet<ServiceFinderRule> ServiceFinderRules { get; set; }
+    public DbSet<ServiceGuidance> ServiceGuidances { get; set; }
+    public DbSet<ServiceFinderBookingDraft> ServiceFinderBookingDrafts { get; set; }
+    public DbSet<AiKnowledgeSource> AiKnowledgeSources { get; set; }
+    public DbSet<AiKnowledgeDocument> AiKnowledgeDocuments { get; set; }
+    public DbSet<AiKnowledgeChunk> AiKnowledgeChunks { get; set; }
+    public DbSet<AiConversation> AiConversations { get; set; }
+    public DbSet<AiMessage> AiMessages { get; set; }
+    public DbSet<AiAction> AiActions { get; set; }
+    public DbSet<AiUsage> AiUsages { get; set; }
+    public DbSet<BrandImportJob> BrandImportJobs { get; set; }
+    public DbSet<BrandImportResult> BrandImportResults { get; set; }
+    public DbSet<BrandThemeProposal> BrandThemeProposals { get; set; }
+    public DbSet<BrandAssetCandidate> BrandAssetCandidates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -68,6 +87,54 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<EmployeeNote>().HasQueryFilter(en => CurrentTenantId == null || en.TenantId == CurrentTenantId);
         modelBuilder.Entity<WaitlistEntry>().HasQueryFilter(w => CurrentTenantId == null || w.TenantId == CurrentTenantId);
         modelBuilder.Entity<BusinessLocation>().HasQueryFilter(l => CurrentTenantId == null || l.TenantId == CurrentTenantId);
+        modelBuilder.Entity<TenantIndustrySetting>().HasQueryFilter(s => CurrentTenantId == null || s.TenantId == CurrentTenantId);
+        modelBuilder.Entity<TenantIndustryCapability>().HasQueryFilter(s => CurrentTenantId == null || s.TenantId == CurrentTenantId);
+        modelBuilder.Entity<ServiceFinderQuestion>().HasQueryFilter(q => CurrentTenantId == null || q.TenantId == CurrentTenantId);
+        modelBuilder.Entity<ServiceFinderRule>().HasQueryFilter(r => CurrentTenantId == null || r.TenantId == CurrentTenantId);
+        modelBuilder.Entity<ServiceGuidance>().HasQueryFilter(g => CurrentTenantId == null || g.TenantId == CurrentTenantId);
+        modelBuilder.Entity<ServiceFinderBookingDraft>().HasQueryFilter(d => CurrentTenantId == null || d.TenantId == CurrentTenantId);
+        modelBuilder.Entity<AiKnowledgeSource>().HasQueryFilter(s => CurrentTenantId == null || s.TenantId == CurrentTenantId);
+        modelBuilder.Entity<AiKnowledgeDocument>().HasQueryFilter(d => CurrentTenantId == null || d.TenantId == CurrentTenantId);
+        modelBuilder.Entity<AiKnowledgeChunk>().HasQueryFilter(c => CurrentTenantId == null || c.TenantId == CurrentTenantId);
+        modelBuilder.Entity<AiConversation>().HasQueryFilter(c => CurrentTenantId == null || c.TenantId == CurrentTenantId);
+        modelBuilder.Entity<AiAction>().HasQueryFilter(a => CurrentTenantId == null || a.TenantId == CurrentTenantId);
+        modelBuilder.Entity<AiUsage>().HasQueryFilter(u => CurrentTenantId == null || u.TenantId == CurrentTenantId);
+        modelBuilder.Entity<BrandImportJob>().HasQueryFilter(j => CurrentTenantId == null || j.TenantId == CurrentTenantId);
+        modelBuilder.Entity<BrandImportResult>().HasQueryFilter(r => CurrentTenantId == null || r.TenantId == CurrentTenantId);
+        modelBuilder.Entity<BrandThemeProposal>().HasQueryFilter(p => CurrentTenantId == null || p.TenantId == CurrentTenantId);
+        modelBuilder.Entity<BrandAssetCandidate>().HasQueryFilter(a => CurrentTenantId == null || a.TenantId == CurrentTenantId);
+
+        modelBuilder.Entity<BrandImportJob>(entity =>
+        {
+            entity.Property(j => j.SourceUrl).HasMaxLength(2048);
+            entity.Property(j => j.ErrorCode).HasMaxLength(100);
+            entity.Property(j => j.ErrorMessageSafe).HasMaxLength(500);
+            entity.HasIndex(j => new { j.TenantId, j.Status });
+            entity.HasIndex(j => new { j.TenantId, j.SourceUrl });
+        });
+
+        modelBuilder.Entity<BrandImportResult>(entity =>
+        {
+            entity.Property(r => r.WebsiteTitle).HasMaxLength(300);
+            entity.Property(r => r.BrandStyle).HasMaxLength(100);
+            entity.HasIndex(r => new { r.TenantId, r.JobId });
+        });
+
+        modelBuilder.Entity<BrandThemeProposal>(entity =>
+        {
+            entity.Property(p => p.ProposalKey).HasMaxLength(50);
+            entity.Property(p => p.Name).HasMaxLength(150);
+            entity.Property(p => p.TemplateId).HasMaxLength(50);
+            entity.HasIndex(p => new { p.TenantId, p.ImportResultId });
+        });
+
+        modelBuilder.Entity<BrandAssetCandidate>(entity =>
+        {
+            entity.Property(a => a.SourceUrl).HasMaxLength(2048);
+            entity.Property(a => a.DiscoveryHint).HasMaxLength(200);
+            entity.Property(a => a.ContentType).HasMaxLength(100);
+            entity.HasIndex(a => new { a.TenantId, a.ImportResultId });
+        });
 
         modelBuilder.Entity<WaitlistEntry>(entity =>
         {
@@ -475,6 +542,182 @@ public class GentleBookDbContext : DbContext
                   .OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(e => new { e.TenantId, e.Status });
             entity.HasIndex(e => e.CreatedAt);
+        });
+
+        modelBuilder.Entity<IndustryProfile>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Key).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Description).HasMaxLength(2000);
+            entity.HasIndex(e => e.Key).IsUnique();
+        });
+
+        modelBuilder.Entity<IndustryCapability>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CapabilityKey).IsRequired().HasMaxLength(100);
+            entity.HasIndex(e => new { e.IndustryProfileId, e.CapabilityKey }).IsUnique();
+            entity.HasOne(e => e.IndustryProfile)
+                .WithMany(p => p.Capabilities)
+                .HasForeignKey(e => e.IndustryProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TenantIndustrySetting>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SettingsJson).HasMaxLength(8000);
+            entity.HasIndex(e => e.TenantId).IsUnique();
+            entity.HasOne(e => e.Tenant)
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.PrimaryIndustryProfile)
+                .WithMany()
+                .HasForeignKey(e => e.PrimaryIndustryProfileId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<TenantIndustryCapability>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.CapabilityKey).IsRequired().HasMaxLength(100);
+            entity.HasIndex(e => new { e.TenantId, e.CapabilityKey }).IsUnique();
+        });
+
+        modelBuilder.Entity<ServiceFinderQuestion>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.QuestionKey).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.QuestionText).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.ConfigJson).HasMaxLength(8000);
+            entity.Property(e => e.AnswerType).HasConversion<string>().HasMaxLength(50);
+            entity.HasIndex(e => new { e.TenantId, e.QuestionKey }).IsUnique();
+            entity.HasIndex(e => new { e.TenantId, e.IsActive, e.DisplayOrder });
+            entity.HasOne(e => e.IndustryProfile)
+                .WithMany()
+                .HasForeignKey(e => e.IndustryProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ServiceFinderRule>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.RuleType).HasConversion<string>().HasMaxLength(80);
+            entity.Property(e => e.ApprovalStatus).HasConversion<string>().HasMaxLength(40);
+            entity.Property(e => e.ConditionJson).IsRequired().HasMaxLength(8000);
+            entity.Property(e => e.ResultJson).IsRequired().HasMaxLength(8000);
+            entity.HasIndex(e => new { e.TenantId, e.IsActive, e.Priority });
+            entity.HasOne(e => e.Service)
+                .WithMany()
+                .HasForeignKey(e => e.ServiceId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ServiceGuidance>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.GuidanceType).HasConversion<string>().HasMaxLength(60);
+            entity.Property(e => e.ApprovalStatus).HasConversion<string>().HasMaxLength(40);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(250);
+            entity.Property(e => e.Content).IsRequired().HasMaxLength(8000);
+            entity.HasIndex(e => new { e.TenantId, e.ServiceId, e.GuidanceType, e.IsActive });
+            entity.HasOne(e => e.Service)
+                .WithMany()
+                .HasForeignKey(e => e.ServiceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ServiceFinderBookingDraft>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(40);
+            entity.Property(e => e.FirstName).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.LastName).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.Email).HasMaxLength(255);
+            entity.Property(e => e.Phone).HasMaxLength(50);
+            entity.Property(e => e.CustomerNotes).HasMaxLength(1000);
+            entity.HasIndex(e => new { e.TenantId, e.Status, e.ExpiresAt });
+        });
+
+        modelBuilder.Entity<AiKnowledgeSource>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SourceType).IsRequired().HasMaxLength(80);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(250);
+            entity.Property(e => e.OriginalFileName).HasMaxLength(255);
+            entity.Property(e => e.Visibility).HasConversion<string>().HasMaxLength(30);
+            entity.Property(e => e.ApprovalStatus).HasConversion<string>().HasMaxLength(30);
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(30);
+            entity.Property(e => e.Category).HasMaxLength(100);
+            entity.HasIndex(e => new { e.TenantId, e.Visibility, e.ApprovalStatus, e.Status });
+        });
+
+        modelBuilder.Entity<AiKnowledgeDocument>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(250);
+            entity.Property(e => e.Content).IsRequired();
+            entity.Property(e => e.Language).HasMaxLength(12);
+            entity.HasIndex(e => new { e.TenantId, e.SourceId, e.IsActive });
+            entity.HasOne(e => e.Source)
+                .WithMany(s => s.Documents)
+                .HasForeignKey(e => e.SourceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AiKnowledgeChunk>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SectionName).HasMaxLength(200);
+            entity.Property(e => e.VectorReference).HasMaxLength(300);
+            entity.Property(e => e.MetadataJson).HasMaxLength(4000);
+            entity.Property(e => e.Content).IsRequired();
+            entity.HasIndex(e => new { e.TenantId, e.DocumentId });
+            entity.HasOne(e => e.Document)
+                .WithMany(d => d.Chunks)
+                .HasForeignKey(e => e.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AiConversation>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Channel).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(50);
+            entity.HasIndex(e => new { e.TenantId, e.CreatedAt });
+        });
+
+        modelBuilder.Entity<AiMessage>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Role).IsRequired().HasMaxLength(30);
+            entity.Property(e => e.Content).IsRequired();
+            entity.HasIndex(e => new { e.ConversationId, e.CreatedAt });
+            entity.HasOne(e => e.Conversation)
+                .WithMany(c => c.Messages)
+                .HasForeignKey(e => e.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AiAction>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ActionType).IsRequired().HasMaxLength(80);
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(40);
+            entity.Property(e => e.InputJson).IsRequired();
+            entity.Property(e => e.OutputJson).IsRequired();
+            entity.HasIndex(e => new { e.TenantId, e.CreatedOn });
+        });
+
+        modelBuilder.Entity<AiUsage>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Feature).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Model).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.EstimatedCost).HasPrecision(12, 4);
+            entity.HasIndex(e => new { e.TenantId, e.Feature, e.CreatedOn });
         });
     }
 }

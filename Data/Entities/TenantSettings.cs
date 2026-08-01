@@ -53,6 +53,16 @@ public class TenantSettings
     public string LinktreeStyle { get; set; } = "gradient";
     public string? LinktreeConfig { get; set; } // JSON blob for fine-grained design
 
+    // ── AI Brand Import (website → branding draft) ────────────
+    // The admin must explicitly confirm they're entitled to use this website's content/branding
+    // before any analysis runs (see spec section 15 "Datenschutz und Rechte"). Stored here rather
+    // than a separate TENANT_WEBSITE_SETTINGS table since Website already lives on this entity.
+    public bool WebsiteConsentConfirmed { get; set; }
+    public DateTime? WebsiteConsentConfirmedAt { get; set; }
+    public Guid? WebsiteConsentConfirmedBy { get; set; }
+    public DateTime? LastBrandAnalysisOn { get; set; }
+    public string? LastBrandAnalysisStatus { get; set; } // mirrors BrandImportJobStatus as string
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

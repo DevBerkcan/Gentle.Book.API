@@ -40,6 +40,12 @@ public static class LinkPageTemplates
     };
 
     /// <summary>
+    /// Full set of known template ids — used by the AI Brand Import feature to reject any
+    /// template id an AI/heuristic step might otherwise invent (spec section 9).
+    /// </summary>
+    public static IReadOnlyCollection<string> AllTemplateIds => RequiredPlanByTemplate.Keys;
+
+    /// <summary>
     /// Returns null when the template is allowed (unknown/unmapped template keys are accepted
     /// so new templates don't need a matching deploy on both repos at the exact same moment).
     /// Otherwise returns the display name of the plan actually required, for the error message.
