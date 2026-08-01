@@ -30,4 +30,14 @@
     <EmbeddedResource Include="Assets\gentlebook-mark-white.png" />
   </ItemGroup>
 
+  <!-- The nested test project lives inside this repo (this is a multi-repo workspace, not a
+       monorepo, so it can't sit alongside as a sibling folder) — exclude it from this
+       project's default file globs so its own .cs files/build artifacts aren't compiled
+       twice into GentleBook.Api itself. -->
+  <ItemGroup>
+    <Compile Remove="Gentle.Book.API.Tests\**\*.cs" />
+    <Content Remove="Gentle.Book.API.Tests\**\*" />
+    <None Remove="Gentle.Book.API.Tests\**\*" />
+  </ItemGroup>
+
 </Project>

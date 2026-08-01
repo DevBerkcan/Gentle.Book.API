@@ -25,8 +25,9 @@ public class TrackingController : ControllerBase
     }
 
     /// <summary>
-    /// Feature gate: detailed analytics are part of Professional/Business plans.
-    /// Returns 402 with upgrade hint when the current plan has no analytics.
+    /// Feature gate: detailed analytics require a plan with HasAnalytics — determined from
+    /// PlanLimits (the single source of truth for plan names/features), never hardcoded here.
+    /// Returns 402 with the tenant's current plan and the actual required plan when blocked.
     /// </summary>
     private async Task<ObjectResult?> RequireAnalyticsPlanAsync()
     {
@@ -34,14 +35,29 @@ public class TrackingController : ControllerBase
         if (!tenantId.HasValue) return null; // SuperAdmin or misconfigured — don't block here
 
         var sub = await _db.Subscriptions.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == tenantId.Value);
-        var limits = PlanLimits.Get(sub?.Plan ?? SubscriptionPlan.Trial);
+        var currentPlan = sub?.Plan ?? SubscriptionPlan.Trial;
+        var limits = PlanLimits.Get(currentPlan);
         if (!limits.HasAnalytics)
+        {
+            // Cheapest plan tier that actually includes analytics, so this never needs
+            // updating by hand if plan names/tiers change.
+            var requiredPlan = PlanLimits.All
+                .Where(kv => kv.Value.HasAnalytics)
+                .OrderBy(kv => kv.Value.MonthlyPrice)
+                .Select(kv => kv.Value)
+                .FirstOrDefault();
+
             return StatusCode(402, new
             {
-                message = "Detaillierte Statistiken sind ab dem Professional-Plan verfügbar.",
+                message = requiredPlan != null
+                    ? $"Detaillierte Auswertungen zu Klicks, Seitenaufrufen und Umsatz sind in deinem aktuellen Tarif nicht enthalten. Mit dem Tarif \"{requiredPlan.DisplayName}\" kannst du sehen, wie deine Buchungsseite performt."
+                    : "Detaillierte Statistiken sind in deinem aktuellen Tarif nicht enthalten.",
                 feature = "analytics",
-                upgrade = true
+                upgrade = true,
+                currentPlan = limits.DisplayName,
+                requiredPlan = requiredPlan?.DisplayName,
             });
+        }
         return null;
     }
 

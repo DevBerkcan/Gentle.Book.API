@@ -435,6 +435,41 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// One-time fix for a bug where AuthController.ResetPassword never cleared
+// MustChangePassword after a successful reset (unlike ChangePassword, which
+// always did). This left every admin who ever used the setup/invite link stuck
+// with MustChangePassword=true forever, re-triggering the settings redirect on
+// every login even though they'd already completed setup. Safe to run on every
+// startup: "has a used PasswordResetToken" only ever becomes true once that user
+// has actually completed a real reset, so this never clears the flag for someone
+// who still genuinely needs to set their initial password.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+    try
+    {
+        var usersWithUsedResetToken = await db.PasswordResetTokens
+            .Where(t => t.IsUsed)
+            .Select(t => t.UserId)
+            .Distinct()
+            .ToListAsync();
+
+        if (usersWithUsedResetToken.Count > 0)
+        {
+            var fixedCount = await db.PlatformUsers
+                .Where(u => u.MustChangePassword && usersWithUsedResetToken.Contains(u.Id))
+                .ExecuteUpdateAsync(updates => updates.SetProperty(u => u.MustChangePassword, false));
+
+            if (fixedCount > 0)
+                Console.WriteLine($"[MUST-CHANGE-PASSWORD FIX] Cleared stale flag for {fixedCount} user(s) who already completed password setup.");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[MUST-CHANGE-PASSWORD FIX ERROR] {ex.Message}");
+    }
+}
+
 // ── Schema-Fallback: fehlende Spalten direkt anlegen ─────────────────────────
 // Falls MigrateAsync auf Production keine Rechte hat, legen wir die Spalten
 // per Raw-SQL an (IF NOT EXISTS = idempotent, sicher bei mehrfachem Neustart).

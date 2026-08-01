@@ -206,6 +206,7 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Dieser Link ist ungültig oder abgelaufen. Bitte fordere einen neuen an." });
 
         resetToken.User.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword, workFactor: 12);
+        resetToken.User.MustChangePassword = false;
         resetToken.IsUsed = true;
         await _db.SaveChangesAsync();
 

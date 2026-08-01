@@ -115,6 +115,36 @@ public class TenantController : ControllerBase
 
         var tenantId = _tenantContext.TenantId!.Value;
 
+        // The frontend already greys out/locks templates the tenant's plan doesn't cover
+        // (app/admin/links/page.tsx), but that's client-side only and trivially bypassable
+        // via a direct call to this endpoint — mirror the same plan check here.
+        if (!string.IsNullOrWhiteSpace(dto.LinktreeConfig))
+        {
+            string? requestedTemplate = null;
+            try
+            {
+                using var parsed = System.Text.Json.JsonDocument.Parse(dto.LinktreeConfig);
+                if (parsed.RootElement.TryGetProperty("pageTemplate", out var templateProp) && templateProp.ValueKind == System.Text.Json.JsonValueKind.String)
+                    requestedTemplate = templateProp.GetString();
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // Malformed JSON is caught below by the existing free-form assignment — not this check's job.
+            }
+
+            if (requestedTemplate != null)
+            {
+                var tenantPlan = await _db.Subscriptions
+                    .Where(s => s.TenantId == tenantId)
+                    .Select(s => s.Plan)
+                    .FirstOrDefaultAsync();
+
+                var requiredPlanName = LinkPageTemplates.ValidateTemplateForPlan(requestedTemplate, tenantPlan);
+                if (requiredPlanName != null)
+                    return StatusCode(402, new { message = $"Dieses Template ist ab dem Tarif \"{requiredPlanName}\" verfügbar.", feature = "linkPageTemplate", upgrade = true, requiredPlan = requiredPlanName });
+            }
+        }
+
         var settings = await _db.TenantSettings
             .FirstOrDefaultAsync(s => s.TenantId == tenantId);
 
@@ -638,6 +668,9 @@ public class TenantController : ControllerBase
     [HttpGet("plan-pricing")]
     public IActionResult GetPlanPricing()
     {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
         var items = PlanLimits.All
             .Where(kv => kv.Key != SubscriptionPlan.Trial)
             .OrderBy(kv => kv.Value.MonthlyPrice)
@@ -657,6 +690,9 @@ public class TenantController : ControllerBase
     [HttpGet("usage")]
     public async Task<IActionResult> GetUsage()
     {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
         var tenantId = _tenantContext.TenantId;
         if (!tenantId.HasValue) return Unauthorized();
 
