@@ -7,6 +7,8 @@ namespace GentleBook.Api.Services;
 
 public class SubscriptionService
 {
+    public const int RetentionPeriodDays = 30;
+    private const int RetentionWarningDays = 7;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<SubscriptionService> _logger;
 
@@ -150,7 +152,11 @@ public class SubscriptionService
         {
             sub.Status = SubscriptionStatus.Cancelled;
             sub.CancelledAt = now;
+            sub.RetentionEndsAt = now.AddDays(RetentionPeriodDays);
+            sub.RetentionWarningEmailSent = false;
             sub.UpdatedAt = now;
+            sub.Tenant.IsActive = false;
+            sub.Tenant.UpdatedAt = now;
 
             try
             {
@@ -246,7 +252,11 @@ public class SubscriptionService
 
             sub.Status = SubscriptionStatus.Cancelled;
             sub.CancelledAt = now;
+            sub.RetentionEndsAt = now.AddDays(RetentionPeriodDays);
+            sub.RetentionWarningEmailSent = false;
             sub.UpdatedAt = now;
+            sub.Tenant.IsActive = false;
+            sub.Tenant.UpdatedAt = now;
             await db.SaveChangesAsync();
             cancelled++;
 
@@ -261,5 +271,181 @@ public class SubscriptionService
         }
 
         _logger.LogInformation("Dunning: {Warned} warned, {Cancelled} auto-cancelled.", warned, cancelled);
+    }
+
+    /// <summary>
+    /// Runs daily. Warns seven days before the retention deadline and irreversibly removes
+    /// tenant-operational data after 30 days. The anonymized tenant/subscription shell and
+    /// invoices remain so statutory accounting records and payment references stay intact.
+    /// </summary>
+    public async Task ProcessRetentionExpirationsAsync()
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+        var emailService = scope.ServiceProvider.GetRequiredService<EmailService>();
+        var environment = scope.ServiceProvider.GetRequiredService<IWebHostEnvironment>();
+        var now = DateTime.UtcNow;
+
+        var candidates = await db.Subscriptions
+            .Include(s => s.Tenant).ThenInclude(t => t.Settings)
+            .Where(s => s.Status == SubscriptionStatus.Cancelled
+                     && s.RetentionEndsAt != null
+                     && s.OperationalDataDeletedAt == null)
+            .ToListAsync();
+
+        foreach (var sub in candidates)
+        {
+            var remaining = sub.RetentionEndsAt!.Value - now;
+            if (remaining > TimeSpan.Zero)
+            {
+                if (!sub.RetentionWarningEmailSent && remaining <= TimeSpan.FromDays(RetentionWarningDays))
+                {
+                    var admin = await db.PlatformUsers
+                        .Where(u => u.TenantId == sub.TenantId && u.Role == PlatformRole.TenantAdmin && u.IsActive)
+                        .OrderBy(u => u.CreatedAt)
+                        .FirstOrDefaultAsync();
+
+                    if (admin != null)
+                    {
+                        try
+                        {
+                            await emailService.SendRetentionDeletionWarningAsync(
+                                admin.Email, admin.FirstName, sub.RetentionEndsAt.Value);
+                            sub.RetentionWarningEmailSent = true;
+                            sub.UpdatedAt = now;
+                            await db.SaveChangesAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Retention warning failed for TenantId={TenantId}", sub.TenantId);
+                        }
+                    }
+                }
+                continue;
+            }
+
+            try
+            {
+                await PurgeOperationalTenantDataAsync(db, environment, sub, now);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Retention purge failed for TenantId={TenantId}; remaining tenants will still be processed.",
+                    sub.TenantId);
+            }
+        }
+    }
+
+    private async Task PurgeOperationalTenantDataAsync(
+        GentleBookDbContext db,
+        IWebHostEnvironment environment,
+        Subscription sub,
+        DateTime now)
+    {
+        var tenantId = sub.TenantId;
+        var logoUrl = sub.Tenant.Settings?.LogoUrl;
+
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        try
+        {
+            // AI and brand-import data, children before parents.
+            await db.AiMessages.Where(m => db.AiConversations
+                .Where(c => c.TenantId == tenantId).Select(c => c.Id).Contains(m.ConversationId))
+                .ExecuteDeleteAsync();
+            await db.AiActions.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.AiUsages.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.AiKnowledgeChunks.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.AiKnowledgeDocuments.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.AiKnowledgeSources.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.AiConversations.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.ServiceFinderBookingDrafts.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.ServiceGuidances.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.ServiceFinderRules.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.ServiceFinderQuestions.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.TenantIndustryCapabilities.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.TenantIndustrySettings.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+
+            await db.BrandAssetCandidates.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.BrandThemeProposals.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.BrandImportResults.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.BrandImportJobs.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+
+            // Booking and business data, restrictive dependants first.
+            await db.EmailLogs.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.WaitlistEntries.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.EmployeeNotes.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.Bookings.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.BlockedTimeSlots.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.EmployeeVacations.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.EmployeeSchedules.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.ServiceEmployees.IgnoreQueryFilters()
+                .Where(x => x.Service.TenantId == tenantId || x.Employee.TenantId == tenantId)
+                .ExecuteDeleteAsync();
+            await db.Services.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.BusinessLocations.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.ServiceCategories.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.Customers.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.BusinessHours.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.TenantLinks.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+
+            await db.PasswordResetTokens
+                .Where(x => x.User.TenantId == tenantId)
+                .ExecuteDeleteAsync();
+            await db.PlatformUsers.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.SubscriptionRequests.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.TenantSettings.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            await db.AuditLogs.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+
+            sub.Tenant.Name = $"Gelöschter Mandant {tenantId:N}";
+            sub.Tenant.Slug = $"deleted-{tenantId:N}";
+            sub.Tenant.IndustryType = IndustryType.Other;
+            sub.Tenant.IsActive = false;
+            sub.Tenant.UpdatedAt = now;
+            sub.CancelReason = null;
+            sub.OperationalDataDeletedAt = now;
+            sub.UpdatedAt = now;
+
+            db.AuditLogs.Add(new AuditLog
+            {
+                TenantId = tenantId,
+                ActorType = "System",
+                Action = "tenant.operational_data_deleted",
+                EntityType = "Tenant",
+                EntityId = tenantId.ToString(),
+                Details = "Operative Daten nach Ablauf der 30-tägigen Aufbewahrungsfrist gelöscht oder anonymisiert.",
+                CreatedAt = now
+            });
+
+            await db.SaveChangesAsync();
+            await transaction.CommitAsync();
+            DeleteUploadedLogo(environment.WebRootPath, logoUrl);
+            _logger.LogInformation("Retention purge completed for TenantId={TenantId}", tenantId);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "Retention purge failed for TenantId={TenantId}", tenantId);
+            throw;
+        }
+    }
+
+    private void DeleteUploadedLogo(string? webRootPath, string? logoUrl)
+    {
+        if (string.IsNullOrWhiteSpace(webRootPath) || string.IsNullOrWhiteSpace(logoUrl) ||
+            !logoUrl.StartsWith("/uploads/logos/", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        try
+        {
+            var uploadsRoot = Path.GetFullPath(Path.Combine(webRootPath, "uploads", "logos"));
+            var candidate = Path.GetFullPath(Path.Combine(webRootPath, logoUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar)));
+            if (candidate.StartsWith(uploadsRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+                File.Delete(candidate);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not delete retained logo {LogoUrl}", logoUrl);
+        }
     }
 }

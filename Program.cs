@@ -523,7 +523,7 @@ using (var scope = app.Services.CreateScope())
     {
         var prices = await db.PlanPrices.AsNoTracking().ToListAsync();
         foreach (var p in prices)
-            GentleBook.Api.Configuration.PlanLimits.SetPrice(p.Plan, p.MonthlyPrice);
+            GentleBook.Api.Configuration.PlanLimits.SetPrice(p.Plan, p.MonthlyPrice, p.AnnualPrice);
         Console.WriteLine($"[PLAN-PRICING] Loaded {prices.Count} price override(s).");
     }
     catch (Exception ex)

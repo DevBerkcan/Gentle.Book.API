@@ -601,6 +601,7 @@ public class TenantController : ControllerBase
             {
                 sub.Plan,
                 sub.Status,
+                sub.Interval,
                 sub.TrialStartedAt,
                 sub.TrialEndsAt,
                 sub.TrialDaysRemaining,
@@ -636,7 +637,7 @@ public class TenantController : ControllerBase
         var check = RequireTenantAdmin();
         if (check != null) return check;
 
-        var result = await _mollieService.StartMandateFlowAsync(_tenantContext.TenantId!.Value, dto.Plan);
+        var result = await _mollieService.StartMandateFlowAsync(_tenantContext.TenantId!.Value, dto.Plan, dto.Interval);
         if (!result.Success)
             return BadRequest(new { message = result.Error });
 
@@ -679,6 +680,7 @@ public class TenantController : ControllerBase
                 Plan = kv.Key.ToString(),
                 kv.Value.DisplayName,
                 kv.Value.MonthlyPrice,
+                kv.Value.AnnualPrice,
                 kv.Value.MaxEmployees,
                 kv.Value.MaxServices,
             });
@@ -747,10 +749,15 @@ public class TenantController : ControllerBase
                  ?? User.FindFirst("email")?.Value
                  ?? dto.ContactEmail;
 
+        var intervalEnum = Enum.TryParse<SubscriptionInterval>(dto.Interval, out var parsedInterval)
+            ? parsedInterval
+            : SubscriptionInterval.Monthly;
+
         var request = new SubscriptionRequest
         {
             TenantId = tenantId,
             RequestedPlan = dto.Plan,
+            Interval = intervalEnum,
             ContactEmail = email ?? "",
             Note = dto.Note,
         };
@@ -844,8 +851,8 @@ public class TenantController : ControllerBase
 }
 
 public record SupportMessageRequest(string Subject, string Message);
-public record SubscriptionRequestDto(string Plan, string ContactEmail, string? Note);
-public record MollieStartRequestDto(string Plan);
+public record SubscriptionRequestDto(string Plan, string ContactEmail, string? Note, string? Interval = null);
+public record MollieStartRequestDto(string Plan, string? Interval = null);
 public record CancelSubscriptionRequestDto(string? Reason);
 
 public record UpdateBusinessHoursItemDto(int DayOfWeek, bool IsOpen, string? OpenTime, string? CloseTime, string? BreakStartTime, string? BreakEndTime);

@@ -53,7 +53,7 @@ public class InvoiceService
 
         var limits = PlanLimits.Get(sub.Plan);
         var periodStart = sub.CurrentPeriodStart ?? DateTime.UtcNow;
-        var periodEnd = sub.CurrentPeriodEnd ?? periodStart.AddMonths(1);
+        var periodEnd = sub.CurrentPeriodEnd ?? sub.Interval.AddInterval(periodStart);
         var issueDate = DateTime.UtcNow;
 
         var invoice = new Invoice
@@ -65,7 +65,7 @@ public class InvoiceService
             PeriodStart = periodStart,
             PeriodEnd = periodEnd,
             PlanName = limits.DisplayName,
-            Amount = limits.MonthlyPrice,
+            Amount = sub.Interval.PriceFor(limits),
             Currency = "EUR",
             MolliePaymentId = molliePaymentId,
             RecipientName = settings.LegalCompanyName ?? settings.CompanyName,

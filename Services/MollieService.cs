@@ -42,8 +42,12 @@ public class MollieService
         _logger = logger;
     }
 
-    public async Task<MollieFlowResult> StartMandateFlowAsync(Guid tenantId, string plan)
+    public async Task<MollieFlowResult> StartMandateFlowAsync(Guid tenantId, string plan, string? interval = null)
     {
+        var intervalEnum = Enum.TryParse<SubscriptionInterval>(interval, out var parsedInterval)
+            ? parsedInterval
+            : SubscriptionInterval.Monthly;
+
         var tenant = await _db.Tenants.Include(t => t.Settings).FirstOrDefaultAsync(t => t.Id == tenantId);
         if (tenant?.Settings == null)
             return new MollieFlowResult(false, "Tenant nicht gefunden.", null);
@@ -103,12 +107,12 @@ public class MollieService
         var redirectUrl = $"{_options.Value.RedirectUrlBase.TrimEnd('/')}/admin/subscription?mollieReturn=1";
         var payment = await _mollie.CreateFirstPaymentAsync(
             sub.MollieCustomerId!,
-            limits.MonthlyPrice,
+            intervalEnum.PriceFor(limits),
             "EUR",
             $"GentleBook {limits.DisplayName}-Plan – Einrichtung SEPA-Mandat",
             redirectUrl,
             _options.Value.WebhookUrl,
-            new Dictionary<string, string> { ["tenantId"] = tenantId.ToString(), ["plan"] = planEnum.ToString() });
+            new Dictionary<string, string> { ["tenantId"] = tenantId.ToString(), ["plan"] = planEnum.ToString(), ["interval"] = intervalEnum.ToString() });
 
         sub.LastMolliePaymentId = payment.Id;
         sub.UpdatedAt = DateTime.UtcNow;
@@ -197,20 +201,28 @@ public class MollieService
             {
                 var limits = PlanLimits.Get(sub.Plan == SubscriptionPlan.Trial
                     ? ParsePlanFromMetadata(payment) : sub.Plan);
-
+                var intervalEnum = ParseIntervalFromMetadata(payment);
                 var mollieSub = await _mollie.CreateSubscriptionAsync(
-                    sub.MollieCustomerId!, payment.MandateId!, limits.MonthlyPrice, "EUR", "1 month",
+                    sub.MollieCustomerId!, payment.MandateId!, intervalEnum.PriceFor(limits), "EUR", intervalEnum.ToMollieInterval(),
                     $"GentleBook {limits.DisplayName}-Abonnement", _options.Value.WebhookUrl,
                     new Dictionary<string, string> { ["tenantId"] = sub.TenantId.ToString() });
 
                 sub.Plan = ParsePlanFromMetadata(payment);
+                sub.Interval = intervalEnum;
                 sub.MollieMandateId = payment.MandateId;
                 sub.MollieSubscriptionId = mollieSub.Id;
                 sub.MollieMandateSignedAt = DateTime.UtcNow;
                 sub.Status = SubscriptionStatus.Active;
+                sub.RetentionEndsAt = null;
+                sub.RetentionWarningEmailSent = false;
+                sub.OperationalDataDeletedAt = null;
                 sub.CurrentPeriodStart = DateTime.UtcNow;
-                sub.CurrentPeriodEnd = DateTime.UtcNow.AddMonths(1);
+                sub.CurrentPeriodEnd = sub.Interval.AddInterval(DateTime.UtcNow);
                 sub.UpdatedAt = DateTime.UtcNow;
+                await _db.Tenants.Where(t => t.Id == sub.TenantId)
+                    .ExecuteUpdateAsync(update => update
+                        .SetProperty(t => t.IsActive, true)
+                        .SetProperty(t => t.UpdatedAt, DateTime.UtcNow));
                 await _db.SaveChangesAsync();
 
                 await _audit.LogAsync("mollie.subscription_activated", "Subscription", sub.Id.ToString(), sub.Plan.ToString(), sub.TenantId);
@@ -246,14 +258,21 @@ public class MollieService
         if (payment.IsPaid)
         {
             sub.Status = SubscriptionStatus.Active;
+            sub.RetentionEndsAt = null;
+            sub.RetentionWarningEmailSent = false;
+            sub.OperationalDataDeletedAt = null;
             sub.CurrentPeriodStart = DateTime.UtcNow;
-            sub.CurrentPeriodEnd = DateTime.UtcNow.AddMonths(1);
+            sub.CurrentPeriodEnd = sub.Interval.AddInterval(DateTime.UtcNow);
             // Clears any in-progress dunning episode — a recovered payment cancels the grace-period clock.
             sub.PastDueSince = null;
             sub.FailedPaymentCount = 0;
             sub.LastFailedMolliePaymentId = null;
             sub.DunningWarningEmailSent = false;
             sub.UpdatedAt = DateTime.UtcNow;
+            await _db.Tenants.Where(t => t.Id == sub.TenantId)
+                .ExecuteUpdateAsync(update => update
+                    .SetProperty(t => t.IsActive, true)
+                    .SetProperty(t => t.UpdatedAt, DateTime.UtcNow));
             await _db.SaveChangesAsync();
 
             await _audit.LogAsync("mollie.recurring_payment_paid", "Subscription", sub.Id.ToString(), payment.Id, sub.TenantId);
@@ -307,6 +326,9 @@ public class MollieService
         {
             sub.Status = SubscriptionStatus.Cancelled;
             sub.CancelledAt = DateTime.UtcNow;
+            sub.RetentionEndsAt = sub.CancelledAt.Value.AddDays(30);
+            sub.RetentionWarningEmailSent = false;
+            sub.Tenant.IsActive = false;
             sub.CancelReason = reasonTrimmed;
             sub.UpdatedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
@@ -394,6 +416,11 @@ public class MollieService
         payment.Metadata != null && payment.Metadata.TryGetValue("plan", out var p) && Enum.TryParse<SubscriptionPlan>(p, out var parsed)
             ? parsed
             : SubscriptionPlan.Starter;
+
+    private static SubscriptionInterval ParseIntervalFromMetadata(MolliePayment payment) =>
+        payment.Metadata != null && payment.Metadata.TryGetValue("interval", out var i) && Enum.TryParse<SubscriptionInterval>(i, out var parsed)
+            ? parsed
+            : SubscriptionInterval.Monthly;
 
     // GentleBook generates and emails its own invoice — no Gentle.Suite CRM dependency.
     // CrmPushService remains in the codebase for a future CRM re-hook but is no longer called.

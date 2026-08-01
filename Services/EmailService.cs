@@ -2107,6 +2107,43 @@ GentleBook · support@gentlegroup.de";
         }
     }
 
+    /// <summary>Warns the tenant seven days before operational data is permanently removed.</summary>
+    public async Task SendRetentionDeletionWarningAsync(string recipientEmail, string firstName, DateTime deletionDate)
+    {
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+        message.To.Add(new MailboxAddress(firstName, recipientEmail));
+        message.Subject = "Ihre GentleBook-Daten werden in Kürze gelöscht";
+
+        var formattedDate = deletionDate.ToString("dd.MM.yyyy");
+        var text = $@"Hallo {firstName},
+
+die 30-tägige Aufbewahrungsfrist nach Ende Ihres GentleBook-Abonnements endet am {formattedDate}.
+Danach werden die operativen Account-, Kunden-, Mitarbeiter-, Buchungs- und Konfigurationsdaten dauerhaft gelöscht oder anonymisiert.
+
+Bitte wenden Sie sich vor diesem Datum an support@gentlegroup.de, wenn Sie einen Datenexport benötigen.
+Rechnungen und gesetzlich aufzubewahrende Zahlungsnachweise bleiben getrennt erhalten.
+
+GentleBook · support@gentlegroup.de";
+
+        var html = $@"<!DOCTYPE html><html lang='de'><head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:520px;margin:0 auto;background:#fff;border-radius:16px;padding:32px;border:1px solid #e5e7eb'>
+<h1 style='color:#14162B;font-size:22px;margin:0 0 20px'>Bevorstehende Datenlöschung</h1>
+<p style='color:#374151'>Hallo {firstName},</p>
+<p style='color:#6b7280;line-height:1.6'>Die 30-tägige Aufbewahrungsfrist endet am <strong>{formattedDate}</strong>. Danach werden Ihre operativen GentleBook-Daten dauerhaft gelöscht oder anonymisiert.</p>
+<p style='color:#6b7280;line-height:1.6'>Benötigen Sie einen Export, schreiben Sie bitte vor diesem Datum an <a href='mailto:support@gentlegroup.de'>support@gentlegroup.de</a>. Rechnungen und gesetzlich aufzubewahrende Zahlungsnachweise bleiben getrennt erhalten.</p>
+</div></body></html>";
+
+        message.Body = new BodyBuilder { HtmlBody = html, TextBody = text }.ToMessageBody();
+        using var smtp = new SmtpClient();
+        await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+        await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+        await smtp.SendAsync(message);
+        await smtp.DisconnectAsync(true);
+        _logger.LogInformation("Retention deletion warning sent to {Email}", recipientEmail);
+    }
+
     /// <summary>
     /// Notifies the TenantAdmin that their plan request was declined.
     /// </summary>
@@ -2736,7 +2773,7 @@ GentleBook · support@gentlegroup.de";
                               </td>
                               <td style="width:33%;padding:4px">
                                 <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center">
-                                  <p style="font-size:11px;font-weight:700;color:#d97706;margin:0 0 4px;text-transform:uppercase">Business</p>
+                                  <p style="font-size:11px;font-weight:700;color:#d97706;margin:0 0 4px;text-transform:uppercase">Agency</p>
                                   <p style="font-size:28px;font-weight:900;color:#1f2937;margin:0;line-height:1">€99</p>
                                   <p style="font-size:11px;color:#9ca3af;margin:2px 0 8px">/Monat</p>
                                   <p style="font-size:11px;color:#6b7280;margin:0">Unlimited</p>
@@ -2793,7 +2830,7 @@ GentleBook · support@gentlegroup.de";
                 UNSERE PLÄNE:
                 Starter       €29/Monat — 2 Mitarbeiter
                 Professional  €59/Monat — 10 Mitarbeiter (empfohlen)
-                Business      €99/Monat — Unbegrenzte Mitarbeiter
+                Agency        €99/Monat — Unbegrenzte Mitarbeiter
 
                 Was Sie erhalten:
                 ✓ Unbegrenzte Buchungen
@@ -2896,7 +2933,7 @@ GentleBook · support@gentlegroup.de";
                               </td>
                               <td style="width:33%;padding:4px">
                                 <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center">
-                                  <p style="font-size:11px;font-weight:700;color:#d97706;margin:0 0 4px;text-transform:uppercase">Business</p>
+                                  <p style="font-size:11px;font-weight:700;color:#d97706;margin:0 0 4px;text-transform:uppercase">Agency</p>
                                   <p style="font-size:28px;font-weight:900;color:#1f2937;margin:0;line-height:1">€99</p>
                                   <p style="font-size:11px;color:#9ca3af;margin:2px 0 8px">/Monat</p>
                                   <p style="font-size:11px;color:#6b7280;margin:0">Unlimited</p>
@@ -2953,7 +2990,7 @@ GentleBook · support@gentlegroup.de";
                 UNSERE PLÄNE:
                 Starter       €29/Monat — 2 Mitarbeiter
                 Professional  €59/Monat — 10 Mitarbeiter (empfohlen)
-                Business      €99/Monat — Unbegrenzte Mitarbeiter
+                Agency        €99/Monat — Unbegrenzte Mitarbeiter
 
                 Was Sie erhalten:
                 ✓ Unbegrenzte Buchungen

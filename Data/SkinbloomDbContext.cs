@@ -215,6 +215,7 @@ public class GentleBookDbContext : DbContext
             entity.HasIndex(e => e.TenantId).IsUnique();
             entity.Property(e => e.Plan).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.Interval).HasConversion<string>().HasMaxLength(50);
             entity.HasIndex(e => e.MollieCustomerId);
             entity.HasIndex(e => e.MollieSubscriptionId);
             entity.HasIndex(e => e.LastMolliePaymentId);
@@ -222,6 +223,7 @@ public class GentleBookDbContext : DbContext
             entity.Property(e => e.LastFailedMolliePaymentId).HasMaxLength(64);
             entity.HasIndex(e => e.CancelRequestedAt);
             entity.HasIndex(e => e.PastDueSince);
+            entity.HasIndex(e => e.RetentionEndsAt);
             entity.Ignore(e => e.IsInTrial);
             entity.Ignore(e => e.TrialDaysRemaining);
             entity.Ignore(e => e.IsAccessAllowed);
@@ -276,6 +278,7 @@ public class GentleBookDbContext : DbContext
             entity.HasKey(e => e.Plan);
             entity.Property(e => e.Plan).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.MonthlyPrice).HasPrecision(10, 2);
+            entity.Property(e => e.AnnualPrice).HasPrecision(10, 2);
         });
 
         // ── PlatformUser ──────────────────────────────────────
@@ -533,6 +536,7 @@ public class GentleBookDbContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.RequestedPlan).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Interval).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.ContactEmail).IsRequired().HasMaxLength(200);
             entity.Property(e => e.Status).IsRequired().HasMaxLength(20).HasDefaultValue("Pending");
             entity.Property(e => e.Note).HasMaxLength(500);

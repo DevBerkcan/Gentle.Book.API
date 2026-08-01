@@ -4,6 +4,7 @@ using GentleBook.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GentleBook.Api.Migrations
 {
     [DbContext(typeof(GentleBookDbContext))]
-    partial class GentleBookDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260801143641_AddSubscriptionDataRetention")]
+    partial class AddSubscriptionDataRetention
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1378,10 +1381,6 @@ namespace GentleBook.Api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<decimal>("AnnualPrice")
-                        .HasPrecision(10, 2)
-                        .HasColumnType("decimal(10,2)");
-
                     b.Property<decimal>("MonthlyPrice")
                         .HasPrecision(10, 2)
                         .HasColumnType("decimal(10,2)");
@@ -1851,11 +1850,6 @@ namespace GentleBook.Api.Migrations
                     b.Property<int>("FailedPaymentCount")
                         .HasColumnType("int");
 
-                    b.Property<string>("Interval")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
                     b.Property<string>("LastFailedMolliePaymentId")
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
@@ -1942,11 +1936,6 @@ namespace GentleBook.Api.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<string>("Interval")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("Note")
                         .HasMaxLength(500)

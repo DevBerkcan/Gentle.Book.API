@@ -8,6 +8,7 @@ public class Subscription
 
     public SubscriptionPlan Plan { get; set; } = SubscriptionPlan.Trial;
     public SubscriptionStatus Status { get; set; } = SubscriptionStatus.Trial;
+    public SubscriptionInterval Interval { get; set; } = SubscriptionInterval.Monthly;
 
     // ── Trial ─────────────────────────────────────────────────
     public DateTime TrialStartedAt { get; set; } = DateTime.UtcNow;
@@ -38,6 +39,9 @@ public class Subscription
     public bool DunningWarningEmailSent { get; set; }
 
     public DateTime? CancelledAt { get; set; }
+    public DateTime? RetentionEndsAt { get; set; }
+    public bool RetentionWarningEmailSent { get; set; }
+    public DateTime? OperationalDataDeletedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
@@ -60,6 +64,12 @@ public enum SubscriptionPlan
     Starter,
     Professional,
     Agency
+}
+
+public enum SubscriptionInterval
+{
+    Monthly,
+    Yearly
 }
 
 public enum SubscriptionStatus

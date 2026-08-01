@@ -140,6 +140,9 @@ public class SuperAdminController : ControllerBase
         var selectedPlan = dto.Plan != null && Enum.TryParse<SubscriptionPlan>(dto.Plan, ignoreCase: true, out var parsedPlan)
             ? parsedPlan
             : SubscriptionPlan.Trial;
+        var selectedInterval = dto.Interval != null && Enum.TryParse<SubscriptionInterval>(dto.Interval, ignoreCase: true, out var parsedInterval)
+            ? parsedInterval
+            : SubscriptionInterval.Monthly;
 
         var tenant = new Tenant
         {
@@ -162,9 +165,10 @@ public class SuperAdminController : ControllerBase
             TrialStartedAt = DateTime.UtcNow,
             TrialEndsAt = DateTime.UtcNow.AddDays(trialDays),
             Plan = selectedPlan,
+            Interval = selectedInterval,
             Status = selectedPlan == SubscriptionPlan.Trial ? SubscriptionStatus.Trial : SubscriptionStatus.Active,
             CurrentPeriodStart = selectedPlan != SubscriptionPlan.Trial ? DateTime.UtcNow : (DateTime?)null,
-            CurrentPeriodEnd = selectedPlan != SubscriptionPlan.Trial ? DateTime.UtcNow.AddMonths(1) : (DateTime?)null,
+            CurrentPeriodEnd = selectedPlan != SubscriptionPlan.Trial ? selectedInterval.AddInterval(DateTime.UtcNow) : (DateTime?)null,
         };
         var defaultLocation = new BusinessLocation
         {
@@ -567,6 +571,11 @@ public class SuperAdminController : ControllerBase
         if (!Enum.TryParse<SubscriptionPlan>(dto.Plan, ignoreCase: true, out var newPlan))
             return BadRequest(new { message = $"Ungültiger Plan: {dto.Plan}. Erlaubt: Trial, Starter, Professional, Agency" });
 
+        // Only overwrite the interval if the caller explicitly specified one — a plain plan
+        // change must not silently reset an existing yearly subscriber back to monthly.
+        if (!string.IsNullOrEmpty(dto.Interval) && Enum.TryParse<SubscriptionInterval>(dto.Interval, ignoreCase: true, out var newInterval))
+            subscription.Interval = newInterval;
+
         subscription.Plan = newPlan;
         subscription.Status = newPlan == SubscriptionPlan.Trial
             ? SubscriptionStatus.Trial
@@ -575,7 +584,7 @@ public class SuperAdminController : ControllerBase
         if (newPlan != SubscriptionPlan.Trial)
         {
             subscription.CurrentPeriodStart = DateTime.UtcNow;
-            subscription.CurrentPeriodEnd = DateTime.UtcNow.AddMonths(1);
+            subscription.CurrentPeriodEnd = subscription.Interval.AddInterval(DateTime.UtcNow);
         }
 
         subscription.UpdatedAt = DateTime.UtcNow;
@@ -589,6 +598,7 @@ public class SuperAdminController : ControllerBase
         {
             plan = subscription.Plan.ToString(),
             status = subscription.Status.ToString(),
+            interval = subscription.Interval.ToString(),
             displayName = limits.DisplayName,
             maxEmployees = limits.MaxEmployees,
             maxServices = limits.MaxServices,
@@ -899,6 +909,7 @@ public class SuperAdminController : ControllerBase
                 Plan = kv.Key.ToString(),
                 kv.Value.DisplayName,
                 kv.Value.MonthlyPrice,
+                kv.Value.AnnualPrice,
                 kv.Value.MaxEmployees,
                 kv.Value.MaxServices,
             });
@@ -906,8 +917,8 @@ public class SuperAdminController : ControllerBase
         return Ok(items);
     }
 
-    /// <summary>Updates a plan's monthly price. Takes effect immediately for new signups;
-    /// tenants with an existing Mollie subscription keep the price they signed up at.</summary>
+    /// <summary>Updates a plan's monthly and annual price. Takes effect immediately for new
+    /// signups; tenants with an existing Mollie subscription keep the price they signed up at.</summary>
     [HttpPut("plan-pricing/{plan}")]
     public async Task<IActionResult> UpdatePlanPricing(string plan, [FromBody] UpdatePlanPriceDto dto)
     {
@@ -916,30 +927,31 @@ public class SuperAdminController : ControllerBase
         if (!Enum.TryParse<SubscriptionPlan>(plan, ignoreCase: true, out var planEnum) || planEnum == SubscriptionPlan.Trial)
             return BadRequest(new { message = "Ungültiger Plan." });
 
-        if (dto.MonthlyPrice < 0)
+        if (dto.MonthlyPrice < 0 || dto.AnnualPrice < 0)
             return BadRequest(new { message = "Preis darf nicht negativ sein." });
 
         var row = await _db.PlanPrices.FirstOrDefaultAsync(p => p.Plan == planEnum);
-        var oldPrice = PlanLimits.Get(planEnum).MonthlyPrice;
+        var oldLimits = PlanLimits.Get(planEnum);
 
         if (row == null)
         {
-            row = new PlanPrice { Plan = planEnum, MonthlyPrice = dto.MonthlyPrice, UpdatedAt = DateTime.UtcNow };
+            row = new PlanPrice { Plan = planEnum, MonthlyPrice = dto.MonthlyPrice, AnnualPrice = dto.AnnualPrice, UpdatedAt = DateTime.UtcNow };
             _db.PlanPrices.Add(row);
         }
         else
         {
             row.MonthlyPrice = dto.MonthlyPrice;
+            row.AnnualPrice = dto.AnnualPrice;
             row.UpdatedAt = DateTime.UtcNow;
         }
         await _db.SaveChangesAsync();
 
-        PlanLimits.SetPrice(planEnum, dto.MonthlyPrice);
+        PlanLimits.SetPrice(planEnum, dto.MonthlyPrice, dto.AnnualPrice);
 
         await _audit.LogAsync("plan_pricing.changed", "PlanPrice", planEnum.ToString(),
-            $"{oldPrice:0.00} € → {dto.MonthlyPrice:0.00} €");
+            $"Monat {oldLimits.MonthlyPrice:0.00}€→{dto.MonthlyPrice:0.00}€, Jahr {oldLimits.AnnualPrice:0.00}€→{dto.AnnualPrice:0.00}€");
 
-        return Ok(new { plan = planEnum.ToString(), monthlyPrice = dto.MonthlyPrice });
+        return Ok(new { plan = planEnum.ToString(), monthlyPrice = dto.MonthlyPrice, annualPrice = dto.AnnualPrice });
     }
 
     /// <summary>Tenants that are about to churn: pending cancellation (access runs out at period
@@ -1303,16 +1315,22 @@ public class SuperAdminController : ControllerBase
         if (sub != null)
         {
             sub.Plan = plan.Value;
+            sub.Interval = request.Interval;
             sub.Status = SubscriptionStatus.Active;
             sub.CurrentPeriodStart = DateTime.UtcNow;
-            sub.CurrentPeriodEnd = DateTime.UtcNow.AddMonths(1);
+            sub.CurrentPeriodEnd = sub.Interval.AddInterval(DateTime.UtcNow);
             sub.CancelledAt = null;
             sub.CancelRequestedAt = null;
             sub.CancelReason = null;
+            sub.RetentionEndsAt = null;
+            sub.RetentionWarningEmailSent = false;
+            sub.OperationalDataDeletedAt = null;
             sub.PastDueSince = null;
             sub.FailedPaymentCount = 0;
             sub.LastFailedMolliePaymentId = null;
             sub.DunningWarningEmailSent = false;
+            request.Tenant.IsActive = true;
+            request.Tenant.UpdatedAt = DateTime.UtcNow;
         }
 
         request.Status = "Activated";
@@ -1433,7 +1451,8 @@ public record CreateTenantDto(
     string? AdminLastName,
     bool? SendWelcomeEmail = true,
     string? Plan = null,
-    string? PersonalNote = null
+    string? PersonalNote = null,
+    string? Interval = null
 );
 
 public record UpdateTenantDto(
@@ -1462,5 +1481,5 @@ public record UpdateTenantSettingsDto(
 public record CreateTenantUserDto(string Email, string? Password, string FirstName, string LastName, bool? SendWelcomeEmail = true);
 public record ExtendTrialDto(int Days);
 public record ActivateRequestDto(string? Note, bool ConfirmOverrideMollie = false);
-public record ChangePlanDto(string Plan);
-public record UpdatePlanPriceDto(decimal MonthlyPrice);
+public record ChangePlanDto(string Plan, string? Interval = null);
+public record UpdatePlanPriceDto(decimal MonthlyPrice, decimal AnnualPrice);

@@ -6,6 +6,7 @@ public class SubscriptionRequest
     public Guid TenantId { get; set; }
     public Tenant Tenant { get; set; } = null!;
     public string RequestedPlan { get; set; } = "";   // Starter | Professional | Agency
+    public SubscriptionInterval Interval { get; set; } = SubscriptionInterval.Monthly;
     public string ContactEmail { get; set; } = "";
     public string? Note { get; set; }
     public string Status { get; set; } = "Pending";   // Pending | Activated | Declined

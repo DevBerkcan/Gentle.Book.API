@@ -66,6 +66,12 @@ namespace GentleBook.Api.Options
                 s => s.ProcessDunningAsync(),
                 Cron.Daily(10, 0));
 
+            // Daily 03:00 UTC — warn before and execute the 30-day operational-data purge.
+            _recurringJobManager.AddOrUpdate<SubscriptionService>(
+                "process-retention-expirations",
+                s => s.ProcessRetentionExpirationsAsync(),
+                Cron.Daily(3, 0));
+
             _logger.LogInformation("Hangfire jobs scheduled successfully");
 
             return Task.CompletedTask;
