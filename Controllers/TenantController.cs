@@ -1,5 +1,7 @@
 // Controllers/TenantController.cs
 // TenantAdmin self-service endpoints: settings + subscription info
+using System.Security.Cryptography;
+using System.Text;
 using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
@@ -25,8 +27,9 @@ public class TenantController : ControllerBase
     private readonly AuditService _audit;
     private readonly MollieService _mollieService;
     private readonly IOptions<MollieOptions> _mollieOptions;
+    private readonly ApiKeyService _apiKeyService;
 
-    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env, AuditService audit, MollieService mollieService, IOptions<MollieOptions> mollieOptions)
+    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env, AuditService audit, MollieService mollieService, IOptions<MollieOptions> mollieOptions, ApiKeyService apiKeyService)
     {
         _db = db;
         _tenantContext = tenantContext;
@@ -36,6 +39,186 @@ public class TenantController : ControllerBase
         _audit = audit;
         _mollieService = mollieService;
         _mollieOptions = mollieOptions;
+        _apiKeyService = apiKeyService;
+    }
+
+    private async Task<IActionResult?> RequireAgencyPlanAsync()
+    {
+        var tenantId = _tenantContext.TenantId;
+        if (!tenantId.HasValue) return Unauthorized(new { message = "Kein Tenant im Token" });
+
+        var currentPlan = await _db.Subscriptions
+            .Where(s => s.TenantId == tenantId.Value)
+            .Select(s => (SubscriptionPlan?)s.Plan)
+            .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
+
+        var requiredPlanName = AgencyFeatureGate.ValidateForPlan(currentPlan);
+        if (requiredPlanName != null)
+        {
+            // Same 402 shape as TrackingController.RequireAnalyticsPlanAsync — the frontend's
+            // established upsell-banner pattern reads message/feature/currentPlan/requiredPlan.
+            return StatusCode(402, new
+            {
+                message = $"Der API-Zugang ist dem {requiredPlanName}-Plan vorbehalten.",
+                feature = "api_access",
+                upgrade = true,
+                currentPlan = PlanLimits.Get(currentPlan).DisplayName,
+                requiredPlan = requiredPlanName,
+            });
+        }
+
+        return null;
+    }
+
+    // ── GET /api/tenant/api-keys ──────────────────────────────────
+    [HttpGet("api-keys")]
+    public async Task<IActionResult> GetApiKeys()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+        if (await RequireAgencyPlanAsync() is { } deny) return deny;
+
+        var keys = await _apiKeyService.ListAsync(_tenantContext.TenantId!.Value);
+        return Ok(keys);
+    }
+
+    // ── POST /api/tenant/api-keys ─────────────────────────────────
+    [HttpPost("api-keys")]
+    public async Task<IActionResult> CreateApiKey([FromBody] CreateApiKeyDto dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+        if (await RequireAgencyPlanAsync() is { } deny) return deny;
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return BadRequest(new { message = "Bitte einen Namen für den Key angeben." });
+
+        var created = await _apiKeyService.GenerateAsync(_tenantContext.TenantId!.Value, dto.Name);
+        await _audit.LogAsync("api_key.created", "ApiKey", created.Id.ToString(), created.Name);
+
+        // rawKey is only ever returned here, right after creation — never again.
+        return Ok(new { id = created.Id, name = created.Name, rawKey = created.RawKey, keyPrefix = created.KeyPrefix, createdAt = created.CreatedAt });
+    }
+
+    // ── DELETE /api/tenant/api-keys/{id} ──────────────────────────
+    [HttpDelete("api-keys/{id:guid}")]
+    public async Task<IActionResult> RevokeApiKey(Guid id)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var revoked = await _apiKeyService.RevokeAsync(_tenantContext.TenantId!.Value, id);
+        if (!revoked) return NotFound(new { message = "Key nicht gefunden oder bereits widerrufen." });
+
+        await _audit.LogAsync("api_key.revoked", "ApiKey", id.ToString(), "");
+        return Ok(new { message = "Key widerrufen." });
+    }
+
+    // ── GET /api/tenant/location-admins ───────────────────────────
+    [HttpGet("location-admins")]
+    public async Task<IActionResult> GetLocationAdmins()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var admins = await _db.PlatformUsers
+            .Where(u => u.TenantId == _tenantContext.TenantId!.Value && u.Role == PlatformRole.LocationAdmin)
+            .Select(u => new
+            {
+                u.Id,
+                u.Email,
+                u.FirstName,
+                u.LastName,
+                u.LocationId,
+                LocationName = u.Location != null ? u.Location.Name : null,
+                u.IsActive,
+                u.LastLoginAt,
+            })
+            .ToListAsync();
+
+        return Ok(admins);
+    }
+
+    // ── POST /api/tenant/locations/{locationId}/admin ─────────────
+    // Invites a new LocationAdmin (Agency-exclusive): creates the account with an unusable
+    // random password hash and immediately sends a password-reset email so they set their own —
+    // same token/email pattern as AuthController.ForgotPassword.
+    [HttpPost("locations/{locationId:guid}/admin")]
+    public async Task<IActionResult> InviteLocationAdmin(Guid locationId, [FromBody] InviteLocationAdminDto dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+        if (await RequireAgencyPlanAsync() is { } deny) return deny;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var location = await _db.BusinessLocations.FirstOrDefaultAsync(l => l.Id == locationId && l.TenantId == tenantId);
+        if (location == null) return NotFound(new { message = "Standort nicht gefunden." });
+
+        if (string.IsNullOrWhiteSpace(dto.Email) || string.IsNullOrWhiteSpace(dto.FirstName))
+            return BadRequest(new { message = "E-Mail und Vorname sind erforderlich." });
+
+        var email = dto.Email.Trim().ToLowerInvariant();
+        if (await _db.PlatformUsers.AnyAsync(u => u.TenantId == tenantId && u.Email == email))
+            return Conflict(new { message = "Diese E-Mail-Adresse wird bereits verwendet." });
+
+        var randomPassword = Convert.ToBase64String(RandomNumberGenerator.GetBytes(24));
+        var user = new PlatformUser
+        {
+            TenantId = tenantId,
+            Email = email,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(randomPassword, workFactor: 12),
+            FirstName = dto.FirstName.Trim(),
+            LastName = dto.LastName?.Trim() ?? "",
+            Role = PlatformRole.LocationAdmin,
+            LocationId = locationId,
+            IsActive = true,
+            MustChangePassword = true,
+        };
+        _db.PlatformUsers.Add(user);
+
+        var rawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
+            .Replace("+", "-").Replace("/", "_").Replace("=", "");
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken)));
+        _db.PasswordResetTokens.Add(new PasswordResetToken
+        {
+            UserId = user.Id,
+            TokenHash = hash,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            IsUsed = false,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await _db.SaveChangesAsync();
+
+        var resetUrl = $"{_emailService.FrontendUrl}/admin/reset-password?token={rawToken}";
+        try
+        {
+            await _emailService.SendPasswordResetEmailAsync(user.Email, user.FirstName, resetUrl);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send LocationAdmin invite email to {Email}", user.Email);
+        }
+
+        await _audit.LogAsync("location_admin.invited", "PlatformUser", user.Id.ToString(), $"{user.Email} → {location.Name}");
+        return Ok(new { message = "Standort-Admin eingeladen.", id = user.Id });
+    }
+
+    // ── DELETE /api/tenant/location-admins/{id} ────────────────────
+    [HttpDelete("location-admins/{id:guid}")]
+    public async Task<IActionResult> RemoveLocationAdmin(Guid id)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var user = await _db.PlatformUsers
+            .FirstOrDefaultAsync(u => u.Id == id && u.TenantId == _tenantContext.TenantId!.Value && u.Role == PlatformRole.LocationAdmin);
+        if (user == null) return NotFound(new { message = "Standort-Admin nicht gefunden." });
+
+        user.IsActive = false;
+        await _db.SaveChangesAsync();
+
+        await _audit.LogAsync("location_admin.removed", "PlatformUser", id.ToString(), user.Email);
+        return Ok(new { message = "Standort-Admin entfernt." });
     }
 
     // Mollie test-mode keys always start with "test_"; live keys with "live_".
@@ -51,6 +234,56 @@ public class TenantController : ControllerBase
         if (!_tenantContext.TenantId.HasValue)
             return Unauthorized(new { message = "Kein Tenant im Token" });
         return null;
+    }
+
+    // ── GET /api/tenant/invoices ───────────────────────────────────
+    // Tenant self-service view of their own GentleBook subscription invoices — previously
+    // only reachable via the SuperAdmin-only endpoint, so a lost/spam-filtered invoice email
+    // left tenants with no way to pull their own copy.
+    [HttpGet("invoices")]
+    public async Task<IActionResult> GetInvoices([FromQuery] int page = 1, [FromQuery] int pageSize = 50)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var query = _db.Invoices.AsNoTracking().Where(i => i.TenantId == tenantId);
+
+        var total = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(i => i.IssueDate)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(i => new
+            {
+                i.Id,
+                i.InvoiceNumber,
+                i.IssueDate,
+                i.PeriodStart,
+                i.PeriodEnd,
+                i.PlanName,
+                i.Amount,
+                i.Currency,
+                i.EmailSent,
+            })
+            .ToListAsync();
+
+        return Ok(new { items, totalCount = total, page, pageSize });
+    }
+
+    // ── GET /api/tenant/invoices/{id}/pdf ──────────────────────────
+    [HttpGet("invoices/{id:guid}/pdf")]
+    public async Task<IActionResult> GetInvoicePdf(Guid id)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var invoice = await _db.Invoices.AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == id && i.TenantId == _tenantContext.TenantId!.Value);
+        if (invoice == null) return NotFound();
+
+        return File(invoice.PdfContent, "application/pdf", $"Rechnung-{invoice.InvoiceNumber}.pdf");
     }
 
     // GET /api/tenant/settings
@@ -902,6 +1135,8 @@ public record MollieStartRequestDto(
     bool TermsAccepted = false,
     bool BillingTermsAccepted = false);
 public record ChangeSubscriptionPlanDto(string Plan, string? Interval = null);
+public record CreateApiKeyDto(string Name);
+public record InviteLocationAdminDto(string Email, string FirstName, string? LastName = null);
 public record CancelSubscriptionRequestDto(string? Reason);
 
 public record UpdateBusinessHoursItemDto(int DayOfWeek, bool IsOpen, string? OpenTime, string? CloseTime, string? BreakStartTime, string? BreakEndTime);

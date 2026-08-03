@@ -30,11 +30,13 @@ public class AdminServicesController : ControllerBase
     private Guid? GetCurrentEmployeeId() => JwtService.GetEmployeeId(User);
 
     // Mutations on services/categories are TenantAdmin-only; employees keep read access
-    // (the manual-booking modal loads services per employee).
+    // (the manual-booking modal loads services per employee). LocationAdmin (Agency-exclusive,
+    // scoped to one BusinessLocation) counts as an admin here too — GetAllServices below
+    // additionally scopes what they see via LocationScopeAuthorization.
     private ObjectResult? RequireTenantAdmin()
     {
         var role = JwtService.GetRole(User);
-        if (role != "TenantAdmin" && role != "SuperAdmin")
+        if (role != "TenantAdmin" && role != "SuperAdmin" && role != "LocationAdmin")
             return StatusCode(403, new { message = "Nur Administratoren dürfen Services verwalten." });
         return null;
     }
@@ -51,7 +53,13 @@ public class AdminServicesController : ControllerBase
         var employeeId = GetCurrentEmployeeId();
         _logger.LogInformation("Employee {EmployeeId} is fetching all services", employeeId);
 
-        var services = await _serviceService.GetAllServicesAdminAsync();
+        var scope = GentleBook.Api.Configuration.LocationScopeAuthorization.GetAccessScope(User);
+        // A LocationAdmin not yet assigned to a location sees nothing rather than everything —
+        // fail closed, the tenant admin must assign a location first.
+        if (!scope.IsFullTenantAccess && scope.LocationId == null)
+            return Ok(new List<AdminServiceDto>());
+
+        var services = await _serviceService.GetAllServicesAdminAsync(scope.IsFullTenantAccess ? null : scope.LocationId);
         return Ok(services);
     }
 

@@ -8,6 +8,7 @@ public class Booking
     public Guid CustomerId { get; set; }
     public Guid ServiceId { get; set; }
     public Guid? EmployeeId { get; set; }
+    public Guid? LocationId { get; set; }
 
     // Termin-Details
     public DateOnly BookingDate { get; set; }
@@ -36,6 +37,7 @@ public class Booking
     public Customer Customer { get; set; } = null!;
     public Service Service { get; set; } = null!;
     public Employee? Employee { get; set; }
+    public BusinessLocation? Location { get; set; }
     public ICollection<EmailLog> EmailLogs { get; set; } = new List<EmailLog>();
 
     public static string GenerateBookingNumber(DateOnly date, Guid id)

@@ -30,6 +30,13 @@ public class Subscription
     // ── CRM (Gentle.Suite invoicing) ──────────────────────────
     public string? CrmCustomerId { get; set; }
 
+    // ── Negotiated pricing (Agency: "Preis auf Anfrage" — no fixed plan price) ──
+    // When set, these override the global PlanLimits price for this subscription
+    // (Mollie amount, invoice amount, MRR). Null for every plan except individually
+    // negotiated Agency contracts.
+    public decimal? NegotiatedMonthlyPrice { get; set; }
+    public decimal? NegotiatedAnnualPrice { get; set; }
+
     // ── Self-service cancellation (tenant clicked "cancel"; access continues to period end) ──
     public DateTime? CancelRequestedAt { get; set; }
     public string? CancelReason { get; set; }

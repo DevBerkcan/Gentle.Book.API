@@ -77,7 +77,8 @@ public class ManualTrialActivationTests
             new JwtService(TestConfiguration.Build()),
             new FakeWebHostEnvironment(),
             audit,
-            mollieService)
+            mollieService,
+            new FakeBackgroundJobClient())
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext },
         };

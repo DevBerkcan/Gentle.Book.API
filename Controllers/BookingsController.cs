@@ -195,6 +195,18 @@ public class BookingsController : ControllerBase
         // "all" darf Mitarbeiter-Scoping nur für TenantAdmin/SuperAdmin aufheben,
         // sonst könnte jeder Mitarbeiter mit ?all=true alle Kollegen-Buchungen sehen.
         var employeeId = (all && HasTenantWideAccess()) ? null : GetEmployeeScope();
+
+        // LocationAdmin (Agency-exclusive) sees their whole location's bookings, not just their
+        // own — the employeeId self-scope above doesn't apply to them (they aren't an Employee
+        // row at all), so this branch replaces it entirely rather than combining with it.
+        var locationScope = GentleBook.Api.Configuration.LocationScopeAuthorization.GetAccessScope(User);
+        if (!locationScope.IsFullTenantAccess)
+        {
+            if (locationScope.LocationId == null) return Ok(new List<BookingResponseDto>());
+            var scopedBookings = await _bookingService.GetAllBookingsAsync(employeeId: null, locationId: locationScope.LocationId);
+            return Ok(scopedBookings);
+        }
+
         var bookings = await _bookingService.GetAllBookingsAsync(employeeId);
         return Ok(bookings);
     }

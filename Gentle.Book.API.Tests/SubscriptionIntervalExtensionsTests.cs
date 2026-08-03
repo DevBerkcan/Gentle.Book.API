@@ -67,4 +67,47 @@ public class SubscriptionIntervalExtensionsTests
     {
         Assert.Equal("12 months", SubscriptionInterval.Yearly.ToMollieInterval());
     }
+
+    [Fact]
+    public void PriceFor_Subscription_NoNegotiatedPrice_FallsBackToPlanLimits()
+    {
+        var sub = new Subscription { Plan = SubscriptionPlan.Agency, Interval = SubscriptionInterval.Monthly };
+        var limits = PlanLimits.Get(SubscriptionPlan.Agency);
+
+        var price = SubscriptionInterval.Monthly.PriceFor(sub, limits);
+
+        Assert.Equal(limits.MonthlyPrice, price);
+    }
+
+    [Fact]
+    public void PriceFor_Subscription_NegotiatedMonthlyPrice_OverridesPlanLimits()
+    {
+        var sub = new Subscription
+        {
+            Plan = SubscriptionPlan.Agency,
+            Interval = SubscriptionInterval.Monthly,
+            NegotiatedMonthlyPrice = 249m,
+        };
+        var limits = PlanLimits.Get(SubscriptionPlan.Agency);
+
+        var price = SubscriptionInterval.Monthly.PriceFor(sub, limits);
+
+        Assert.Equal(249m, price);
+        Assert.NotEqual(limits.MonthlyPrice, price);
+    }
+
+    [Fact]
+    public void PriceFor_Subscription_NegotiatedAnnualPrice_OverridesPlanLimits_AndDoesNotLeakIntoMonthly()
+    {
+        var sub = new Subscription
+        {
+            Plan = SubscriptionPlan.Agency,
+            Interval = SubscriptionInterval.Yearly,
+            NegotiatedAnnualPrice = 2400m,
+        };
+        var limits = PlanLimits.Get(SubscriptionPlan.Agency);
+
+        Assert.Equal(2400m, SubscriptionInterval.Yearly.PriceFor(sub, limits));
+        Assert.Equal(limits.MonthlyPrice, SubscriptionInterval.Monthly.PriceFor(sub, limits));
+    }
 }

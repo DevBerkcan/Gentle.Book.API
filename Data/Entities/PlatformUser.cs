@@ -17,6 +17,9 @@ public class PlatformUser
 
     public PlatformRole Role { get; set; } = PlatformRole.TenantAdmin;
 
+    /// <summary>Only set (and only meaningful) when Role == LocationAdmin — scopes this user to one BusinessLocation.</summary>
+    public Guid? LocationId { get; set; }
+
     public bool IsActive { get; set; } = true;
     /// <summary>True when an admin-generated password was set — user must change it on first login.</summary>
     public bool MustChangePassword { get; set; } = false;
@@ -26,10 +29,12 @@ public class PlatformUser
 
     // Navigation
     public Tenant? Tenant { get; set; }
+    public BusinessLocation? Location { get; set; }
 }
 
 public enum PlatformRole
 {
     SuperAdmin,
-    TenantAdmin
+    TenantAdmin,
+    LocationAdmin
 }

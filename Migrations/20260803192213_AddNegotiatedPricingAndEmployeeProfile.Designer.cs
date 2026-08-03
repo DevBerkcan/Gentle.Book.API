@@ -4,6 +4,7 @@ using GentleBook.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GentleBook.Api.Migrations
 {
     [DbContext(typeof(GentleBookDbContext))]
-    partial class GentleBookDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260803192213_AddNegotiatedPricingAndEmployeeProfile")]
+    partial class AddNegotiatedPricingAndEmployeeProfile
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -318,49 +321,6 @@ namespace GentleBook.Api.Migrations
                     b.ToTable("AiUsages");
                 });
 
-            modelBuilder.Entity("GentleBook.Api.Data.Entities.ApiKey", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("KeyHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<string>("KeyPrefix")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<DateTime?>("LastUsedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<DateTime?>("RevokedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("KeyHash")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "RevokedAt");
-
-                    b.ToTable("ApiKeys");
-                });
-
             modelBuilder.Entity("GentleBook.Api.Data.Entities.AuditLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -488,9 +448,6 @@ namespace GentleBook.Api.Migrations
                     b.Property<TimeOnly>("EndTime")
                         .HasColumnType("time");
 
-                    b.Property<Guid?>("LocationId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<DateTime?>("ReminderSentAt")
                         .HasColumnType("datetime2");
 
@@ -517,13 +474,9 @@ namespace GentleBook.Api.Migrations
 
                     b.HasIndex("EmployeeId");
 
-                    b.HasIndex("LocationId");
-
                     b.HasIndex("ServiceId");
 
                     b.HasIndex("TenantId", "BookingDate");
-
-                    b.HasIndex("TenantId", "LocationId");
 
                     b.HasIndex("TenantId", "Status");
 
@@ -961,9 +914,6 @@ namespace GentleBook.Api.Migrations
                     b.Property<string>("Location")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid?>("LocationId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -999,11 +949,7 @@ namespace GentleBook.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("LocationId");
-
                     b.HasIndex("TenantId", "IsActive");
-
-                    b.HasIndex("TenantId", "LocationId");
 
                     b.ToTable("Employees");
                 });
@@ -1486,9 +1432,6 @@ namespace GentleBook.Api.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid?>("LocationId")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<bool>("MustChangePassword")
                         .HasColumnType("bit");
 
@@ -1508,8 +1451,6 @@ namespace GentleBook.Api.Migrations
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("LocationId");
 
                     b.HasIndex("TenantId", "Email")
                         .IsUnique()
@@ -2552,17 +2493,6 @@ namespace GentleBook.Api.Migrations
                     b.Navigation("Conversation");
                 });
 
-            modelBuilder.Entity("GentleBook.Api.Data.Entities.ApiKey", b =>
-                {
-                    b.HasOne("GentleBook.Api.Data.Entities.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("GentleBook.Api.Data.Entities.BlockedTimeSlot", b =>
                 {
                     b.HasOne("GentleBook.Api.Data.Entities.Employee", "Employee")
@@ -2592,11 +2522,6 @@ namespace GentleBook.Api.Migrations
                         .WithMany("Bookings")
                         .HasForeignKey("EmployeeId");
 
-                    b.HasOne("GentleBook.Api.Data.Entities.BusinessLocation", "Location")
-                        .WithMany()
-                        .HasForeignKey("LocationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("GentleBook.Api.Data.Entities.Service", "Service")
                         .WithMany("Bookings")
                         .HasForeignKey("ServiceId")
@@ -2612,8 +2537,6 @@ namespace GentleBook.Api.Migrations
                     b.Navigation("Customer");
 
                     b.Navigation("Employee");
-
-                    b.Navigation("Location");
 
                     b.Navigation("Service");
 
@@ -2679,18 +2602,11 @@ namespace GentleBook.Api.Migrations
 
             modelBuilder.Entity("GentleBook.Api.Data.Entities.Employee", b =>
                 {
-                    b.HasOne("GentleBook.Api.Data.Entities.BusinessLocation", "AssignedLocation")
-                        .WithMany()
-                        .HasForeignKey("LocationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("GentleBook.Api.Data.Entities.Tenant", "Tenant")
                         .WithMany("Employees")
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("AssignedLocation");
 
                     b.Navigation("Tenant");
                 });
@@ -2779,17 +2695,10 @@ namespace GentleBook.Api.Migrations
 
             modelBuilder.Entity("GentleBook.Api.Data.Entities.PlatformUser", b =>
                 {
-                    b.HasOne("GentleBook.Api.Data.Entities.BusinessLocation", "Location")
-                        .WithMany()
-                        .HasForeignKey("LocationId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("GentleBook.Api.Data.Entities.Tenant", "Tenant")
                         .WithMany("Users")
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade);
-
-                    b.Navigation("Location");
 
                     b.Navigation("Tenant");
                 });

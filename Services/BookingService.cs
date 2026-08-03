@@ -176,6 +176,9 @@ public class BookingService
             CustomerId = customer.Id,
             ServiceId = service.Id,
             EmployeeId = employee?.Id,
+            // Derived from the service, not trusted from the client DTO — a service's
+            // location is the source of truth (set once by the admin), never client-supplied.
+            LocationId = service.LocationId,
             BookingDate = bookingDate,
             StartTime = startTime,
             EndTime = endTime,
@@ -254,7 +257,7 @@ public class BookingService
     /// If employeeId is provided, only that employee's bookings are returned.
     /// If null, all bookings are returned (admin view).
     /// </summary>
-    public async Task<List<BookingResponseDto>> GetAllBookingsAsync(Guid? employeeId = null)
+    public async Task<List<BookingResponseDto>> GetAllBookingsAsync(Guid? employeeId = null, DateOnly? fromDate = null, DateOnly? toDate = null, Guid? locationId = null)
     {
         var query = _context.Bookings
             .Include(b => b.Customer)
@@ -264,6 +267,13 @@ public class BookingService
 
         if (employeeId.HasValue)
             query = query.Where(b => b.EmployeeId == employeeId.Value);
+
+        if (fromDate.HasValue)
+            query = query.Where(b => b.BookingDate >= fromDate.Value);
+        if (toDate.HasValue)
+            query = query.Where(b => b.BookingDate <= toDate.Value);
+        if (locationId.HasValue)
+            query = query.Where(b => b.LocationId == locationId.Value);
 
         var bookings = await query
             .OrderByDescending(b => b.BookingDate)

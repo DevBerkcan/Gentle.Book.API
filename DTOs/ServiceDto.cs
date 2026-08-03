@@ -129,3 +129,11 @@ public record BulkAssignDto(
     Guid EmployeeId,
     List<Guid> ServiceIds
 );
+
+public record PublicLocationDto(
+    Guid Id,
+    string Name,
+    string? Street,
+    string? PostalCode,
+    string City
+);

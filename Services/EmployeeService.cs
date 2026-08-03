@@ -70,6 +70,8 @@ public class EmployeeService
                 e.Role,
                 e.Specialty,
                 e.Location,
+                e.PhotoUrl,
+                e.Tagline,
                 e.IsActive,
                 e.CreatedAt,
                 e.UpdatedAt,
@@ -112,6 +114,8 @@ public class EmployeeService
                 e.Role,
                 e.Specialty,
                 e.Location,
+                e.PhotoUrl,
+                e.Tagline,
                 e.IsActive,
                 e.Username,
                 HasPassword = !string.IsNullOrEmpty(e.PasswordHash)
@@ -139,6 +143,8 @@ public class EmployeeService
             e.Role,
             e.Specialty,
             e.Location,
+            e.PhotoUrl,
+            e.Tagline,
             e.IsActive,
             e.CreatedAt,
             e.UpdatedAt,
@@ -158,7 +164,7 @@ public class EmployeeService
     }
 
     // Updated: Get employees with their assigned services (for admin panel)
-    public async Task<IEnumerable<EmployeeWithServicesDto>> GetEmployeesWithServicesAsync(bool activeOnly = true)
+    public async Task<IEnumerable<EmployeeWithServicesDto>> GetEmployeesWithServicesAsync(bool activeOnly = true, Guid? locationId = null)
     {
         if (!TryRequireTenant(out var tenantId))
             return Enumerable.Empty<EmployeeWithServicesDto>();
@@ -171,6 +177,9 @@ public class EmployeeService
 
         if (activeOnly)
             query = query.Where(e => e.IsActive);
+
+        if (locationId.HasValue)
+            query = query.Where(e => e.LocationId == locationId.Value);
 
         return await query
             .OrderBy(e => e.Name)
@@ -188,7 +197,9 @@ public class EmployeeService
                         se.Service.Name,
                         se.Service.DurationMinutes,
                         se.Service.Price
-                    )).ToList()
+                    )).ToList(),
+                e.PhotoUrl,
+                e.Tagline
             ))
             .ToListAsync();
     }
@@ -299,6 +310,8 @@ public class EmployeeService
             employee.Role,
             employee.Specialty,
             employee.Location,
+            employee.PhotoUrl,
+            employee.Tagline,
             employee.IsActive,
             employee.Username,
             HasPassword = employee.PasswordHash != null,
@@ -350,6 +363,8 @@ public class EmployeeService
             employee.Role,
             employee.Specialty,
             employee.Location,
+            employee.PhotoUrl,
+            employee.Tagline,
             employee.IsActive,
             employee.Username,
             HasPassword = employee.PasswordHash != null,

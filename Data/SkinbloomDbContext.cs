@@ -39,6 +39,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<TenantLink> TenantLinks { get; set; }
     public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
     public DbSet<TrialAccessInvitation> TrialAccessInvitations { get; set; }
+    public DbSet<ApiKey> ApiKeys { get; set; }
     public DbSet<EmployeeVacation> EmployeeVacations { get; set; }
     public DbSet<SubscriptionRequest> SubscriptionRequests { get; set; }
     public DbSet<EmployeeNote> EmployeeNotes { get; set; }
@@ -222,6 +223,8 @@ public class GentleBookDbContext : DbContext
             entity.HasIndex(e => e.LastMolliePaymentId);
             entity.Property(e => e.CancelReason).HasMaxLength(500);
             entity.Property(e => e.LastFailedMolliePaymentId).HasMaxLength(64);
+            entity.Property(e => e.NegotiatedMonthlyPrice).HasPrecision(10, 2);
+            entity.Property(e => e.NegotiatedAnnualPrice).HasPrecision(10, 2);
             entity.HasIndex(e => e.CancelRequestedAt);
             entity.HasIndex(e => e.PastDueSince);
             entity.HasIndex(e => e.RetentionEndsAt);
@@ -294,6 +297,14 @@ public class GentleBookDbContext : DbContext
                   .HasForeignKey(e => e.TenantId)
                   .OnDelete(DeleteBehavior.Cascade)
                   .IsRequired(false);
+            // Restrict: Tenant already cascades to PlatformUsers directly and to
+            // BusinessLocations directly — a cascading PlatformUser -> Location path would be
+            // a second path to BusinessLocations, the same "multiple cascade paths" issue fixed
+            // earlier for TrialAccessInvitations.
+            entity.HasOne(e => e.Location)
+                  .WithMany()
+                  .HasForeignKey(e => e.LocationId)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── PasswordResetToken ────────────────────────────────
@@ -329,6 +340,17 @@ public class GentleBookDbContext : DbContext
             entity.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
         });
 
+        modelBuilder.Entity<ApiKey>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).IsRequired().HasMaxLength(100);
+            entity.Property(x => x.KeyHash).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.KeyPrefix).IsRequired().HasMaxLength(20);
+            entity.HasIndex(x => x.KeyHash).IsUnique();
+            entity.HasIndex(x => new { x.TenantId, x.RevokedAt });
+            entity.HasOne(x => x.Tenant).WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         // ── Employee ──────────────────────────────────────────
         modelBuilder.Entity<Employee>(entity =>
         {
@@ -336,11 +358,17 @@ public class GentleBookDbContext : DbContext
             entity.Property(e => e.Name).IsRequired().HasMaxLength(100);
             entity.Property(e => e.Role).IsRequired().HasMaxLength(100);
             entity.Property(e => e.Specialty).HasMaxLength(200);
+            entity.Property(e => e.Tagline).HasMaxLength(60);
             entity.HasOne(e => e.Tenant)
                   .WithMany(t => t.Employees)
                   .HasForeignKey(e => e.TenantId)
                   .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.AssignedLocation)
+                  .WithMany()
+                  .HasForeignKey(e => e.LocationId)
+                  .OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(e => new { e.TenantId, e.IsActive });
+            entity.HasIndex(e => new { e.TenantId, e.LocationId });
         });
 
         // ── ServiceCategory ───────────────────────────────────
@@ -432,9 +460,18 @@ public class GentleBookDbContext : DbContext
                   .WithMany(s => s.Bookings)
                   .HasForeignKey(e => e.ServiceId)
                   .OnDelete(DeleteBehavior.Restrict);
+            // Restrict (not the nullable-FK convention default of SetNull): Tenant already
+            // cascades to both Bookings and BusinessLocations directly — a second automatic
+            // action here would hit SQL Server's "multiple cascade paths" error, same root
+            // cause as TrialAccessInvitations.TenantId earlier.
+            entity.HasOne(e => e.Location)
+                  .WithMany()
+                  .HasForeignKey(e => e.LocationId)
+                  .OnDelete(DeleteBehavior.Restrict);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.HasIndex(e => new { e.TenantId, e.BookingDate });
             entity.HasIndex(e => new { e.TenantId, e.Status });
+            entity.HasIndex(e => new { e.TenantId, e.LocationId });
         });
 
         // ── BusinessHours ─────────────────────────────────────

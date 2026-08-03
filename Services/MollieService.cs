@@ -59,6 +59,11 @@ public class MollieService
         if (!Enum.TryParse<SubscriptionPlan>(plan, out var planEnum) || planEnum == SubscriptionPlan.Trial)
             return new MollieFlowResult(false, "Ungültiger Plan.", null);
 
+        // Agency has no fixed price ("Preis auf Anfrage") — self-service SEPA checkout would
+        // charge the global PlanLimits fallback, not the individually negotiated amount.
+        if (planEnum == SubscriptionPlan.Agency)
+            return new MollieFlowResult(false, "Der Agency-Plan wird individuell angeboten. Bitte fordern Sie ein Angebot an.", null);
+
         var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
         if (sub == null)
             return new MollieFlowResult(false, "Kein Abonnement gefunden.", null);
@@ -204,7 +209,7 @@ public class MollieService
                     ? ParsePlanFromMetadata(payment) : sub.Plan);
                 var intervalEnum = ParseIntervalFromMetadata(payment);
                 var mollieSub = await _mollie.CreateSubscriptionAsync(
-                    sub.MollieCustomerId!, payment.MandateId!, intervalEnum.PriceFor(limits), "EUR", intervalEnum.ToMollieInterval(),
+                    sub.MollieCustomerId!, payment.MandateId!, intervalEnum.PriceFor(sub, limits), "EUR", intervalEnum.ToMollieInterval(),
                     $"GentleBook {limits.DisplayName}-Abonnement", _options.Value.WebhookUrl,
                     new Dictionary<string, string> { ["tenantId"] = sub.TenantId.ToString() });
 
@@ -395,6 +400,12 @@ public class MollieService
         if (!Enum.TryParse<SubscriptionPlan>(plan, ignoreCase: true, out var newPlan) || newPlan == SubscriptionPlan.Trial)
             return new ChangePlanResult(false, "Ungültiger Plan.", null, null);
 
+        // Agency has no fixed price ("Preis auf Anfrage") — a self-service upgrade would charge
+        // the global PlanLimits fallback instead of an individually negotiated amount. SuperAdmin
+        // sets Agency up manually (with a negotiated price) after a contact-form request instead.
+        if (newPlan == SubscriptionPlan.Agency)
+            return new ChangePlanResult(false, "Der Agency-Plan wird individuell angeboten. Bitte fordern Sie ein Angebot an.", null, null);
+
         var newInterval = Enum.TryParse<SubscriptionInterval>(interval, ignoreCase: true, out var parsedInterval)
             ? parsedInterval
             : SubscriptionInterval.Monthly;
@@ -489,7 +500,7 @@ public class MollieService
         try
         {
             await _mollie.UpdateSubscriptionAsync(
-                sub.MollieCustomerId!, sub.MollieSubscriptionId!, interval.PriceFor(limits), "EUR", interval.ToMollieInterval(),
+                sub.MollieCustomerId!, sub.MollieSubscriptionId!, interval.PriceFor(sub, limits), "EUR", interval.ToMollieInterval(),
                 $"GentleBook {limits.DisplayName}-Abonnement");
             return true;
         }

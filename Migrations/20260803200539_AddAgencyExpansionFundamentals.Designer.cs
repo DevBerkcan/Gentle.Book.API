@@ -4,6 +4,7 @@ using GentleBook.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GentleBook.Api.Migrations
 {
     [DbContext(typeof(GentleBookDbContext))]
-    partial class GentleBookDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260803200539_AddAgencyExpansionFundamentals")]
+    partial class AddAgencyExpansionFundamentals
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

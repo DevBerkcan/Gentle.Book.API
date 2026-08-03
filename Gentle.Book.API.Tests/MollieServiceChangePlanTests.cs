@@ -110,4 +110,23 @@ public class MollieServiceChangePlanTests
         Assert.Equal("Professional", result.Plan);
         Assert.Equal("Monthly", result.Interval);
     }
+
+    [Fact]
+    public async Task ChangePlanAsync_TargetAgency_IsBlockedWithoutTouchingMollieOrDb()
+    {
+        // Agency has no fixed price ("Preis auf Anfrage") — self-service upgrade must be
+        // rejected so billing never falls back to the internal PlanLimits list price instead
+        // of an individually negotiated amount.
+        using var db = TestDbContextFactory.Create();
+        var (tenant, _) = SeedActiveSubscription(db, SubscriptionPlan.Professional);
+        var mollieService = BuildMollieService(db);
+
+        var result = await mollieService.ChangePlanAsync(tenant.Id, "Agency", "Monthly");
+
+        Assert.False(result.Success);
+        Assert.Contains("individuell", result.Error);
+
+        var reloaded = await db.Subscriptions.AsNoTracking().FirstAsync(s => s.TenantId == tenant.Id);
+        Assert.Equal(SubscriptionPlan.Professional, reloaded.Plan);
+    }
 }

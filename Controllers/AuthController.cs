@@ -63,7 +63,8 @@ public class AuthController : ControllerBase
         user.LastLoginAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        var token = _jwt.GenerateTenantAdminToken(user.Id, user.Email, tenant.Id, tenant.Slug);
+        var token = _jwt.GenerateTenantAdminToken(user.Id, user.Email, tenant.Id, tenant.Slug,
+            role: user.Role.ToString(), locationId: user.LocationId);
 
         return Ok(new
         {
@@ -76,6 +77,7 @@ public class AuthController : ControllerBase
                 firstName = user.FirstName,
                 lastName = user.LastName,
                 role = user.Role.ToString(),
+                locationId = user.LocationId,
                 tenantId = tenant.Id,
                 tenantSlug = tenant.Slug,
                 tenantName = tenant.Name,

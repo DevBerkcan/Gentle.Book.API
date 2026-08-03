@@ -13,6 +13,14 @@ public static class SubscriptionIntervalExtensions
     public static decimal PriceFor(this SubscriptionInterval interval, PlanLimits.Limits limits) =>
         interval == SubscriptionInterval.Yearly ? limits.AnnualPrice : limits.MonthlyPrice;
 
+    // Individually negotiated subscriptions (currently only Agency, "Preis auf Anfrage")
+    // override the global PlanLimits price when set.
+    public static decimal PriceFor(this SubscriptionInterval interval, Subscription sub, PlanLimits.Limits limits)
+    {
+        var negotiated = interval == SubscriptionInterval.Yearly ? sub.NegotiatedAnnualPrice : sub.NegotiatedMonthlyPrice;
+        return negotiated ?? interval.PriceFor(limits);
+    }
+
     // Mollie's `interval` string for CreateSubscriptionAsync — the only two values this product uses.
     public static string ToMollieInterval(this SubscriptionInterval interval) =>
         interval == SubscriptionInterval.Yearly ? "12 months" : "1 month";

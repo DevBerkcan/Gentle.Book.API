@@ -77,6 +77,7 @@ public interface IAiProviderAdapter
         Guid tenantId,
         string? freeText,
         ServiceFinderResult result,
+        IReadOnlyList<KnowledgeResult> knowledge,
         CancellationToken cancellationToken);
 }
 

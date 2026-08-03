@@ -30,11 +30,24 @@ public class ServicesController : ControllerBase
     [HttpGet]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<List<ServiceDto>>> GetServices([FromQuery] string? tenantSlug = null)
+    public async Task<ActionResult<List<ServiceDto>>> GetServices([FromQuery] string? tenantSlug = null, [FromQuery] Guid? locationId = null)
     {
         var employeeId = GetCurrentEmployeeId();
-        var services = await _serviceService.GetServicesAsync(employeeId, tenantSlug);
+        var services = await _serviceService.GetServicesAsync(employeeId, tenantSlug, locationId);
         return Ok(services);
+    }
+
+    /// <summary>
+    /// Active business locations for the public booking flow — only meaningful (and only
+    /// rendered by the frontend) when a tenant has more than one active location.
+    /// </summary>
+    [HttpGet("locations")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<PublicLocationDto>>> GetPublicLocations([FromQuery] string? tenantSlug = null)
+    {
+        var locations = await _serviceService.GetPublicLocationsAsync(tenantSlug);
+        return Ok(locations);
     }
 
     /// <summary>
@@ -45,10 +58,10 @@ public class ServicesController : ControllerBase
     [HttpGet("categories")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public async Task<ActionResult<List<ServiceCategoryDto>>> GetServiceCategories([FromQuery] string? tenantSlug = null)
+    public async Task<ActionResult<List<ServiceCategoryDto>>> GetServiceCategories([FromQuery] string? tenantSlug = null, [FromQuery] Guid? locationId = null)
     {
         var employeeId = GetCurrentEmployeeId();
-        var categories = await _serviceService.GetServiceCategoriesAsync(employeeId, tenantSlug);
+        var categories = await _serviceService.GetServiceCategoriesAsync(employeeId, tenantSlug, locationId);
         return Ok(categories);
     }
 
@@ -61,10 +74,10 @@ public class ServicesController : ControllerBase
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<List<ServiceDto>>> GetServicesByCategory(Guid categoryId, [FromQuery] string? tenantSlug = null)
+    public async Task<ActionResult<List<ServiceDto>>> GetServicesByCategory(Guid categoryId, [FromQuery] string? tenantSlug = null, [FromQuery] Guid? locationId = null)
     {
         var employeeId = GetCurrentEmployeeId();
-        var (services, categoryExists) = await _serviceService.GetServicesByCategoryAsync(categoryId, employeeId, tenantSlug);
+        var (services, categoryExists) = await _serviceService.GetServicesByCategoryAsync(categoryId, employeeId, tenantSlug, locationId);
 
         if (!categoryExists)
         {

@@ -28,9 +28,20 @@ public class InvoiceService
     public async Task GenerateAndSendInvoiceAsync(Guid subscriptionId, string molliePaymentId, CancellationToken ct)
     {
         // A webhook retry could enqueue the same payment twice — never issue two invoices for it.
-        if (await _db.Invoices.AnyAsync(i => i.MolliePaymentId == molliePaymentId, ct))
+        // But "already exists" must not mean "already sent": if a prior attempt generated the
+        // invoice and then the email failed, EmailSent stays false and this retry (or a manual
+        // resend) must still deliver it instead of silently no-op'ing forever.
+        var existing = await _db.Invoices.FirstOrDefaultAsync(i => i.MolliePaymentId == molliePaymentId, ct);
+        if (existing != null)
         {
-            _logger.LogInformation("Invoice already exists for Mollie payment {PaymentId}, skipping.", molliePaymentId);
+            if (existing.EmailSent)
+            {
+                _logger.LogInformation("Invoice {InvoiceNumber} already sent for Mollie payment {PaymentId}, skipping.", existing.InvoiceNumber, molliePaymentId);
+                return;
+            }
+
+            _logger.LogInformation("Invoice {InvoiceNumber} exists but was never emailed for Mollie payment {PaymentId}, retrying send.", existing.InvoiceNumber, molliePaymentId);
+            await SendAndMarkAsync(existing, ct);
             return;
         }
 
@@ -65,7 +76,7 @@ public class InvoiceService
             PeriodStart = periodStart,
             PeriodEnd = periodEnd,
             PlanName = limits.DisplayName,
-            Amount = sub.Interval.PriceFor(limits),
+            Amount = sub.Interval.PriceFor(sub, limits),
             Currency = "EUR",
             MolliePaymentId = molliePaymentId,
             RecipientName = settings.LegalCompanyName ?? settings.CompanyName,
@@ -81,16 +92,41 @@ public class InvoiceService
         _db.Invoices.Add(invoice);
         await _db.SaveChangesAsync(ct);
 
-        var sent = await _emailService.SendSubscriptionInvoiceAsync(invoice, settings);
-        if (sent)
-        {
-            invoice.EmailSent = true;
-            invoice.EmailSentAt = DateTime.UtcNow;
-            await _db.SaveChangesAsync(ct);
-        }
+        await SendAndMarkAsync(invoice, ct);
 
-        _logger.LogInformation("Invoice {InvoiceNumber} generated for Subscription {SubscriptionId} (email sent: {EmailSent})",
-            invoice.InvoiceNumber, subscriptionId, sent);
+        _logger.LogInformation("Invoice {InvoiceNumber} generated for Subscription {SubscriptionId}",
+            invoice.InvoiceNumber, subscriptionId);
+    }
+
+    // Manual resend path for the SuperAdmin UI — same delivery logic as the generation path,
+    // just without creating a new invoice. Throws (404-worthy) if the id doesn't exist so the
+    // controller can translate that into a clean HTTP response.
+    public async Task ResendInvoiceEmailAsync(Guid invoiceId, CancellationToken ct)
+    {
+        var invoice = await _db.Invoices.FirstOrDefaultAsync(i => i.Id == invoiceId, ct)
+            ?? throw new InvalidOperationException($"Invoice {invoiceId} not found.");
+
+        await SendAndMarkAsync(invoice, ct);
+    }
+
+    // Sends the invoice email and marks it delivered. Throws on failure instead of swallowing
+    // it — EmailService still returns false on SMTP errors rather than throwing itself, so this
+    // is the one place that turns "false" into an exception, which is what actually makes
+    // Hangfire's [AutomaticRetry] on this class engage for failed sends.
+    private async Task SendAndMarkAsync(Invoice invoice, CancellationToken ct)
+    {
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == invoice.TenantId, ct)
+            ?? throw new InvalidOperationException($"TenantSettings missing for tenant {invoice.TenantId}, cannot send invoice email.");
+
+        var sent = await _emailService.SendSubscriptionInvoiceAsync(invoice, settings);
+        if (!sent)
+            throw new InvalidOperationException($"Failed to email invoice {invoice.InvoiceNumber} to tenant {invoice.TenantId}.");
+
+        invoice.EmailSent = true;
+        invoice.EmailSentAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("Invoice {InvoiceNumber} emailed to tenant {TenantId}", invoice.InvoiceNumber, invoice.TenantId);
     }
 
     // Simple year-scoped sequential numbering (e.g. "2026-0001"). A unique index on

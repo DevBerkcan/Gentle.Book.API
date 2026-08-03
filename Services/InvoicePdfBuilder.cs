@@ -157,8 +157,13 @@ public static class InvoicePdfBuilder
 
                         table.Cell().Padding(8).BorderBottom(1).BorderColor(LightGrey).Column(c =>
                         {
+                            // Invoice has no stored Interval column — derived from the period
+                            // span instead (monthly periods are ~28-31 days, yearly ~365-366),
+                            // so an annual subscriber's invoice never mislabels itself monthly.
+                            var isYearly = (invoice.PeriodEnd - invoice.PeriodStart).TotalDays > 60;
+                            var intervalLabel = isYearly ? "Jährliches Abonnement" : "Monatliches Abonnement";
                             c.Item().Text($"GentleBook {invoice.PlanName}-Abonnement").Bold().FontSize(10);
-                            c.Item().Text("Monatliches Abonnement für Ihr Buchungssystem").FontSize(8).FontColor(MutedGrey);
+                            c.Item().Text($"{intervalLabel} für Ihr Buchungssystem").FontSize(8).FontColor(MutedGrey);
                         });
                         table.Cell().Padding(8).BorderBottom(1).BorderColor(LightGrey)
                             .Text($"{invoice.PeriodStart:dd.MM.yyyy} –\n{invoice.PeriodEnd:dd.MM.yyyy}").FontSize(9);

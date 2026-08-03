@@ -1,4 +1,5 @@
 using System.Text;
+using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -38,15 +39,27 @@ public sealed class AiOrchestrator : IAiOrchestrator
         var allowedEmployeeIds = result.SuggestedEmployeeIds.ToHashSet();
 
         var sources = new List<string>();
+        var knowledgeResults = Array.Empty<KnowledgeResult>() as IReadOnlyList<KnowledgeResult>;
         if (!string.IsNullOrWhiteSpace(freeText))
         {
-            var knowledge = await _knowledge.SearchAsync(tenantId, KnowledgeVisibility.Public, freeText, null, cancellationToken);
-            sources.AddRange(knowledge.Select(k => k.SourceLabel).Distinct(StringComparer.OrdinalIgnoreCase));
+            knowledgeResults = await _knowledge.SearchAsync(tenantId, KnowledgeVisibility.Public, freeText, null, cancellationToken);
+            sources.AddRange(knowledgeResults.Select(k => k.SourceLabel).Distinct(StringComparer.OrdinalIgnoreCase));
         }
+
+        // The real LLM-backed explanation is Agency-exclusive — Trial/Starter/Professional get
+        // exactly today's deterministic behavior, and the provider is never even called for them
+        // (not just "returns null"), so there's no accidental cost or latency on lower tiers.
+        var tenantPlan = await _db.Subscriptions
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => (SubscriptionPlan?)s.Plan)
+            .FirstOrDefaultAsync(cancellationToken);
+        var isAgency = tenantPlan.HasValue && AgencyFeatureGate.IsAgency(tenantPlan.Value);
 
         try
         {
-            var aiMessage = await _provider.ExplainFinderResultAsync(tenantId, freeText, result, cancellationToken);
+            var aiMessage = isAgency
+                ? await _provider.ExplainFinderResultAsync(tenantId, freeText, result, knowledgeResults, cancellationToken)
+                : null;
             if (aiMessage != null)
             {
                 await _usageMeter.TrackAsync(

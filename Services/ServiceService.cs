@@ -38,7 +38,7 @@ public class ServiceService
 
     // ── PUBLIC METHODS (for booking widget) ─────────────────────────
 
-    public async Task<List<ServiceDto>> GetServicesAsync(Guid? employeeId = null, string? tenantSlug = null)
+    public async Task<List<ServiceDto>> GetServicesAsync(Guid? employeeId = null, string? tenantSlug = null, Guid? locationId = null)
     {
         var tenantId = await ResolveTenantIdAsync(tenantSlug);
         if (!tenantId.HasValue)
@@ -53,6 +53,12 @@ public class ServiceService
         if (employeeId.HasValue)
         {
             query = query.Where(s => s.ServiceEmployees.Any(se => se.EmployeeId == employeeId.Value));
+        }
+
+        // Multi-location: when the customer picked a location, only show services offered there.
+        if (locationId.HasValue)
+        {
+            query = query.Where(s => s.LocationId == locationId.Value);
         }
 
         var services = await query
@@ -75,7 +81,23 @@ public class ServiceService
         return services;
     }
 
-    public async Task<List<ServiceCategoryDto>> GetServiceCategoriesAsync(Guid? employeeId = null, string? tenantSlug = null)
+    // Multi-location: lists a tenant's active locations for the public booking flow. The
+    // frontend only renders a location-selection step when this returns more than one item —
+    // single-location tenants see no change.
+    public async Task<List<PublicLocationDto>> GetPublicLocationsAsync(string? tenantSlug = null)
+    {
+        var tenantId = await ResolveTenantIdAsync(tenantSlug);
+        if (!tenantId.HasValue)
+            return new List<PublicLocationDto>();
+
+        return await _context.BusinessLocations
+            .Where(l => l.TenantId == tenantId.Value && l.IsActive)
+            .OrderByDescending(l => l.IsDefault).ThenBy(l => l.Name)
+            .Select(l => new PublicLocationDto(l.Id, l.Name, l.Street, l.PostalCode, l.City))
+            .ToListAsync();
+    }
+
+    public async Task<List<ServiceCategoryDto>> GetServiceCategoriesAsync(Guid? employeeId = null, string? tenantSlug = null, Guid? locationId = null)
     {
         var tenantId = await ResolveTenantIdAsync(tenantSlug);
         if (!tenantId.HasValue)
@@ -94,7 +116,8 @@ public class ServiceService
                 c.IsActive,
                 c.Services
                     .Where(s => s.IsActive &&
-                           (!employeeId.HasValue || s.ServiceEmployees.Any(se => se.EmployeeId == employeeId.Value)))
+                           (!employeeId.HasValue || s.ServiceEmployees.Any(se => se.EmployeeId == employeeId.Value)) &&
+                           (!locationId.HasValue || s.LocationId == locationId.Value))
                     .OrderBy(s => s.DisplayOrder)
                     .Select(s => new ServiceDto(
                         s.Id,
@@ -124,7 +147,8 @@ public class ServiceService
     public async Task<(List<ServiceDto>? Services, bool CategoryExists)> GetServicesByCategoryAsync(
         Guid categoryId,
         Guid? employeeId = null,
-        string? tenantSlug = null)
+        string? tenantSlug = null,
+        Guid? locationId = null)
     {
         var tenantId = await ResolveTenantIdAsync(tenantSlug);
         if (!tenantId.HasValue)
@@ -143,6 +167,11 @@ public class ServiceService
         if (employeeId.HasValue)
         {
             query = query.Where(s => s.ServiceEmployees.Any(se => se.EmployeeId == employeeId.Value));
+        }
+
+        if (locationId.HasValue)
+        {
+            query = query.Where(s => s.LocationId == locationId.Value);
         }
 
         var services = await query
@@ -401,15 +430,21 @@ public class ServiceService
 
     // ── ADMIN METHODS ──────────────────────────────────────────────
 
-    public async Task<List<AdminServiceDto>> GetAllServicesAdminAsync()
+    public async Task<List<AdminServiceDto>> GetAllServicesAdminAsync(Guid? locationId = null)
     {
         var tenantId = RequireTenantId();
 
-        var services = await _context.Services
+        var query = _context.Services
             .Include(s => s.Category)
             .Include(s => s.ServiceEmployees)
                 .ThenInclude(se => se.Employee)
             .Where(s => s.TenantId == tenantId)
+            .AsQueryable();
+
+        if (locationId.HasValue)
+            query = query.Where(s => s.LocationId == locationId.Value);
+
+        var services = await query
             .OrderBy(s => s.Category.DisplayOrder)
             .ThenBy(s => s.DisplayOrder)
             .Select(s => new AdminServiceDto(

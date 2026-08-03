@@ -30,9 +30,11 @@ public static class TenantControllerFactory
         var mollieService = new MollieService(
             db, mollieClient, mollieOptions, new FakeBackgroundJobClient(), auditService, emailService, NullLogger<MollieService>.Instance);
 
+        var apiKeyService = new ApiKeyService(db);
+
         var controller = new TenantController(
             db, tenantContext, emailService, NullLogger<TenantController>.Instance,
-            new FakeWebHostEnvironment(), auditService, mollieService, mollieOptions);
+            new FakeWebHostEnvironment(), auditService, mollieService, mollieOptions, apiKeyService);
 
         controller.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
         {

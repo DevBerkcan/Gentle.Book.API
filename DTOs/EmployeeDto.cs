@@ -51,7 +51,9 @@ public record EmployeeWithServicesDto(
     string? Specialty,
     bool IsActive,
     string? Location,
-    List<ServiceBasicDto> AssignedServices
+    List<ServiceBasicDto> AssignedServices,
+    string? PhotoUrl = null,
+    string? Tagline = null
 );
 
 public record ServiceBasicDto(

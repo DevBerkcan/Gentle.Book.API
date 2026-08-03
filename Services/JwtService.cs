@@ -35,19 +35,24 @@ public class JwtService
     // ── TenantAdmin token ───────────────────────────────────────────────────
     // impersonatedBy: set when a SuperAdmin generates this token via impersonation —
     // makes impersonated sessions distinguishable in logs and audits.
-    public string GenerateTenantAdminToken(Guid userId, string email, Guid tenantId, string tenantSlug, string? impersonatedBy = null)
+    // role/locationId: also reused for LocationAdmin (Agency-exclusive, scoped to one
+    // BusinessLocation) — same token shape, just a different role claim plus locationId.
+    public string GenerateTenantAdminToken(Guid userId, string email, Guid tenantId, string tenantSlug,
+        string? impersonatedBy = null, string role = "TenantAdmin", Guid? locationId = null)
     {
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, userId.ToString()),
             new(JwtRegisteredClaimNames.Email, email),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new("role", "TenantAdmin"),
+            new("role", role),
             new("tenantId", tenantId.ToString()),
             new("tenantSlug", tenantSlug),
         };
         if (!string.IsNullOrEmpty(impersonatedBy))
             claims.Add(new Claim("impersonatedBy", impersonatedBy));
+        if (locationId.HasValue)
+            claims.Add(new Claim("locationId", locationId.Value.ToString()));
         return BuildToken(claims, "Jwt:Secret", "Jwt:Issuer", "Jwt:Audience", "Jwt:ExpiryHours");
     }
 
@@ -115,6 +120,12 @@ public class JwtService
 
     public static string? GetTenantSlug(ClaimsPrincipal user)
         => user.FindFirstValue("tenantSlug");
+
+    public static Guid? GetLocationId(ClaimsPrincipal user)
+    {
+        var claim = user.FindFirstValue("locationId");
+        return Guid.TryParse(claim, out var id) ? id : null;
+    }
 
     public static string? GetRole(ClaimsPrincipal user)
         => user.FindFirstValue("role");

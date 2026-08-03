@@ -2417,7 +2417,8 @@ GentleBook · support@gentlegroup.de";
                 SubscriptionPlan.Agency       => "Agency",
                 _                             => plan,
             };
-            var planPrice      = limits.MonthlyPrice == 0 ? "Kostenlos" : $"&euro;{limits.MonthlyPrice:0}/Monat";
+            var planPrice      = parsedPlan == SubscriptionPlan.Agency ? "Preis auf Anfrage"
+                : limits.MonthlyPrice == 0 ? "Kostenlos" : $"&euro;{limits.MonthlyPrice:0}/Monat";
             var empText        = PlanLimits.IsUnlimited(limits.MaxEmployees)         ? "Unbegrenzte Mitarbeiter"     : $"{limits.MaxEmployees} Mitarbeiter";
             var svcText        = PlanLimits.IsUnlimited(limits.MaxServices)          ? "Unbegrenzte Services"        : $"{limits.MaxServices} Services";
             var bkgText        = PlanLimits.IsUnlimited(limits.MaxBookingsPerMonth)  ? "Unbegrenzte Buchungen"       : $"{limits.MaxBookingsPerMonth} Buchungen/Monat";
@@ -2847,8 +2848,8 @@ GentleBook · support@gentlegroup.de";
                               <td style="width:33%;padding:4px">
                                 <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center">
                                   <p style="font-size:11px;font-weight:700;color:#d97706;margin:0 0 4px;text-transform:uppercase">Agency</p>
-                                  <p style="font-size:28px;font-weight:900;color:#1f2937;margin:0;line-height:1">€99</p>
-                                  <p style="font-size:11px;color:#9ca3af;margin:2px 0 8px">/Monat</p>
+                                  <p style="font-size:18px;font-weight:900;color:#1f2937;margin:0;line-height:1.2">Preis auf<br/>Anfrage</p>
+                                  <p style="font-size:11px;color:#9ca3af;margin:2px 0 8px">individuell</p>
                                   <p style="font-size:11px;color:#6b7280;margin:0">Unlimited</p>
                                 </div>
                               </td>
@@ -2903,7 +2904,7 @@ GentleBook · support@gentlegroup.de";
                 UNSERE PLÄNE:
                 Starter       €29/Monat — 2 Mitarbeiter
                 Professional  €59/Monat — 10 Mitarbeiter (empfohlen)
-                Agency        €99/Monat — Unbegrenzte Mitarbeiter
+                Agency        Preis auf Anfrage — Unbegrenzte Mitarbeiter
 
                 Was Sie erhalten:
                 ✓ Unbegrenzte Buchungen
@@ -3007,8 +3008,8 @@ GentleBook · support@gentlegroup.de";
                               <td style="width:33%;padding:4px">
                                 <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:16px;text-align:center">
                                   <p style="font-size:11px;font-weight:700;color:#d97706;margin:0 0 4px;text-transform:uppercase">Agency</p>
-                                  <p style="font-size:28px;font-weight:900;color:#1f2937;margin:0;line-height:1">€99</p>
-                                  <p style="font-size:11px;color:#9ca3af;margin:2px 0 8px">/Monat</p>
+                                  <p style="font-size:18px;font-weight:900;color:#1f2937;margin:0;line-height:1.2">Preis auf<br/>Anfrage</p>
+                                  <p style="font-size:11px;color:#9ca3af;margin:2px 0 8px">individuell</p>
                                   <p style="font-size:11px;color:#6b7280;margin:0">Unlimited</p>
                                 </div>
                               </td>
@@ -3068,7 +3069,7 @@ GentleBook · support@gentlegroup.de";
                 UNSERE PLÄNE:
                 Starter       €29/Monat — 2 Mitarbeiter
                 Professional  €59/Monat — 10 Mitarbeiter (empfohlen)
-                Agency        €99/Monat — Unbegrenzte Mitarbeiter
+                Agency        Preis auf Anfrage — Unbegrenzte Mitarbeiter
 
                 Was Sie erhalten:
                 ✓ Unbegrenzte Buchungen
@@ -3113,7 +3114,8 @@ GentleBook · support@gentlegroup.de";
             message.To.Add(MailboxAddress.Parse(toEmail));
             message.Subject = $"Plan-Anfrage erhalten – {planName}";
 
-            var planPrice = planName switch { "Starter" => "€29", "Professional" => "€59", "Agency" => "€99", _ => "" };
+            var planPrice = planName switch { "Starter" => "€29", "Professional" => "€59", "Agency" => "Preis auf Anfrage", _ => "" };
+            var planPriceSuffix = planName == "Agency" ? "" : "/Monat";
 
             var html = $"""
                 <!DOCTYPE html>
@@ -3142,7 +3144,7 @@ GentleBook · support@gentlegroup.de";
                           <div style="background:#f0fdfc;border:1px solid #99f6e4;border-radius:12px;padding:20px 24px;margin:0 0 24px;text-align:center">
                             <p style="font-size:12px;font-weight:700;color:#128577;margin:0 0 4px;text-transform:uppercase">Angefragter Plan</p>
                             <p style="font-size:32px;font-weight:900;color:#17A398;margin:0;line-height:1">{planName}</p>
-                            <p style="font-size:18px;color:#128577;margin:4px 0 0;font-weight:600">{planPrice} / Monat</p>
+                            <p style="font-size:18px;color:#128577;margin:4px 0 0;font-weight:600">{planPrice}{(planPriceSuffix == "" ? "" : " / Monat")}</p>
                           </div>
 
                           <p style="font-size:13px;color:#9ca3af;line-height:1.6;margin:0">
@@ -3172,7 +3174,7 @@ GentleBook · support@gentlegroup.de";
                 ===================================
                 Hallo {firstName},
 
-                wir haben Ihre Anfrage für den {planName}-Plan ({planPrice}/Monat)
+                wir haben Ihre Anfrage für den {planName}-Plan ({planPrice}{planPriceSuffix})
                 für {tenantName} erhalten.
 
                 Aktivierung innerhalb von 24 Stunden.
@@ -3210,7 +3212,8 @@ GentleBook · support@gentlegroup.de";
             message.Subject = $"🔔 Neue Abo-Anfrage: {tenantName} → {planName}";
 
             var adminUrl = $"{FrontendUrl}/superadmin/requests";
-            var planPrice = planName switch { "Starter" => "€29", "Professional" => "€59", "Agency" => "€99", _ => "" };
+            var planPrice = planName switch { "Starter" => "€29", "Professional" => "€59", "Agency" => "Preis auf Anfrage", _ => "" };
+            var planPriceSuffix = planName == "Agency" ? "" : "/Monat";
 
             var html = $"""
                 <!DOCTYPE html>
@@ -3240,7 +3243,7 @@ GentleBook · support@gentlegroup.de";
                             </tr>
                             <tr>
                               <td style="padding:8px 0;font-size:13px;color:#6b7280">Plan:</td>
-                              <td style="padding:8px 0;font-size:13px;color:#17A398;font-weight:700">{planName} — {planPrice}/Monat</td>
+                              <td style="padding:8px 0;font-size:13px;color:#17A398;font-weight:700">{planName} — {planPrice}{planPriceSuffix}</td>
                             </tr>
                             <tr>
                               <td style="padding:8px 0;font-size:13px;color:#6b7280">Kontakt:</td>
@@ -3274,7 +3277,7 @@ GentleBook · support@gentlegroup.de";
                 Neue Abo-Anfrage: {tenantName} → {planName}
                 ============================================
                 System: {tenantName} ({tenantSlug})
-                Plan:   {planName} — {planPrice}/Monat
+                Plan:   {planName} — {planPrice}{planPriceSuffix}
                 Kontakt: {contactEmail}
 
                 Verwalten: {adminUrl}

@@ -5,6 +5,7 @@ using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.Services;
+using Hangfire;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -24,8 +25,9 @@ public class SuperAdminController : ControllerBase
     private readonly IWebHostEnvironment _env;
     private readonly AuditService _audit;
     private readonly MollieService _mollieService;
+    private readonly IBackgroundJobClient _backgroundJobClient;
 
-    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt, IWebHostEnvironment env, AuditService audit, MollieService mollieService)
+    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt, IWebHostEnvironment env, AuditService audit, MollieService mollieService, IBackgroundJobClient backgroundJobClient)
     {
         _db = db;
         _config = config;
@@ -35,6 +37,7 @@ public class SuperAdminController : ControllerBase
         _env = env;
         _audit = audit;
         _mollieService = mollieService;
+        _backgroundJobClient = backgroundJobClient;
     }
 
     private IActionResult ForbidIfNotSuperAdmin()
@@ -660,6 +663,15 @@ public class SuperAdminController : ControllerBase
         if (!string.IsNullOrEmpty(dto.Interval) && Enum.TryParse<SubscriptionInterval>(dto.Interval, ignoreCase: true, out var newInterval))
             subscription.Interval = newInterval;
 
+        // Agency has no fixed price ("Preis auf Anfrage") — only overwrite when the caller
+        // explicitly provided a negotiated amount, so re-saving other fields never wipes an
+        // already-agreed price back to null.
+        if (newPlan == SubscriptionPlan.Agency)
+        {
+            if (dto.NegotiatedMonthlyPrice.HasValue) subscription.NegotiatedMonthlyPrice = dto.NegotiatedMonthlyPrice;
+            if (dto.NegotiatedAnnualPrice.HasValue) subscription.NegotiatedAnnualPrice = dto.NegotiatedAnnualPrice;
+        }
+
         subscription.Plan = newPlan;
         subscription.Status = newPlan == SubscriptionPlan.Trial
             ? SubscriptionStatus.Trial
@@ -800,14 +812,20 @@ public class SuperAdminController : ControllerBase
     {
         if (ForbidIfNotSuperAdmin() is { } err) return err;
 
-        // MRR: Summe der Monatspreise aller aktiven Abos (nach Plan)
-        var activePlans = await _db.Subscriptions
+        // MRR: Summe der Monatspreise aller aktiven Abos, pro Subscription — Agency-Kunden mit
+        // individuell verhandeltem Preis (NegotiatedMonthlyPrice) zählen mit ihrem tatsächlichen
+        // Preis statt dem globalen PlanLimits-Fallback.
+        var activeSubs = await _db.Subscriptions
             .Where(s => s.Status == SubscriptionStatus.Active)
-            .GroupBy(s => s.Plan)
-            .Select(g => new { Plan = g.Key, Count = g.Count() })
+            .Select(s => new { s.Plan, s.NegotiatedMonthlyPrice })
             .ToListAsync();
 
-        var mrr = activePlans.Sum(p => PlanLimits.Get(p.Plan).MonthlyPrice * p.Count);
+        var activePlans = activeSubs
+            .GroupBy(s => s.Plan)
+            .Select(g => new { Plan = g.Key, Count = g.Count() })
+            .ToList();
+
+        var mrr = activeSubs.Sum(s => s.NegotiatedMonthlyPrice ?? PlanLimits.Get(s.Plan).MonthlyPrice);
 
         var stats = new
         {
@@ -910,6 +928,53 @@ public class SuperAdminController : ControllerBase
                     Slug        = t?.Slug ?? "",
                     BookingCount = tt.BookingCount,
                 };
+            }),
+        });
+    }
+
+    /// <summary>
+    /// KI-Nutzungskosten der letzten 30 Tage, pro Tenant aufgeschlüsselt — Grundlage, um
+    /// individuell verhandelte Agency-Preise (Subscription.NegotiatedMonthlyPrice) anhand der
+    /// tatsächlich entstandenen OpenAI-Kosten zu kalibrieren/nachzuverhandeln.
+    /// </summary>
+    [HttpGet("ai-usage")]
+    public async Task<IActionResult> GetAiUsage()
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var since = DateTime.UtcNow.AddDays(-30);
+        var usageByTenant = await _db.AiUsages
+            .Where(u => u.CreatedOn >= since)
+            .GroupBy(u => u.TenantId)
+            .Select(g => new
+            {
+                TenantId = g.Key,
+                TotalCost = g.Sum(u => u.EstimatedCost),
+                TotalCalls = g.Count(),
+                InputTokens = g.Sum(u => u.InputTokens),
+                OutputTokens = g.Sum(u => u.OutputTokens),
+            })
+            .OrderByDescending(x => x.TotalCost)
+            .ToListAsync();
+
+        var tenantIds = usageByTenant.Select(u => u.TenantId).ToList();
+        var tenantNames = await _db.Tenants
+            .Include(t => t.Settings)
+            .Where(t => tenantIds.Contains(t.Id))
+            .ToDictionaryAsync(t => t.Id, t => t.Settings?.CompanyName ?? t.Name);
+
+        return Ok(new
+        {
+            since,
+            totalCostLast30Days = usageByTenant.Sum(u => u.TotalCost),
+            tenants = usageByTenant.Select(u => new
+            {
+                u.TenantId,
+                TenantName = tenantNames.GetValueOrDefault(u.TenantId, "Unbekannt"),
+                u.TotalCost,
+                u.TotalCalls,
+                u.InputTokens,
+                u.OutputTokens,
             }),
         });
     }
@@ -1024,6 +1089,24 @@ public class SuperAdminController : ControllerBase
         if (invoice == null) return NotFound();
 
         return File(invoice.PdfContent, "application/pdf", $"Rechnung-{invoice.InvoiceNumber}.pdf");
+    }
+
+    /// <summary>Re-enqueues delivery of an invoice that was never (successfully) emailed.</summary>
+    [HttpPost("invoices/{id:guid}/resend")]
+    public async Task<IActionResult> ResendInvoice(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var invoice = await _db.Invoices.AsNoTracking().FirstOrDefaultAsync(i => i.Id == id);
+        if (invoice == null) return NotFound();
+
+        // Runs through InvoiceService, which carries the class-level [AutomaticRetry] — a
+        // transient SMTP failure here gets Hangfire's normal backoff/retry, same as the
+        // original send, instead of a one-shot inline attempt.
+        _backgroundJobClient.Enqueue<InvoiceService>(s => s.ResendInvoiceEmailAsync(id, CancellationToken.None));
+        await _audit.LogAsync("invoice.resend_requested", "Invoice", id.ToString(), invoice.InvoiceNumber);
+
+        return Ok(new { message = "Rechnungsversand wurde erneut angestoßen." });
     }
 
     // ── Plan Pricing ──────────────────────────────────────────────────────
@@ -1445,10 +1528,26 @@ public class SuperAdminController : ControllerBase
             return Conflict(new { message = "Dieser Tenant hat ein aktives Mollie-Abonnement. Bitte mit ConfirmOverrideMollie=true bestätigen, um bewusst manuell zu überschreiben." });
         }
 
+        // Agency has no fixed price ("Preis auf Anfrage") — require an individually negotiated
+        // amount at activation time so billing/invoicing never silently falls back to the
+        // internal PlanLimits list price.
+        if (plan == SubscriptionPlan.Agency)
+        {
+            var hasExistingPrice = sub?.NegotiatedMonthlyPrice != null || sub?.NegotiatedAnnualPrice != null;
+            var hasNewPrice = dto?.NegotiatedMonthlyPrice != null || dto?.NegotiatedAnnualPrice != null;
+            if (!hasExistingPrice && !hasNewPrice)
+                return BadRequest(new { message = "Für den Agency-Plan muss ein individuell verhandelter Preis (Monat oder Jahr) angegeben werden." });
+        }
+
         if (sub != null)
         {
             sub.Plan = plan.Value;
             sub.Interval = request.Interval;
+            if (plan == SubscriptionPlan.Agency)
+            {
+                if (dto?.NegotiatedMonthlyPrice != null) sub.NegotiatedMonthlyPrice = dto.NegotiatedMonthlyPrice;
+                if (dto?.NegotiatedAnnualPrice != null) sub.NegotiatedAnnualPrice = dto.NegotiatedAnnualPrice;
+            }
             sub.Status = SubscriptionStatus.Active;
             sub.CurrentPeriodStart = DateTime.UtcNow;
             sub.CurrentPeriodEnd = sub.Interval.AddInterval(DateTime.UtcNow);
@@ -1488,7 +1587,8 @@ public class SuperAdminController : ControllerBase
             if (admin != null)
             {
                 var limits = PlanLimits.Get(plan.Value);
-                await _emailService.SendPlanActivatedEmailAsync(admin.Email, admin.FirstName, limits.DisplayName, limits.MonthlyPrice);
+                var price = sub != null ? sub.Interval.PriceFor(sub, limits) : limits.MonthlyPrice;
+                await _emailService.SendPlanActivatedEmailAsync(admin.Email, admin.FirstName, limits.DisplayName, price);
             }
         }
         catch (Exception ex)
@@ -1613,6 +1713,6 @@ public record UpdateTenantSettingsDto(
 
 public record CreateTenantUserDto(string Email, string? Password, string FirstName, string LastName, bool? SendWelcomeEmail = true);
 public record ExtendTrialDto(int Days);
-public record ActivateRequestDto(string? Note, bool ConfirmOverrideMollie = false);
-public record ChangePlanDto(string Plan, string? Interval = null);
+public record ActivateRequestDto(string? Note, bool ConfirmOverrideMollie = false, decimal? NegotiatedMonthlyPrice = null, decimal? NegotiatedAnnualPrice = null);
+public record ChangePlanDto(string Plan, string? Interval = null, decimal? NegotiatedMonthlyPrice = null, decimal? NegotiatedAnnualPrice = null);
 public record UpdatePlanPriceDto(decimal MonthlyPrice, decimal AnnualPrice);

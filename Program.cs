@@ -141,7 +141,11 @@ var tenantSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret
                 return Task.CompletedTask;
             },
         };
-    });
+    })
+    // Agency-exclusive public API (Controllers/PublicApiV1Controller.cs) — only used by
+    // controllers explicitly marked [Authorize(AuthenticationSchemes = "ApiKey")]; the default
+    // scheme above stays JWT Bearer for every other [Authorize] endpoint.
+    .AddScheme<ApiKeyAuthenticationOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationOptions.SchemeName, _ => { });
 
 builder.Services.AddAuthorization();
 builder.Services.AddHttpClient();
@@ -177,6 +181,15 @@ builder.Services.AddHttpClient<CrmPushService>((sp, client) =>
         client.BaseAddress = new Uri(crmBaseUrl.TrimEnd('/') + "/");
 });
 
+// OpenAI: third typed HttpClient — one platform-wide key (see IAiProviderAdapter registration
+// below), never per-tenant. Falls back to the real OpenAI base URL when "Ai:BaseUrl" is unset,
+// so the only required config to go live is "Ai:ApiKey".
+builder.Services.AddHttpClient<GentleBook.Api.Services.AI.OpenAiClient>((sp, client) =>
+{
+    var aiBaseUrl = sp.GetRequiredService<IOptions<AiProviderOptions>>().Value.BaseUrl;
+    client.BaseAddress = new Uri(string.IsNullOrWhiteSpace(aiBaseUrl) ? "https://api.openai.com/v1/" : aiBaseUrl.TrimEnd('/') + "/");
+});
+
 builder.Services.AddScoped<MollieService>();
 builder.Services.AddScoped<InvoiceService>();
 builder.Services.AddSingleton<MollieReconciliationJob>();
@@ -196,12 +209,17 @@ builder.Services.AddScoped<TrackingService>();
 builder.Services.AddScoped<ServiceService>();
 builder.Services.AddScoped<EmployeeAuthService>();
 builder.Services.AddScoped<CustomerPortalTokenService>();
+builder.Services.AddScoped<ApiKeyService>();
 builder.Services.AddScoped<IServiceFinderEngine, ServiceFinderEngine>();
-// No real AI provider implemented yet — NullAiProviderAdapter is the only IAiProviderAdapter
-// today, so this stays a direct binding rather than a config-switched factory. AiProviderOptions
-// above is the prepared seam: once a real provider is added, register it here (conditioned on
-// AiProviderOptions.Provider) with NullAiProviderAdapter kept as the fallback when unconfigured.
-builder.Services.AddScoped<IAiProviderAdapter, NullAiProviderAdapter>();
+// Real OpenAI-backed adapter when a platform API key is configured (Ai:ApiKey), otherwise the
+// deterministic Null adapter — same "never hard-fail on missing config" convention as
+// IBrandAiAnalyzer below. AiOrchestrator additionally gates the real adapter to Agency-plan
+// tenants only, so even with a key configured, Trial/Starter/Professional never call out.
+var aiApiKeyConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["Ai:ApiKey"]);
+if (aiApiKeyConfigured)
+    builder.Services.AddScoped<IAiProviderAdapter, GentleBook.Api.Services.AI.OpenAiProviderAdapter>();
+else
+    builder.Services.AddScoped<IAiProviderAdapter, NullAiProviderAdapter>();
 builder.Services.AddScoped<IAiUsageMeter, AiUsageMeter>();
 builder.Services.AddScoped<IKnowledgeRetrievalService, KnowledgeRetrievalService>();
 builder.Services.AddScoped<IAiOrchestrator, AiOrchestrator>();
@@ -262,6 +280,21 @@ builder.Services.AddRateLimiter(options =>
             {
                 Window = TimeSpan.FromMinutes(10),
                 PermitLimit = 20,
+                QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            }));
+
+    // Public v1 API (Agency-exclusive, api-key authenticated) — partitioned by the key itself
+    // (not IP), so one integration's traffic never throttles another tenant's.
+    options.AddPolicy("api-key-limit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Request.Headers["X-Api-Key"].ToString() is { Length: > 0 } apiKey
+                ? apiKey
+                : (httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous"),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 60,
                 QueueLimit = 0,
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
             }));
