@@ -2840,7 +2840,7 @@ namespace GentleBook.Api.Migrations
                     b.HasOne("GentleBook.Api.Data.Entities.Tenant", "Tenant")
                         .WithMany()
                         .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
                     b.HasOne("GentleBook.Api.Data.Entities.PlatformUser", "User")

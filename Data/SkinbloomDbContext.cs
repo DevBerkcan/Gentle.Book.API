@@ -322,7 +322,10 @@ public class GentleBookDbContext : DbContext
             entity.Property(x => x.PersonalNote).HasMaxLength(1000);
             entity.HasIndex(x => x.TokenHash).IsUnique();
             entity.HasIndex(x => new { x.TenantId, x.AcceptedAt });
-            entity.HasOne(x => x.Tenant).WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Cascade);
+            // Restrict (not Cascade): Tenant already cascades to PlatformUsers, and PlatformUsers.UserId
+            // here cascades (SetNull) into this same table — SQL Server rejects two cascade paths
+            // converging on one table ("multiple cascade paths" error 1785).
+            entity.HasOne(x => x.Tenant).WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
         });
 
