@@ -55,10 +55,19 @@ public class PublicController : ControllerBase
         {
             var tenant = await _db.Tenants
                 .Include(t => t.Settings)
+                .Include(t => t.Subscription)
                 .AsNoTracking()
-                .FirstOrDefaultAsync(t => t.Slug == slug && t.IsActive);
+                .FirstOrDefaultAsync(t => t.Slug == slug);
 
             if (tenant == null) return NotFound();
+            if (!tenant.IsActive || tenant.Subscription?.IsAccessAllowed != true)
+            {
+                return StatusCode(StatusCodes.Status423Locked, new
+                {
+                    message = "Diese Buchungsseite ist derzeit nicht verfügbar.",
+                    reason = "subscription_inactive"
+                });
+            }
 
             return Ok(new
             {
@@ -86,10 +95,13 @@ public class PublicController : ControllerBase
     public async Task<IActionResult> GetTenantLinks(string slug)
     {
         var tenant = await _db.Tenants
+            .Include(t => t.Subscription)
             .AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Slug == slug && t.IsActive);
+            .FirstOrDefaultAsync(t => t.Slug == slug);
 
         if (tenant == null) return NotFound();
+        if (!tenant.IsActive || tenant.Subscription?.IsAccessAllowed != true)
+            return StatusCode(StatusCodes.Status423Locked, new { message = "Diese Buchungsseite ist derzeit nicht verfügbar.", reason = "subscription_inactive" });
 
         var links = await _db.TenantLinks
             .AsNoTracking()

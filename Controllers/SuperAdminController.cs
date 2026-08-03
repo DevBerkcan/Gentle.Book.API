@@ -23,8 +23,9 @@ public class SuperAdminController : ControllerBase
     private readonly JwtService _jwt;
     private readonly IWebHostEnvironment _env;
     private readonly AuditService _audit;
+    private readonly MollieService _mollieService;
 
-    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt, IWebHostEnvironment env, AuditService audit)
+    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt, IWebHostEnvironment env, AuditService audit, MollieService mollieService)
     {
         _db = db;
         _config = config;
@@ -33,6 +34,7 @@ public class SuperAdminController : ControllerBase
         _jwt = jwt;
         _env = env;
         _audit = audit;
+        _mollieService = mollieService;
     }
 
     private IActionResult ForbidIfNotSuperAdmin()
@@ -125,7 +127,10 @@ public class SuperAdminController : ControllerBase
         return Ok(tenant);
     }
 
-    /// <summary>Create a new tenant (triggers 14-day trial automatically).</summary>
+    /// <summary>
+    /// Prepares a tenant after the sales conversation. Legal acceptance is followed by a
+    /// separate manual GentleBook release; only that release starts the 14-day trial.
+    /// </summary>
     [HttpPost("tenants")]
     public async Task<IActionResult> CreateTenant([FromBody] CreateTenantDto dto)
     {
@@ -135,20 +140,17 @@ public class SuperAdminController : ControllerBase
         if (await _db.Tenants.AnyAsync(t => t.Slug == slug))
             return Conflict(new { message = $"Slug '{slug}' is already taken." });
 
-        var trialDays = int.TryParse(_config["Platform:DefaultTrialDays"], out var d) ? d : 14;
+        if (string.IsNullOrWhiteSpace(dto.AdminEmail))
+            return BadRequest(new { message = "Eine E-Mail-Adresse für die Testfreischaltung ist erforderlich." });
 
-        var selectedPlan = dto.Plan != null && Enum.TryParse<SubscriptionPlan>(dto.Plan, ignoreCase: true, out var parsedPlan)
-            ? parsedPlan
-            : SubscriptionPlan.Trial;
-        var selectedInterval = dto.Interval != null && Enum.TryParse<SubscriptionInterval>(dto.Interval, ignoreCase: true, out var parsedInterval)
-            ? parsedInterval
-            : SubscriptionInterval.Monthly;
+        var trialDays = int.TryParse(_config["Platform:DefaultTrialDays"], out var d) ? d : 14;
 
         var tenant = new Tenant
         {
             Name = dto.Name,
             Slug = slug,
             IndustryType = dto.IndustryType,
+            IsActive = false,
         };
 
         var settings = new TenantSettings
@@ -164,11 +166,9 @@ public class SuperAdminController : ControllerBase
             TenantId = tenant.Id,
             TrialStartedAt = DateTime.UtcNow,
             TrialEndsAt = DateTime.UtcNow.AddDays(trialDays),
-            Plan = selectedPlan,
-            Interval = selectedInterval,
-            Status = selectedPlan == SubscriptionPlan.Trial ? SubscriptionStatus.Trial : SubscriptionStatus.Active,
-            CurrentPeriodStart = selectedPlan != SubscriptionPlan.Trial ? DateTime.UtcNow : (DateTime?)null,
-            CurrentPeriodEnd = selectedPlan != SubscriptionPlan.Trial ? selectedInterval.AddInterval(DateTime.UtcNow) : (DateTime?)null,
+            Plan = SubscriptionPlan.Trial,
+            Interval = SubscriptionInterval.Monthly,
+            Status = SubscriptionStatus.PendingAcceptance,
         };
         var defaultLocation = new BusinessLocation
         {
@@ -187,38 +187,37 @@ public class SuperAdminController : ControllerBase
         _db.Subscriptions.Add(subscription);
         _db.BusinessLocations.Add(defaultLocation);
 
-        // Optionally create the first TenantAdmin user with a setup link (no plaintext password)
-        string? adminFirstName = null;
-        string? setupRawToken = null;
-        if (!string.IsNullOrWhiteSpace(dto.AdminEmail))
+        // The user stays locked until all required trial documents have been confirmed.
+        var adminFirstName = dto.AdminFirstName ?? "Admin";
+        var adminUser = new PlatformUser
         {
-            adminFirstName = dto.AdminFirstName ?? "Admin";
-            var lockedHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString(), workFactor: 4);
-            var adminUser = new PlatformUser
-            {
-                TenantId = tenant.Id,
-                Email = dto.AdminEmail.ToLowerInvariant(),
-                PasswordHash = lockedHash,
-                FirstName = adminFirstName,
-                LastName = dto.AdminLastName ?? tenant.Name,
-                Role = PlatformRole.TenantAdmin,
-                MustChangePassword = true,
-            };
-            _db.PlatformUsers.Add(adminUser);
+            TenantId = tenant.Id,
+            Email = dto.AdminEmail.ToLowerInvariant(),
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString(), workFactor: 4),
+            FirstName = adminFirstName,
+            LastName = dto.AdminLastName ?? tenant.Name,
+            Role = PlatformRole.TenantAdmin,
+            IsActive = false,
+            MustChangePassword = true,
+        };
+        _db.PlatformUsers.Add(adminUser);
 
-            setupRawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
-                .Replace("+", "-").Replace("/", "_").Replace("=", "");
-            var tokenHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(setupRawToken)));
-            _db.PasswordResetTokens.Add(new PasswordResetToken
-            {
-                Id        = Guid.NewGuid(),
-                UserId    = adminUser.Id,
-                TokenHash = tokenHash,
-                ExpiresAt = DateTime.UtcNow.AddHours(72),
-                IsUsed    = false,
-                CreatedAt = DateTime.UtcNow,
-            });
-        }
+        var activationRawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
+            .Replace("+", "-").Replace("/", "_").Replace("=", "");
+        var activationTokenHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(activationRawToken)));
+        var activationExpiresAt = DateTime.UtcNow.AddDays(14);
+        _db.TrialAccessInvitations.Add(new TrialAccessInvitation
+        {
+            TenantId = tenant.Id,
+            UserId = adminUser.Id,
+            Email = adminUser.Email,
+            TokenHash = activationTokenHash,
+            ExpiresAt = activationExpiresAt,
+            TermsVersion = LegalDocumentVersions.Terms,
+            PrivacyVersion = LegalDocumentVersions.Privacy,
+            DpaVersion = LegalDocumentVersions.Dpa,
+            PersonalNote = dto.PersonalNote,
+        });
 
         try
         {
@@ -230,31 +229,24 @@ public class SuperAdminController : ControllerBase
             return StatusCode(500, new { message = "DB-Fehler beim Speichern." });
         }
 
-        // Send welcome email with setup link after save
-        if (!string.IsNullOrWhiteSpace(dto.AdminEmail) && dto.SendWelcomeEmail != false && setupRawToken != null)
+        // Send legal activation link. Credentials follow only after acceptance.
+        if (dto.SendWelcomeEmail != false)
         {
-            var setupUrl = $"{_emailService.FrontendUrl}/admin/reset-password?token={setupRawToken}";
-            _ = _emailService.SendWelcomeEmailAsync(
-                dto.AdminEmail.ToLowerInvariant(),
-                adminFirstName!,
-                setupUrl,
-                tenant.Name,
-                slug,
-                tenant.Id,
-                tenant.IndustryType.ToString(),
-                selectedPlan.ToString(),
-                dto.PersonalNote);
+            var activationUrl = $"{_emailService.FrontendUrl}/trial-activation?token={activationRawToken}";
+            _ = _emailService.SendTrialActivationInvitationAsync(
+                adminUser.Email, adminFirstName, tenant.Name, slug, activationUrl, activationExpiresAt);
         }
 
         await _audit.LogAsync("tenant.created", "Tenant", tenant.Id.ToString(),
-            $"System \"{tenant.Name}\" ({slug}) angelegt, Plan {selectedPlan}", tenant.Id);
+            $"System \"{tenant.Name}\" ({slug}) vorbereitet; Testfreischaltung ausstehend", tenant.Id);
 
         return CreatedAtAction(nameof(GetTenant), new { id = tenant.Id }, new
         {
             tenant.Id,
             tenant.Name,
             tenant.Slug,
-            TrialEndsAt = subscription.TrialEndsAt,
+            Status = subscription.Status.ToString(),
+            ActivationExpiresAt = activationExpiresAt,
         });
     }
 
@@ -280,13 +272,105 @@ public class SuperAdminController : ControllerBase
     public async Task<IActionResult> Activate(Guid id)
     {
         if (ForbidIfNotSuperAdmin() is { } err) return err;
-        var tenant = await _db.Tenants.FindAsync(id);
+        var tenant = await _db.Tenants.Include(t => t.Subscription).FirstOrDefaultAsync(t => t.Id == id);
         if (tenant == null) return NotFound();
+        if (tenant.Subscription?.Status is SubscriptionStatus.PendingAcceptance or SubscriptionStatus.PendingActivation)
+            return Conflict(new { message = "Vorbereitete Testmandanten müssen über die gesonderte Testfreigabe aktiviert werden." });
         tenant.IsActive = true;
         tenant.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
         await _audit.LogAsync("tenant.activated", "Tenant", id.ToString(), $"System \"{tenant.Name}\" aktiviert", id);
         return NoContent();
+    }
+
+    /// <summary>Manually starts the 14-day trial after all legal confirmations were received.</summary>
+    [HttpPost("tenants/{id:guid}/trial/activate")]
+    public async Task<IActionResult> ActivatePreparedTrial(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var tenant = await _db.Tenants
+            .Include(t => t.Subscription)
+            .FirstOrDefaultAsync(t => t.Id == id);
+        if (tenant == null) return NotFound(new { message = "Mandant nicht gefunden." });
+        if (tenant.Subscription?.Status != SubscriptionStatus.PendingActivation)
+            return Conflict(new { message = "Der Test kann erst nach vollständiger Bestätigung von B2B-Eigenschaft, AGB, Datenschutz und AVV freigegeben werden." });
+
+        var invitation = await _db.TrialAccessInvitations
+            .Include(x => x.User)
+            .Where(x => x.TenantId == id && x.AcceptedAt != null)
+            .OrderByDescending(x => x.AcceptedAt)
+            .FirstOrDefaultAsync();
+        if (invitation?.User == null || !invitation.BusinessConfirmed || !invitation.TermsAccepted ||
+            !invitation.PrivacyAcknowledged || !invitation.DpaAccepted ||
+            !invitation.NoAutomaticPaidConversionAcknowledged)
+        {
+            return Conflict(new { message = "Die erforderlichen rechtlichen Bestätigungen sind nicht vollständig dokumentiert." });
+        }
+
+        var now = DateTime.UtcNow;
+        var trialDays = int.TryParse(_config["Platform:DefaultTrialDays"], out var configuredDays) ? configuredDays : 14;
+        var subscription = tenant.Subscription;
+        subscription.Status = SubscriptionStatus.Trial;
+        subscription.Plan = SubscriptionPlan.Trial;
+        subscription.TrialStartedAt = now;
+        subscription.TrialEndsAt = now.AddDays(trialDays);
+        subscription.TrialActivatedByUserId = JwtService.GetUserId(User);
+        subscription.AccessRestrictedAt = null;
+        subscription.RetentionEndsAt = null;
+        subscription.RetentionWarningEmailSent = false;
+        subscription.OperationalDataDeletedAt = null;
+        subscription.UpdatedAt = now;
+        tenant.IsActive = true;
+        tenant.UpdatedAt = now;
+        invitation.User.IsActive = true;
+        invitation.User.UpdatedAt = now;
+
+        var existingTokens = await _db.PasswordResetTokens
+            .Where(t => t.UserId == invitation.User.Id && !t.IsUsed)
+            .ToListAsync();
+        foreach (var existingToken in existingTokens) existingToken.IsUsed = true;
+
+        var setupRawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
+            .Replace("+", "-").Replace("/", "_").Replace("=", "");
+        var setupTokenHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(setupRawToken)));
+        _db.PasswordResetTokens.Add(new PasswordResetToken
+        {
+            Id = Guid.NewGuid(),
+            UserId = invitation.User.Id,
+            TokenHash = setupTokenHash,
+            ExpiresAt = now.AddHours(72),
+            IsUsed = false,
+            CreatedAt = now,
+        });
+
+        await _db.SaveChangesAsync();
+
+        var setupUrl = $"{_emailService.FrontendUrl}/admin/reset-password?token={setupRawToken}";
+        _ = _emailService.SendWelcomeEmailAsync(
+            invitation.User.Email,
+            invitation.User.FirstName,
+            setupUrl,
+            tenant.Name,
+            tenant.Slug,
+            tenant.Id,
+            tenant.IndustryType.ToString(),
+            SubscriptionPlan.Trial.ToString(),
+            invitation.PersonalNote,
+            subscription.TrialStartedAt,
+            subscription.TrialEndsAt);
+
+        await _audit.LogAsync("subscription.trial_activated", "Subscription", subscription.Id.ToString(),
+            $"Test manuell freigegeben; Beginn {subscription.TrialStartedAt:O}; Ende {subscription.TrialEndsAt:O}; bestätigt durch {invitation.AcceptedByName}", id);
+
+        return Ok(new
+        {
+            status = subscription.Status.ToString(),
+            subscription.TrialStartedAt,
+            subscription.TrialEndsAt,
+            activatedByUserId = subscription.TrialActivatedByUserId,
+            sentTo = invitation.User.Email,
+        });
     }
 
     /// <summary>Deactivate a tenant (blocks all access).</summary>
@@ -593,6 +677,12 @@ public class SuperAdminController : ControllerBase
         await _audit.LogAsync("subscription.plan_changed", "Subscription", subscription.Id.ToString(),
             $"Plan geändert auf {newPlan}", id);
 
+        // Best-effort — keeps a live Mollie subscription's price/interval in sync with this
+        // manual override. No fit-check here (deliberate admin override), failures are logged
+        // internally and never block the DB-level change.
+        if (!string.IsNullOrEmpty(subscription.MollieSubscriptionId))
+            await _mollieService.TrySyncPlanToMollieAsync(id);
+
         var limits = PlanLimits.Get(newPlan);
         return Ok(new
         {
@@ -620,6 +710,49 @@ public class SuperAdminController : ControllerBase
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(u => u.TenantId == id && u.Role == PlatformRole.TenantAdmin);
         if (adminUser == null) return BadRequest(new { message = "Kein Admin-User gefunden." });
+
+        if (tenant.Subscription?.Status == SubscriptionStatus.PendingAcceptance)
+        {
+            var previousInvitations = await _db.TrialAccessInvitations
+                .Where(x => x.TenantId == id && x.AcceptedAt == null && x.ExpiresAt > DateTime.UtcNow)
+                .ToListAsync();
+            foreach (var previous in previousInvitations) previous.ExpiresAt = DateTime.UtcNow;
+
+            var activationRawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))
+                .Replace("+", "-").Replace("/", "_").Replace("=", "");
+            var activationHash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(activationRawToken)));
+            var activationExpiresAt = DateTime.UtcNow.AddDays(14);
+            var personalNote = previousInvitations.OrderByDescending(x => x.CreatedAt).FirstOrDefault()?.PersonalNote;
+
+            _db.TrialAccessInvitations.Add(new TrialAccessInvitation
+            {
+                TenantId = id,
+                UserId = adminUser.Id,
+                Email = adminUser.Email,
+                TokenHash = activationHash,
+                ExpiresAt = activationExpiresAt,
+                TermsVersion = LegalDocumentVersions.Terms,
+                PrivacyVersion = LegalDocumentVersions.Privacy,
+                DpaVersion = LegalDocumentVersions.Dpa,
+                PersonalNote = personalNote,
+            });
+            await _db.SaveChangesAsync();
+
+            var activationUrl = $"{_emailService.FrontendUrl}/trial-activation?token={activationRawToken}";
+            _ = _emailService.SendTrialActivationInvitationAsync(
+                adminUser.Email, adminUser.FirstName ?? "Admin", tenant.Name, tenant.Slug,
+                activationUrl, activationExpiresAt);
+
+            return Ok(new { sent = true, sentTo = adminUser.Email, type = "trial-activation" });
+        }
+
+        if (tenant.Subscription?.Status == SubscriptionStatus.PendingActivation)
+        {
+            return Conflict(new
+            {
+                message = "Die rechtlichen Bestätigungen liegen bereits vor. Geben Sie den Testzugang jetzt manuell über die Testfreigabe frei."
+            });
+        }
 
         // Generate a fresh password-reset token (72h)
         var rawToken  = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48))

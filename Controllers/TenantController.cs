@@ -636,12 +636,43 @@ public class TenantController : ControllerBase
     {
         var check = RequireTenantAdmin();
         if (check != null) return check;
+        if (!dto.BusinessConfirmed || !dto.TermsAccepted || !dto.BillingTermsAccepted)
+            return BadRequest(new { message = "Alle Vertragsbestätigungen sind erforderlich." });
 
         var result = await _mollieService.StartMandateFlowAsync(_tenantContext.TenantId!.Value, dto.Plan, dto.Interval);
         if (!result.Success)
             return BadRequest(new { message = result.Error });
 
+        await _audit.LogAsync("subscription.contract_confirmed", "Subscription", _tenantContext.TenantId!.Value.ToString(),
+            $"Tarif {dto.Plan}, Intervall {dto.Interval ?? "Monthly"}, AGB {LegalDocumentVersions.Terms}, Unternehmer/Abrechnung bestätigt",
+            _tenantContext.TenantId.Value);
+
         return Ok(new { checkoutUrl = result.CheckoutUrl });
+    }
+
+    // POST /api/tenant/subscription/change-plan
+    // Upgrade/downgrade for a tenant that already has an active Mollie subscription —
+    // StartMollieMandateFlow above only handles first-time signup. Updates the existing
+    // Mollie subscription in place (no new mandate/checkout); downgrades are rejected if
+    // current usage wouldn't fit the target plan's limits.
+    [HttpPost("subscription/change-plan")]
+    public async Task<IActionResult> ChangeSubscriptionPlan([FromBody] ChangeSubscriptionPlanDto dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var result = await _mollieService.ChangePlanAsync(_tenantContext.TenantId!.Value, dto.Plan, dto.Interval);
+        if (!result.Success)
+            return BadRequest(new
+            {
+                message = result.Error,
+                currentEmployees = result.CurrentEmployees,
+                employeeLimit = result.EmployeeLimit,
+                currentServices = result.CurrentServices,
+                serviceLimit = result.ServiceLimit,
+            });
+
+        return Ok(new { message = "Plan gewechselt.", plan = result.Plan, interval = result.Interval });
     }
 
     // GET /api/tenant/subscription/mollie/status
@@ -727,6 +758,8 @@ public class TenantController : ControllerBase
     {
         var check = RequireTenantAdmin();
         if (check != null) return check;
+        if (!dto.BusinessConfirmed || !dto.TermsAccepted || !dto.BillingTermsAccepted)
+            return BadRequest(new { message = "Alle Vertragsbestätigungen sind erforderlich." });
 
         var tenantId = _tenantContext.TenantId!.Value;
 
@@ -764,6 +797,9 @@ public class TenantController : ControllerBase
 
         _db.SubscriptionRequests.Add(request);
         await _db.SaveChangesAsync();
+        await _audit.LogAsync("subscription.contract_confirmed", "SubscriptionRequest", request.Id.ToString(),
+            $"Tarif {dto.Plan}, Intervall {intervalEnum}, AGB {LegalDocumentVersions.Terms}, Unternehmer/Abrechnung bestätigt",
+            tenantId);
 
         var firstName = User.FindFirst("given_name")?.Value
                      ?? User.FindFirst("name")?.Value
@@ -851,8 +887,21 @@ public class TenantController : ControllerBase
 }
 
 public record SupportMessageRequest(string Subject, string Message);
-public record SubscriptionRequestDto(string Plan, string ContactEmail, string? Note, string? Interval = null);
-public record MollieStartRequestDto(string Plan, string? Interval = null);
+public record SubscriptionRequestDto(
+    string Plan,
+    string ContactEmail,
+    string? Note,
+    string? Interval = null,
+    bool BusinessConfirmed = false,
+    bool TermsAccepted = false,
+    bool BillingTermsAccepted = false);
+public record MollieStartRequestDto(
+    string Plan,
+    string? Interval = null,
+    bool BusinessConfirmed = false,
+    bool TermsAccepted = false,
+    bool BillingTermsAccepted = false);
+public record ChangeSubscriptionPlanDto(string Plan, string? Interval = null);
 public record CancelSubscriptionRequestDto(string? Reason);
 
 public record UpdateBusinessHoursItemDto(int DayOfWeek, bool IsOpen, string? OpenTime, string? CloseTime, string? BreakStartTime, string? BreakEndTime);

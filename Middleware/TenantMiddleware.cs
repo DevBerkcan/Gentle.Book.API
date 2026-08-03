@@ -64,7 +64,8 @@ public class TenantMiddleware
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.TenantId == tenantId);
 
-        if (subscription == null || !subscription.IsAccessAllowed)
+        var expiredBillingAccess = subscription?.Status == SubscriptionStatus.Expired && IsBillingPath(path);
+        if (subscription == null || (!subscription.IsAccessAllowed && !expiredBillingAccess))
         {
             context.Response.StatusCode = 402; // Payment Required
             await context.Response.WriteAsJsonAsync(new
@@ -87,4 +88,8 @@ public class TenantMiddleware
             || path.StartsWith("/hangfire", StringComparison.OrdinalIgnoreCase)
             || path == "/health";
     }
+
+    private static bool IsBillingPath(string path) =>
+        path.StartsWith("/api/tenant/subscription", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/api/tenant/plan-pricing", StringComparison.OrdinalIgnoreCase);
 }

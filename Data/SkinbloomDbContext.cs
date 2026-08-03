@@ -38,6 +38,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<LinkClick> LinkClicks { get; set; }
     public DbSet<TenantLink> TenantLinks { get; set; }
     public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
+    public DbSet<TrialAccessInvitation> TrialAccessInvitations { get; set; }
     public DbSet<EmployeeVacation> EmployeeVacations { get; set; }
     public DbSet<SubscriptionRequest> SubscriptionRequests { get; set; }
     public DbSet<EmployeeNote> EmployeeNotes { get; set; }
@@ -306,6 +307,23 @@ public class GentleBookDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(e => e.UserId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TrialAccessInvitation>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Email).IsRequired().HasMaxLength(200);
+            entity.Property(x => x.TokenHash).IsRequired().HasMaxLength(64);
+            entity.Property(x => x.AcceptedByName).HasMaxLength(200);
+            entity.Property(x => x.IpAddress).HasMaxLength(64);
+            entity.Property(x => x.TermsVersion).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.PrivacyVersion).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.DpaVersion).IsRequired().HasMaxLength(32);
+            entity.Property(x => x.PersonalNote).HasMaxLength(1000);
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => new { x.TenantId, x.AcceptedAt });
+            entity.HasOne(x => x.Tenant).WithMany().HasForeignKey(x => x.TenantId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // ── Employee ──────────────────────────────────────────

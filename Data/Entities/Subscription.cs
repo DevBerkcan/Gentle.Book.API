@@ -13,6 +13,8 @@ public class Subscription
     // ── Trial ─────────────────────────────────────────────────
     public DateTime TrialStartedAt { get; set; } = DateTime.UtcNow;
     public DateTime TrialEndsAt { get; set; } = DateTime.UtcNow.AddDays(14);
+    public Guid? TrialActivatedByUserId { get; set; }
+    public DateTime? AccessRestrictedAt { get; set; }
 
     // ── Paid Period ───────────────────────────────────────────
     public DateTime? CurrentPeriodStart { get; set; }
@@ -74,6 +76,8 @@ public enum SubscriptionInterval
 
 public enum SubscriptionStatus
 {
+    PendingAcceptance,
+    PendingActivation,
     Trial,
     Active,
     PastDue,

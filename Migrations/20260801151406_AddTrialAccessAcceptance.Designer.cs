@@ -4,6 +4,7 @@ using GentleBook.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GentleBook.Api.Migrations
 {
     [DbContext(typeof(GentleBookDbContext))]
-    partial class GentleBookDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260801151406_AddTrialAccessAcceptance")]
+    partial class AddTrialAccessAcceptance
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1823,9 +1826,6 @@ namespace GentleBook.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<DateTime?>("AccessRestrictedAt")
-                        .HasColumnType("datetime2");
-
                     b.Property<string>("CancelReason")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
@@ -1901,9 +1901,6 @@ namespace GentleBook.Api.Migrations
                         .HasColumnType("nvarchar(50)");
 
                     b.Property<Guid>("TenantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("TrialActivatedByUserId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("TrialEndsAt")

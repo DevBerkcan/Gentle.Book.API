@@ -1,6 +1,7 @@
 // Controllers/AuthController.cs
 // Login for TenantAdmin users (created by SuperAdmin).
 using System.Security.Cryptography;
+using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
@@ -42,12 +43,13 @@ public class AuthController : ControllerBase
 
         var tenant = await _db.Tenants
             .Include(t => t.Subscription)
-            .FirstOrDefaultAsync(t => t.Slug == dto.TenantSlug.ToLowerInvariant() && t.IsActive);
+            .FirstOrDefaultAsync(t => t.Slug == dto.TenantSlug.ToLowerInvariant());
 
-        if (tenant == null)
+        if (tenant == null || (!tenant.IsActive && tenant.Subscription?.Status != SubscriptionStatus.Expired))
             return Unauthorized(new { message = "Tenant not found or inactive." });
 
-        if (tenant.Subscription == null || !tenant.Subscription.IsAccessAllowed)
+        if (tenant.Subscription == null ||
+            (!tenant.Subscription.IsAccessAllowed && tenant.Subscription.Status != SubscriptionStatus.Expired))
             return StatusCode(402, new { message = "Trial expired or subscription inactive." });
 
         var user = await _db.PlatformUsers
@@ -213,9 +215,106 @@ public class AuthController : ControllerBase
         _logger.LogInformation("Password reset for user {UserId}", resetToken.UserId);
         return Ok(new { message = "Passwort wurde erfolgreich zurückgesetzt. Du kannst dich jetzt anmelden." });
     }
+
+    /// <summary>Returns the non-sensitive details for a pending trial activation.</summary>
+    [HttpGet("trial-activation")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth-limit")]
+    public async Task<IActionResult> GetTrialActivation([FromQuery] string token)
+    {
+        var invitation = await FindTrialInvitationAsync(token);
+        if (invitation == null || invitation.ExpiresAt < DateTime.UtcNow)
+            return BadRequest(new { message = "Dieser Freischaltungslink ist ungültig oder abgelaufen." });
+
+        return Ok(new
+        {
+            company = invitation.Tenant.Name,
+            contactEmail = invitation.Email,
+            bookingUrl = $"{_email.FrontendUrl}/booking/{invitation.Tenant.Slug}",
+            trialDurationDays = 14,
+            invitation.ExpiresAt,
+            invitation.AcceptedAt,
+            versions = new
+            {
+                terms = invitation.TermsVersion,
+                privacy = invitation.PrivacyVersion,
+                dpa = invitation.DpaVersion,
+            },
+        });
+    }
+
+    /// <summary>
+    /// Records the free B2B trial contract and AVV. GentleBook activates the trial separately.
+    /// </summary>
+    [HttpPost("trial-activation")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth-limit")]
+    public async Task<IActionResult> ActivateTrial([FromBody] ActivateTrialDto dto)
+    {
+        if (string.IsNullOrWhiteSpace(dto.ConfirmingPersonName) ||
+            !dto.BusinessConfirmed || !dto.TermsAccepted || !dto.PrivacyAcknowledged ||
+            !dto.DpaAccepted || !dto.NoAutomaticPaidConversionAcknowledged)
+        {
+            return BadRequest(new { message = "Alle Pflichtbestätigungen sind erforderlich." });
+        }
+
+        var invitation = await FindTrialInvitationAsync(dto.Token);
+        if (invitation == null || invitation.ExpiresAt < DateTime.UtcNow)
+            return BadRequest(new { message = "Dieser Freischaltungslink ist ungültig oder abgelaufen." });
+        if (invitation.AcceptedAt != null)
+            return Conflict(new { message = "Die erforderlichen Bestätigungen wurden bereits übermittelt." });
+
+        var subscription = invitation.Tenant.Subscription;
+        if (subscription == null || invitation.User == null || invitation.UserId == null ||
+            subscription.Status != SubscriptionStatus.PendingAcceptance)
+            return Conflict(new { message = "Dieser Testzugang kann nicht mehr freigeschaltet werden." });
+
+        var now = DateTime.UtcNow;
+        invitation.AcceptedAt = now;
+        invitation.AcceptedByName = dto.ConfirmingPersonName.Trim();
+        invitation.IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+        invitation.BusinessConfirmed = true;
+        invitation.TermsAccepted = true;
+        invitation.PrivacyAcknowledged = true;
+        invitation.DpaAccepted = true;
+        invitation.NoAutomaticPaidConversionAcknowledged = true;
+
+        subscription.Status = SubscriptionStatus.PendingActivation;
+        subscription.UpdatedAt = now;
+
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Trial contract accepted by {AcceptedBy}; TenantId={TenantId}; Terms={TermsVersion}; DPA={DpaVersion}",
+            invitation.AcceptedByName, invitation.TenantId, LegalDocumentVersions.Terms, LegalDocumentVersions.Dpa);
+
+        return Ok(new
+        {
+            message = "Ihre Bestätigungen wurden gespeichert. GentleBook prüft die Einrichtung und schaltet den Testzugang anschließend separat frei.",
+            status = subscription.Status.ToString(),
+        });
+    }
+
+    private async Task<TrialAccessInvitation?> FindTrialInvitationAsync(string? rawToken)
+    {
+        if (string.IsNullOrWhiteSpace(rawToken)) return null;
+        var hash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawToken)));
+        return await _db.TrialAccessInvitations
+            .Include(x => x.Tenant).ThenInclude(t => t.Subscription)
+            .Include(x => x.User)
+            .FirstOrDefaultAsync(x => x.TokenHash == hash);
+    }
 }
 
 public record TenantAdminLoginDto(string TenantSlug, string Email, string Password);
 public record ChangePasswordDto(string CurrentPassword, string NewPassword);
 public record ForgotPasswordDto(string TenantSlug, string Email);
 public record ResetPasswordDto(string Token, string NewPassword);
+public record ActivateTrialDto(
+    string Token,
+    string ConfirmingPersonName,
+    bool BusinessConfirmed,
+    bool TermsAccepted,
+    bool PrivacyAcknowledged,
+    bool DpaAccepted,
+    bool NoAutomaticPaidConversionAcknowledged);

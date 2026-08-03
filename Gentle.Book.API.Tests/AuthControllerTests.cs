@@ -173,6 +173,77 @@ public class AuthControllerTests
         Assert.True(reloaded!.MustChangePassword);
     }
 
+    [Fact]
+    public async Task ActivateTrial_MissingRequiredAcceptance_DoesNotStartTrial()
+    {
+        using var db = TestDbContextFactory.Create();
+        var controller = CreateController(db);
+
+        var result = await controller.ActivateTrial(new ActivateTrialDto(
+            "token", "Ada Admin", true, true, true, false, true));
+
+        Assert.IsType<BadRequestObjectResult>(result);
+        Assert.Empty(db.TrialAccessInvitations);
+    }
+
+    [Fact]
+    public async Task ActivateTrial_AllAcceptances_StoresEvidenceButWaitsForManualRelease()
+    {
+        using var db = TestDbContextFactory.Create();
+        const string rawToken = "trial-activation-token";
+        var tenant = new Tenant { Name = "Salon Test", Slug = "salon-test", IsActive = false };
+        var subscription = new Subscription
+        {
+            TenantId = tenant.Id,
+            Tenant = tenant,
+            Status = SubscriptionStatus.PendingAcceptance,
+            Plan = SubscriptionPlan.Trial,
+        };
+        tenant.Subscription = subscription;
+        var admin = new PlatformUser
+        {
+            TenantId = tenant.Id,
+            Tenant = tenant,
+            Email = "admin@salon-test.de",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Locked123!"),
+            FirstName = "Ada",
+            LastName = "Admin",
+            Role = PlatformRole.TenantAdmin,
+            IsActive = false,
+        };
+        var invitation = new TrialAccessInvitation
+        {
+            TenantId = tenant.Id,
+            Tenant = tenant,
+            UserId = admin.Id,
+            User = admin,
+            Email = admin.Email,
+            TokenHash = Sha256Hex(rawToken),
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+            TermsVersion = "terms-v1",
+            PrivacyVersion = "privacy-v1",
+            DpaVersion = "dpa-v1",
+        };
+        db.AddRange(tenant, subscription, admin, invitation);
+        db.SaveChanges();
+
+        var controller = CreateController(db);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        controller.HttpContext.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("127.0.0.1");
+        var result = await controller.ActivateTrial(new ActivateTrialDto(
+            rawToken, "Ada Admin", true, true, true, true, true));
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.False(tenant.IsActive);
+        Assert.False(admin.IsActive);
+        Assert.Equal(SubscriptionStatus.PendingActivation, subscription.Status);
+        Assert.Equal("Ada Admin", invitation.AcceptedByName);
+        Assert.Equal("127.0.0.1", invitation.IpAddress);
+        Assert.True(invitation.BusinessConfirmed && invitation.TermsAccepted && invitation.PrivacyAcknowledged);
+        Assert.True(invitation.DpaAccepted && invitation.NoAutomaticPaidConversionAcknowledged);
+        Assert.Empty(db.PasswordResetTokens);
+    }
+
     private static string Sha256Hex(string raw) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
 

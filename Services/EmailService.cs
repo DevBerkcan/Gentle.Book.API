@@ -2118,7 +2118,7 @@ GentleBook · support@gentlegroup.de";
         var formattedDate = deletionDate.ToString("dd.MM.yyyy");
         var text = $@"Hallo {firstName},
 
-die 30-tägige Aufbewahrungsfrist nach Ende Ihres GentleBook-Abonnements endet am {formattedDate}.
+die 30-tägige Aufbewahrungsfrist nach Ende Ihrer GentleBook-Testphase oder Ihres Abonnements endet am {formattedDate}.
 Danach werden die operativen Account-, Kunden-, Mitarbeiter-, Buchungs- und Konfigurationsdaten dauerhaft gelöscht oder anonymisiert.
 
 Bitte wenden Sie sich vor diesem Datum an support@gentlegroup.de, wenn Sie einen Datenexport benötigen.
@@ -2142,6 +2142,61 @@ GentleBook · support@gentlegroup.de";
         await smtp.SendAsync(message);
         await smtp.DisconnectAsync(true);
         _logger.LogInformation("Retention deletion warning sent to {Email}", recipientEmail);
+    }
+
+    /// <summary>Sends the mandatory legal-confirmation step before a trial can begin.</summary>
+    public async Task SendTrialActivationInvitationAsync(
+        string recipientEmail,
+        string firstName,
+        string tenantName,
+        string tenantSlug,
+        string activationUrl,
+        DateTime invitationExpiresAt)
+    {
+        var safeFirstName = System.Net.WebUtility.HtmlEncode(firstName);
+        var safeTenantName = System.Net.WebUtility.HtmlEncode(tenantName);
+        var safeActivationUrl = System.Net.WebUtility.HtmlEncode(activationUrl);
+        var bookingUrl = $"{FrontendUrl}/booking/{tenantSlug}";
+        var expires = invitationExpiresAt.ToString("dd.MM.yyyy");
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+        message.To.Add(new MailboxAddress(firstName, recipientEmail));
+        message.Subject = "Bitte bestätigen: Ihr GentleBook-Testzugang";
+        message.Body = new BodyBuilder
+        {
+            TextBody = $@"Hallo {firstName},
+
+wie besprochen haben wir GentleBook für {tenantName} vorbereitet.
+
+Buchungsseite: {bookingUrl}
+Testdauer nach Freischaltung: 14 Tage
+Zahlungsmethode: nicht erforderlich
+Automatische kostenpflichtige Verlängerung: nein
+
+Bitte bestätigen Sie vor Beginn des Tests Ihre Unternehmereigenschaft, die AGB, die Datenschutzerklärung und den Vertrag zur Auftragsverarbeitung:
+{activationUrl}
+
+Der Bestätigungslink ist bis {expires} gültig. Ihre Bestätigung startet die Testphase noch nicht. GentleBook prüft anschließend die vorbereitete Einrichtung und gibt den Zugang gesondert frei. Beginn, Ende und Zugangsdaten erhalten Sie mit der Freischaltungsbestätigung.
+
+GentleBook · support@gentlegroup.de",
+            HtmlBody = $@"<!DOCTYPE html><html lang='de'><head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:560px;margin:0 auto;background:#fff;border-radius:16px;padding:32px;border:1px solid #e5e7eb'>
+<h1 style='color:#14162B;font-size:22px;margin:0 0 20px'>Ihr GentleBook-Testzugang ist vorbereitet</h1>
+<p style='color:#374151'>Hallo {safeFirstName},</p>
+<p style='color:#6b7280;line-height:1.6'>Wie besprochen haben wir GentleBook für <strong>{safeTenantName}</strong> vorbereitet. Ihre Bestätigung startet die Testphase noch nicht. GentleBook prüft anschließend die Einrichtung und gibt den Zugang gesondert frei. Eine Zahlungsmethode ist nicht erforderlich und es erfolgt keine automatische kostenpflichtige Verlängerung.</p>
+<p style='margin:28px 0'><a href='{safeActivationUrl}' style='display:inline-block;background:#6355E4;color:#fff;text-decoration:none;padding:13px 20px;border-radius:10px;font-weight:700'>Testbedingungen und AVV bestätigen</a></p>
+<p style='color:#6b7280;font-size:13px;line-height:1.6'>Der Link ist bis {expires} gültig. Beginn und Ende der 14-tägigen Testphase sowie Ihre Zugangsdaten werden erst mit der separaten Freischaltungsbestätigung mitgeteilt.</p>
+</div></body></html>"
+        }.ToMessageBody();
+
+        using var smtp = new SmtpClient();
+        await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+        await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+        await smtp.SendAsync(message);
+        await smtp.DisconnectAsync(true);
+        _logger.LogInformation("Trial activation invitation sent to {Email}", recipientEmail);
     }
 
     /// <summary>
@@ -2302,7 +2357,9 @@ GentleBook · support@gentlegroup.de";
         Guid tenantId,
         string industryType,
         string plan,
-        string? personalNote = null)
+        string? personalNote = null,
+        DateTime? trialStartedAt = null,
+        DateTime? trialEndsAt = null)
     {
         var emailLog = new EmailLog
         {
@@ -2322,6 +2379,20 @@ GentleBook · support@gentlegroup.de";
             var profileUrl  = $"{frontendBase}/booking/{tenantSlug}";
             var settingsUrl = $"{frontendBase}/admin/settings";
             var linksUrl    = $"{frontendBase}/admin/links";
+            var trialPeriodBlock = trialStartedAt.HasValue && trialEndsAt.HasValue ? $"""
+                        <tr>
+                          <td style="background:#ffffff;padding:0 32px 24px;">
+                            <div style="background:#ECFDF5;border:1px solid #A7F3D0;border-radius:12px;padding:16px 20px;color:#065F46;font-size:14px;line-height:1.6;">
+                              <strong>Ihre 14-t&auml;gige Testphase ist jetzt aktiv.</strong><br>
+                              Beginn: {trialStartedAt.Value:dd.MM.yyyy, HH:mm} UTC &middot; Ende: {trialEndsAt.Value:dd.MM.yyyy, HH:mm} UTC<br>
+                              Keine Zahlungsmethode, keine automatische kostenpflichtige Verl&auml;ngerung. Ein Monats- oder Jahresabonnement entsteht nur durch Ihre sp&auml;tere ausdr&uuml;ckliche Tarifwahl.
+                            </div>
+                          </td>
+                        </tr>
+                """ : "";
+            var trialPeriodText = trialStartedAt.HasValue && trialEndsAt.HasValue
+                ? $"TESTPHASE: {trialStartedAt.Value:dd.MM.yyyy, HH:mm} UTC bis {trialEndsAt.Value:dd.MM.yyyy, HH:mm} UTC\nKeine Zahlungsmethode und keine automatische kostenpflichtige Verlängerung.\n\n"
+                : "";
 
             // ── Industry-specific content ────────────────────────────────
             var (industryEmoji, industryLabel, step3Label) = industryType.ToLowerInvariant() switch
@@ -2477,6 +2548,8 @@ GentleBook · support@gentlegroup.de";
                         </tr>
 
                         {personalNoteBlock}
+
+                        {trialPeriodBlock}
 
                         <!-- PACKAGE -->
                         <tr>
@@ -2644,7 +2717,7 @@ GentleBook · support@gentlegroup.de";
 
                 PAKET: {planDisplayName} — {planPrice}
 
-                PASSWORT FESTLEGEN (72h gültig):
+                {trialPeriodText}PASSWORT FESTLEGEN (72h gültig):
                 {setupUrl}
 
                 IHRE ERSTEN 5 SCHRITTE:
@@ -2905,10 +2978,10 @@ GentleBook · support@gentlegroup.de";
                         <tr><td style="background:#fff;padding:36px 32px;border:1px solid #e5e7eb;border-top:none">
                           <p style="font-size:16px;color:#1e1e1e;margin:0 0 8px;font-weight:600">Hallo {firstName},</p>
                           <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 12px">
-                            vielen Dank, dass Sie GentleBook getestet haben! Ihr kostenloser Testzeitraum ist leider abgelaufen.
+                            vielen Dank, dass Sie GentleBook getestet haben! Ihre 14-t&auml;gige Testphase ist beendet. Es wurde kein kostenpflichtiges Abonnement ausgel&ouml;st und es erfolgt keine Abbuchung.
                           </p>
                           <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 28px">
-                            Um Ihr Buchungssystem weiter zu nutzen und keine Kundentermine zu verpassen, wählen Sie jetzt Ihren Plan — ab <strong style="color:#17A398">€29 pro Monat</strong>.
+                            Administration und &ouml;ffentliche Buchungsseite sind jetzt eingeschr&auml;nkt. Sie k&ouml;nnen innerhalb von 30 Tagen einen Tarif mit monatlicher oder j&auml;hrlicher Abrechnung w&auml;hlen oder einen Datenexport anfragen. Danach werden operative Daten gel&ouml;scht oder anonymisiert.
                           </p>
 
                           <!-- Pricing plans -->
@@ -2954,7 +3027,7 @@ GentleBook · support@gentlegroup.de";
                               <td style="padding-left:8px;width:50%">
                                 <a href="{subscriptionUrl}"
                                    style="display:block;background:#17A398;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center">
-                                  Plan anfragen
+                                  Tarif w&auml;hlen
                                 </a>
                               </td>
                             </tr>
@@ -2985,7 +3058,12 @@ GentleBook · support@gentlegroup.de";
                 ==========================================
                 Hallo {firstName},
 
-                vielen Dank für Ihren Test! Leider ist Ihr Testzeitraum abgelaufen.
+                vielen Dank für Ihren Test! Ihre 14-tägige Testphase ist beendet.
+                Es wurde kein kostenpflichtiges Abonnement ausgelöst und es erfolgt keine Abbuchung.
+
+                Administration und öffentliche Buchungsseite sind jetzt eingeschränkt.
+                Sie können innerhalb von 30 Tagen einen Monats- oder Jahrestarif wählen oder
+                einen Datenexport anfragen. Danach werden operative Daten gelöscht oder anonymisiert.
 
                 UNSERE PLÄNE:
                 Starter       €29/Monat — 2 Mitarbeiter

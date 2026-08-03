@@ -24,10 +24,13 @@ public class PublicBookingController : ControllerBase
     private async Task<(Guid tenantId, bool found)> ResolveTenant(string slug)
     {
         var tenant = await _db.Tenants
+            .Include(t => t.Subscription)
             .AsNoTracking()
-            .FirstOrDefaultAsync(t => t.Slug == slug.ToLowerInvariant() && t.IsActive);
+            .FirstOrDefaultAsync(t => t.Slug == slug.ToLowerInvariant());
 
-        return tenant == null ? (Guid.Empty, false) : (tenant.Id, true);
+        return tenant == null || !tenant.IsActive || tenant.Subscription?.IsAccessAllowed != true
+            ? (Guid.Empty, false)
+            : (tenant.Id, true);
     }
 
     // ── Branding ──────────────────────────────────────────────

@@ -44,7 +44,15 @@ public class SubscriptionService
         foreach (var sub in expired)
         {
             sub.Status = SubscriptionStatus.Expired;
+            sub.AccessRestrictedAt = now;
+            sub.RetentionEndsAt = now.AddDays(RetentionPeriodDays);
+            sub.RetentionWarningEmailSent = false;
             sub.UpdatedAt = now;
+            if (sub.Tenant != null)
+            {
+                sub.Tenant.IsActive = false;
+                sub.Tenant.UpdatedAt = now;
+            }
             _logger.LogInformation("Trial expired for TenantId={TenantId}", sub.TenantId);
 
             // Send expiration email to first TenantAdmin
@@ -288,7 +296,7 @@ public class SubscriptionService
 
         var candidates = await db.Subscriptions
             .Include(s => s.Tenant).ThenInclude(t => t.Settings)
-            .Where(s => s.Status == SubscriptionStatus.Cancelled
+            .Where(s => (s.Status == SubscriptionStatus.Cancelled || s.Status == SubscriptionStatus.Expired)
                      && s.RetentionEndsAt != null
                      && s.OperationalDataDeletedAt == null)
             .ToListAsync();

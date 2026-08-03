@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
@@ -373,6 +374,130 @@ public class MollieService
 
         return new CancelResult(true, null, sub.CancelRequestedAt, sub.CurrentPeriodEnd,
             "Kündigung bestätigt. Ihr Zugang bleibt bis zum Ende der bezahlten Periode bestehen.");
+    }
+
+    public record ChangePlanResult(
+        bool Success, string? Error, string? Plan, string? Interval,
+        int? CurrentEmployees = null, int? EmployeeLimit = null,
+        int? CurrentServices = null, int? ServiceLimit = null);
+
+    /// <summary>
+    /// Self-service plan/interval change for a tenant that already has an active Mollie
+    /// subscription — StartMandateFlowAsync explicitly refuses this case, and cancel-then-
+    /// resubscribe doesn't work either (Status stays Active until period end). Uses Mollie's
+    /// subscription PATCH to change amount/interval in place: no new mandate, no checkout
+    /// redirect. No proration — the new price takes effect at the next Mollie-triggered charge;
+    /// upgrades get the higher limits immediately, downgrades are rejected if current usage
+    /// wouldn't fit (never auto-deletes employees/services — the admin reduces usage first).
+    /// </summary>
+    public async Task<ChangePlanResult> ChangePlanAsync(Guid tenantId, string plan, string? interval)
+    {
+        if (!Enum.TryParse<SubscriptionPlan>(plan, ignoreCase: true, out var newPlan) || newPlan == SubscriptionPlan.Trial)
+            return new ChangePlanResult(false, "Ungültiger Plan.", null, null);
+
+        var newInterval = Enum.TryParse<SubscriptionInterval>(interval, ignoreCase: true, out var parsedInterval)
+            ? parsedInterval
+            : SubscriptionInterval.Monthly;
+
+        var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (sub == null)
+            return new ChangePlanResult(false, "Kein Abonnement gefunden.", null, null);
+
+        if (sub.Status != SubscriptionStatus.Active || string.IsNullOrEmpty(sub.MollieSubscriptionId))
+            return new ChangePlanResult(false, "Kein aktives Mollie-Abonnement. Bitte zuerst abonnieren.", null, null);
+
+        if (sub.Plan == newPlan && sub.Interval == newInterval)
+            return new ChangePlanResult(true, null, sub.Plan.ToString(), sub.Interval.ToString());
+
+        var newLimits = PlanLimits.Get(newPlan);
+        var employeeCount = await _db.Employees.CountAsync(e => e.TenantId == tenantId && e.IsActive);
+        var serviceCount = await _db.Services.CountAsync(s => s.TenantId == tenantId && s.IsActive);
+
+        if (!PlanLimits.IsUnlimited(newLimits.MaxEmployees) && employeeCount > newLimits.MaxEmployees)
+            return new ChangePlanResult(false,
+                $"Ihr aktueller Bestand hat {employeeCount} aktive Mitarbeiter, der {newLimits.DisplayName}-Plan erlaubt maximal {newLimits.MaxEmployees}. Bitte deaktivieren Sie zuerst {employeeCount - newLimits.MaxEmployees} Mitarbeiter und versuchen Sie es erneut.",
+                null, null, employeeCount, newLimits.MaxEmployees);
+
+        if (!PlanLimits.IsUnlimited(newLimits.MaxServices) && serviceCount > newLimits.MaxServices)
+            return new ChangePlanResult(false,
+                $"Sie haben {serviceCount} aktive Services, der {newLimits.DisplayName}-Plan erlaubt maximal {newLimits.MaxServices}. Bitte deaktivieren Sie zuerst {serviceCount - newLimits.MaxServices} Services und versuchen Sie es erneut.",
+                null, null, null, null, serviceCount, newLimits.MaxServices);
+
+        // The currently selected booking-page template can be tier-locked (LinkPageTemplates)
+        // — that's only enforced when SAVING a new template choice, never at render time, so a
+        // downgrade would otherwise leave a higher-tier template silently live on the public
+        // booking page forever. Block until the admin picks a compatible template first.
+        var linktreeConfig = await _db.TenantSettings
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => s.LinktreeConfig)
+            .FirstOrDefaultAsync();
+
+        if (!string.IsNullOrWhiteSpace(linktreeConfig))
+        {
+            string? currentTemplate = null;
+            try
+            {
+                using var parsed = JsonDocument.Parse(linktreeConfig);
+                if (parsed.RootElement.TryGetProperty("pageTemplate", out var templateProp) && templateProp.ValueKind == JsonValueKind.String)
+                    currentTemplate = templateProp.GetString();
+            }
+            catch (JsonException) { /* malformed config — nothing to validate, same as the save-time check */ }
+
+            if (currentTemplate != null)
+            {
+                var requiredPlanName = LinkPageTemplates.ValidateTemplateForPlan(currentTemplate, newPlan);
+                if (requiredPlanName != null)
+                    return new ChangePlanResult(false,
+                        $"Ihre aktuell gewählte Buchungsseiten-Vorlage erfordert mindestens den {requiredPlanName}-Plan. Bitte wählen Sie unter \"Meine Links\" zuerst eine andere Vorlage und versuchen Sie den Wechsel danach erneut.",
+                        null, null);
+            }
+        }
+
+        if (!await TryUpdateMollieSubscriptionAsync(sub, newLimits, newInterval))
+            return new ChangePlanResult(false, "Preisänderung bei Mollie fehlgeschlagen. Bitte versuchen Sie es später erneut oder kontaktieren Sie den Support.", null, null);
+
+        var oldPlan = sub.Plan;
+        var oldInterval = sub.Interval;
+        sub.Plan = newPlan;
+        sub.Interval = newInterval;
+        sub.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        await _audit.LogAsync("subscription.plan_changed_self_service", "Subscription", sub.Id.ToString(),
+            $"{oldPlan} ({oldInterval}) → {newPlan} ({newInterval})", tenantId);
+
+        return new ChangePlanResult(true, null, sub.Plan.ToString(), sub.Interval.ToString());
+    }
+
+    /// <summary>
+    /// Best-effort Mollie sync for SuperAdmin's manual ChangePlan override — pushes whatever
+    /// Plan/Interval is already saved on the subscription to Mollie. No fit-check (an admin
+    /// override is allowed to exceed limits deliberately, e.g. a support case); failures are
+    /// logged, never thrown, so the DB-level override always succeeds regardless of Mollie.
+    /// </summary>
+    public async Task<bool> TrySyncPlanToMollieAsync(Guid tenantId)
+    {
+        var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (sub == null || string.IsNullOrEmpty(sub.MollieSubscriptionId))
+            return false;
+
+        return await TryUpdateMollieSubscriptionAsync(sub, PlanLimits.Get(sub.Plan), sub.Interval);
+    }
+
+    private async Task<bool> TryUpdateMollieSubscriptionAsync(Subscription sub, PlanLimits.Limits limits, SubscriptionInterval interval)
+    {
+        try
+        {
+            await _mollie.UpdateSubscriptionAsync(
+                sub.MollieCustomerId!, sub.MollieSubscriptionId!, interval.PriceFor(limits), "EUR", interval.ToMollieInterval(),
+                $"GentleBook {limits.DisplayName}-Abonnement");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Mollie subscription PATCH failed for Subscription {SubscriptionId}", sub.Id);
+            return false;
+        }
     }
 
     [AutomaticRetry(Attempts = 5, DelaysInSeconds = new[] { 60, 300, 900, 3600, 3600 })]

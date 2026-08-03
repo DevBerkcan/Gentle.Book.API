@@ -128,6 +128,27 @@ public class MollieClient
         var res = await _http.SendAsync(req, ct);
         res.EnsureSuccessStatusCode();
     }
+
+    // Changes amount/interval/description on an EXISTING subscription — no new SEPA mandate,
+    // no cancellation. Mollie applies the new amount starting from the next scheduled charge.
+    public async Task<MollieSubscription> UpdateSubscriptionAsync(
+        string customerId, string subscriptionId, decimal amount, string currency, string interval,
+        string description, CancellationToken ct = default)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Patch, $"customers/{customerId}/subscriptions/{subscriptionId}")
+        {
+            Content = JsonContent.Create(new
+            {
+                amount = new { currency, value = amount.ToString("F2") },
+                interval,
+                description
+            })
+        };
+        Authorize(req);
+        var res = await _http.SendAsync(req, ct);
+        res.EnsureSuccessStatusCode();
+        return (await res.Content.ReadFromJsonAsync<MollieSubscription>(cancellationToken: ct))!;
+    }
 }
 
 // ── Minimal DTOs — only the fields GentleBook actually consumes ─────────────
