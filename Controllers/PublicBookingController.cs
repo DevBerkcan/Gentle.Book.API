@@ -67,6 +67,29 @@ public class PublicBookingController : ControllerBase
         });
     }
 
+    // ── Reviews ───────────────────────────────────────────────
+
+    /// <summary>Average rating + count of published reviews, shown on the booking page if any exist.</summary>
+    [HttpGet("reviews")]
+    public async Task<IActionResult> GetPublishedReviews(string slug)
+    {
+        var (tenantId, found) = await ResolveTenant(slug);
+        if (!found) return NotFound(new { message = "Booking system not found." });
+
+        var published = await _db.Reviews
+            .Where(r => r.TenantId == tenantId && r.IsPublished)
+            .ToListAsync();
+
+        if (published.Count == 0)
+            return Ok(new { count = 0, averageRating = (double?)null });
+
+        return Ok(new
+        {
+            count = published.Count,
+            averageRating = Math.Round(published.Average(r => r.Rating), 1),
+        });
+    }
+
     // ── Services ──────────────────────────────────────────────
 
     /// <summary>Returns active services for the booking form.</summary>

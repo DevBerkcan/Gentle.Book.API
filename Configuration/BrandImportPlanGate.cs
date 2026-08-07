@@ -21,6 +21,12 @@ public static class BrandImportPlanGate
     // Repeated/re-analysis + change detection: Agency (Business) only.
     private static readonly SubscriptionPlan ReanalysisRequiredPlan = SubscriptionPlan.Agency;
 
+    // LLM-based services/pricing extraction: same threshold as base analysis today — one analyze
+    // call covers Branding + Services + Links, no extra tier hurdle. Kept as its own gate (rather
+    // than reusing ValidateAnalysisForPlan) so the threshold can be raised independently later
+    // without touching the base branding-analysis gate.
+    private static readonly SubscriptionPlan ContentExtractionRequiredPlan = SubscriptionPlan.Professional;
+
     private static int Rank(SubscriptionPlan plan) => plan switch
     {
         SubscriptionPlan.Professional => 1,
@@ -33,4 +39,7 @@ public static class BrandImportPlanGate
 
     public static string? ValidateReanalysisForPlan(SubscriptionPlan tenantPlan) =>
         Rank(tenantPlan) >= Rank(ReanalysisRequiredPlan) ? null : PlanLimits.Get(ReanalysisRequiredPlan).DisplayName;
+
+    public static string? ValidateContentExtractionForPlan(SubscriptionPlan tenantPlan) =>
+        Rank(tenantPlan) >= Rank(ContentExtractionRequiredPlan) ? null : PlanLimits.Get(ContentExtractionRequiredPlan).DisplayName;
 }

@@ -11,6 +11,16 @@ namespace GentleBook.Api.Services.BrandImport;
 public interface IHtmlBrandExtractor
 {
     Task<BrandExtractionResult> ExtractAsync(string html, Uri pageUrl, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Best-effort guess at a linked "pricing/services" page (matched by anchor text/href against
+    /// a small keyword list) — real price lists frequently live on a subpage rather than the
+    /// homepage. Returns null when no plausible candidate is found; never throws.
+    /// </summary>
+    string? FindPricingPageUrl(string html, Uri pageUrl);
+
+    /// <summary>Strips script/style/nav/footer noise and returns the page's visible text, for feeding to the service-list LLM extractor.</summary>
+    string ExtractVisibleText(string html);
 }
 
 public sealed class HtmlBrandExtractor : IHtmlBrandExtractor
@@ -189,6 +199,51 @@ public sealed class HtmlBrandExtractor : IHtmlBrandExtractor
             result.Warnings.Add("no_fonts_detected");
 
         return result;
+    }
+
+    private static readonly string[] PricingPageKeywords =
+    {
+        "preise", "preisliste", "leistungen", "behandlungen", "service", "services", "pricing", "treatments",
+    };
+
+    public string? FindPricingPageUrl(string html, Uri pageUrl)
+    {
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        var candidates = (doc.DocumentNode.SelectNodes("//a[@href]") ?? new HtmlNodeCollection(null))
+            .Select(a => (Href: a.GetAttributeValue("href", ""), Text: Clean(a.InnerText) ?? ""))
+            .Where(a => !string.IsNullOrWhiteSpace(a.Href) && !a.Href.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) && !a.Href.StartsWith("tel:", StringComparison.OrdinalIgnoreCase));
+
+        foreach (var keyword in PricingPageKeywords)
+        {
+            var match = candidates.FirstOrDefault(a =>
+                a.Text.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+                a.Href.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+
+            if (match.Href == null) continue;
+
+            var resolved = ResolveUrl(pageUrl, match.Href);
+            if (Uri.TryCreate(resolved, UriKind.Absolute, out var resolvedUri) &&
+                string.Equals(resolvedUri.Host, pageUrl.Host, StringComparison.OrdinalIgnoreCase) &&
+                (resolvedUri.Scheme == Uri.UriSchemeHttp || resolvedUri.Scheme == Uri.UriSchemeHttps))
+                return resolvedUri.ToString();
+        }
+
+        return null;
+    }
+
+    public string ExtractVisibleText(string html)
+    {
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
+
+        foreach (var noise in doc.DocumentNode.SelectNodes("//script|//style|//noscript") ?? new HtmlNodeCollection(null))
+            noise.Remove();
+
+        var body = doc.DocumentNode.SelectSingleNode("//body") ?? doc.DocumentNode;
+        var text = System.Net.WebUtility.HtmlDecode(body.InnerText);
+        return Regex.Replace(text, @"\s+", " ").Trim();
     }
 
     private static void ExtractJsonLd(HtmlNode root, Uri pageUrl, BrandExtractionResult result)

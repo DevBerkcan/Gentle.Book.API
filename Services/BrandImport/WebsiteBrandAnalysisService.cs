@@ -6,6 +6,7 @@
 // Split into CreateJobAsync (fast, called from the HTTP request) and ProcessJobAsync (slow,
 // called from a Hangfire background job) so website analysis never blocks the admin's request.
 using System.Text.Json;
+using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -36,6 +37,7 @@ public sealed class WebsiteBrandAnalysisService : IWebsiteBrandAnalysisService
     private readonly ISafeWebsiteFetcher _fetcher;
     private readonly IHtmlBrandExtractor _extractor;
     private readonly IBrandAiAnalyzer _analyzer;
+    private readonly IServiceListExtractor _serviceExtractor;
     private readonly ILogger<WebsiteBrandAnalysisService> _logger;
 
     public WebsiteBrandAnalysisService(
@@ -44,6 +46,7 @@ public sealed class WebsiteBrandAnalysisService : IWebsiteBrandAnalysisService
         ISafeWebsiteFetcher fetcher,
         IHtmlBrandExtractor extractor,
         IBrandAiAnalyzer analyzer,
+        IServiceListExtractor serviceExtractor,
         ILogger<WebsiteBrandAnalysisService> logger)
     {
         _db = db;
@@ -51,6 +54,7 @@ public sealed class WebsiteBrandAnalysisService : IWebsiteBrandAnalysisService
         _fetcher = fetcher;
         _extractor = extractor;
         _analyzer = analyzer;
+        _serviceExtractor = serviceExtractor;
         _logger = logger;
     }
 
@@ -126,6 +130,38 @@ public sealed class WebsiteBrandAnalysisService : IWebsiteBrandAnalysisService
 
         job.Status = BrandImportJobStatus.Analyzing;
         await _db.SaveChangesAsync(cancellationToken);
+
+        // Services/pricing extraction is best-effort and plan-gated separately from base
+        // branding analysis (BrandImportPlanGate.ValidateContentExtractionForPlan) — a tenant
+        // below that threshold, a missing AI key, or any extraction failure all degrade to an
+        // empty Services list rather than failing the job; Branding/Links are unaffected.
+        var tenantPlan = await _db.Subscriptions
+            .Where(s => s.TenantId == job.TenantId)
+            .Select(s => (SubscriptionPlan?)s.Plan)
+            .FirstOrDefaultAsync(cancellationToken) ?? SubscriptionPlan.Trial;
+
+        if (BrandImportPlanGate.ValidateContentExtractionForPlan(tenantPlan) == null)
+        {
+            try
+            {
+                var pageText = _extractor.ExtractVisibleText(fetch.Body);
+
+                var pricingPageUrl = _extractor.FindPricingPageUrl(fetch.Body, fetch.FinalUri);
+                if (pricingPageUrl != null && Uri.TryCreate(pricingPageUrl, UriKind.Absolute, out var pricingUri))
+                {
+                    var pricingFetch = await _fetcher.FetchAsync(
+                        pricingUri, new[] { "text/html", "application/xhtml+xml" }, MaxHtmlBytes, MaxRedirects, FetchTimeout, cancellationToken);
+                    if (pricingFetch.Success && pricingFetch.Body != null)
+                        pageText = pageText + "\n\n" + _extractor.ExtractVisibleText(pricingFetch.Body);
+                }
+
+                extraction.Content.Services = await _serviceExtractor.ExtractAsync(pageText, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation(ex, "Brand import service extraction skipped for job {JobId} — continuing with Branding/Links only.", job.Id);
+            }
+        }
 
         BrandAnalysisOutput analysis;
         try

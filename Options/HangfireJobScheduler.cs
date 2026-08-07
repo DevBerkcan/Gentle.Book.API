@@ -48,6 +48,27 @@ namespace GentleBook.Api.Options
                 s => s.MarkNoShowsAsync(),
                 Cron.Hourly());
 
+            // Hourly — Agency only: mark bookings whose end time + grace period has passed as
+            // Completed, then award loyalty points for each.
+            _recurringJobManager.AddOrUpdate<BookingCompletionService>(
+                "auto-complete-bookings",
+                s => s.AutoCompleteBookingsAsync(),
+                Cron.Hourly());
+
+            // Every 2 hours — Agency only: send "how was your appointment" emails for bookings
+            // completed since the last run.
+            _recurringJobManager.AddOrUpdate<ReviewRequestService>(
+                "send-review-requests",
+                s => s.SendReviewRequestsAsync(),
+                "0 */2 * * *");
+
+            // Daily 07:00 UTC — Agency only: team-report digest per TenantSettings.DigestFrequency
+            // (Daily tenants every run, Weekly tenants only on Mondays).
+            _recurringJobManager.AddOrUpdate<AdminDigestService>(
+                "send-admin-digests",
+                s => s.SendDigestsAsync(),
+                Cron.Daily(7, 0));
+
             // Hourly — safety net for missed Mollie webhooks (re-polls Mollie directly)
             _recurringJobManager.AddOrUpdate<MollieReconciliationJob>(
                 "mollie-reconciliation",

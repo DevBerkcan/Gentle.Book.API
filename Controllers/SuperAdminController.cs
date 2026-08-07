@@ -646,6 +646,48 @@ public class SuperAdminController : ControllerBase
         return Ok(new { subscription.TrialEndsAt, subscription.TrialDaysRemaining });
     }
 
+    // ── Eigene Domain (Agency) ───────────────────────────────────────
+    // No automatic Vercel provisioning yet — a SuperAdmin adds the domain by hand in the Vercel
+    // dashboard, then confirms it here. See Configuration/AgencyFeatureGate.cs and the
+    // Agency-Ausbau-Runde-2 plan for why this stops short of a live API call.
+    [HttpGet("tenants/{id:guid}/domain")]
+    public async Task<IActionResult> GetTenantDomain(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var settings = await _db.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == id);
+        if (settings == null) return NotFound();
+
+        return Ok(new
+        {
+            domain = settings.CustomDomain,
+            status = settings.CustomDomainStatus,
+            requestedAt = settings.CustomDomainRequestedAt,
+        });
+    }
+
+    [HttpPost("tenants/{id:guid}/domain/status")]
+    public async Task<IActionResult> SetTenantDomainStatus(Guid id, [FromBody] SetDomainStatusDto dto)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        if (dto.Status is not ("Verified" or "Failed" or "PendingVerification"))
+            return BadRequest(new { message = "Status muss Verified, Failed oder PendingVerification sein." });
+
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == id);
+        if (settings == null) return NotFound();
+        if (string.IsNullOrWhiteSpace(settings.CustomDomain))
+            return BadRequest(new { message = "Für diesen Tenant wurde keine Domain beantragt." });
+
+        settings.CustomDomainStatus = dto.Status;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        await _audit.LogAsync("custom_domain.status_changed", "TenantSettings", settings.Id.ToString(),
+            $"{settings.CustomDomain} → {dto.Status}", id);
+
+        return Ok(new { domain = settings.CustomDomain, status = settings.CustomDomainStatus });
+    }
+
     /// <summary>Upgrade or change a tenant's subscription plan.</summary>
     [HttpPatch("tenants/{id:guid}/plan")]
     public async Task<IActionResult> ChangePlan(Guid id, [FromBody] ChangePlanDto dto)
@@ -1713,6 +1755,7 @@ public record UpdateTenantSettingsDto(
 
 public record CreateTenantUserDto(string Email, string? Password, string FirstName, string LastName, bool? SendWelcomeEmail = true);
 public record ExtendTrialDto(int Days);
+public record SetDomainStatusDto(string Status);
 public record ActivateRequestDto(string? Note, bool ConfirmOverrideMollie = false, decimal? NegotiatedMonthlyPrice = null, decimal? NegotiatedAnnualPrice = null);
 public record ChangePlanDto(string Plan, string? Interval = null, decimal? NegotiatedMonthlyPrice = null, decimal? NegotiatedAnnualPrice = null);
 public record UpdatePlanPriceDto(decimal MonthlyPrice, decimal AnnualPrice);

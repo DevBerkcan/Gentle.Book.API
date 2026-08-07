@@ -42,7 +42,10 @@ public class TenantController : ControllerBase
         _apiKeyService = apiKeyService;
     }
 
-    private async Task<IActionResult?> RequireAgencyPlanAsync()
+    // featureLabel/featureKey default to the original api-keys wording so every existing call
+    // site (RequireAgencyPlanAsync() with no args) keeps its exact current behavior; new Agency
+    // features just pass their own label/key instead of duplicating this whole method.
+    private async Task<IActionResult?> RequireAgencyPlanAsync(string featureLabel = "Der API-Zugang", string featureKey = "api_access")
     {
         var tenantId = _tenantContext.TenantId;
         if (!tenantId.HasValue) return Unauthorized(new { message = "Kein Tenant im Token" });
@@ -59,8 +62,8 @@ public class TenantController : ControllerBase
             // established upsell-banner pattern reads message/feature/currentPlan/requiredPlan.
             return StatusCode(402, new
             {
-                message = $"Der API-Zugang ist dem {requiredPlanName}-Plan vorbehalten.",
-                feature = "api_access",
+                message = $"{featureLabel} ist dem {requiredPlanName}-Plan vorbehalten.",
+                feature = featureKey,
                 upgrade = true,
                 currentPlan = PlanLimits.Get(currentPlan).DisplayName,
                 requiredPlan = requiredPlanName,
@@ -112,6 +115,168 @@ public class TenantController : ControllerBase
 
         await _audit.LogAsync("api_key.revoked", "ApiKey", id.ToString(), "");
         return Ok(new { message = "Key widerrufen." });
+    }
+
+    // ── GET /api/tenant/domain/resolve ──────────────────────────────
+    // Anonymous on purpose: called from Next.js middleware on every request to a custom domain,
+    // before the visitor has any tenant context of their own, to map Host header → tenant slug.
+    [HttpGet("domain/resolve")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResolveDomain([FromQuery] string host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return NotFound();
+
+        var normalized = host.Trim().ToLowerInvariant();
+        var match = await _db.TenantSettings.AsNoTracking()
+            .Where(s => s.CustomDomain == normalized && s.CustomDomainStatus == "Verified")
+            .Select(s => new { s.TenantId })
+            .FirstOrDefaultAsync();
+        if (match == null) return NotFound();
+
+        var slug = await _db.Tenants.AsNoTracking().Where(t => t.Id == match.TenantId).Select(t => t.Slug).FirstOrDefaultAsync();
+        if (slug == null) return NotFound();
+
+        return Ok(new { slug });
+    }
+
+    // ── GET /api/tenant/domain ──────────────────────────────────────
+    [HttpGet("domain")]
+    public async Task<IActionResult> GetDomain()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+        if (await RequireAgencyPlanAsync("Eine eigene Domain", "custom_domain") is { } deny) return deny;
+
+        var settings = await _db.TenantSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
+        if (settings == null) return NotFound();
+
+        return Ok(new
+        {
+            domain = settings.CustomDomain,
+            status = settings.CustomDomainStatus,
+            requestedAt = settings.CustomDomainRequestedAt,
+        });
+    }
+
+    // ── PUT /api/tenant/domain ──────────────────────────────────────
+    // Only records the request — no automatic Vercel provisioning yet (see plan). A SuperAdmin
+    // adds the domain by hand in the Vercel dashboard and then flips the status via the
+    // SuperAdmin endpoint below.
+    [HttpPut("domain")]
+    public async Task<IActionResult> UpdateDomain([FromBody] UpdateCustomDomainDto dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+        if (await RequireAgencyPlanAsync("Eine eigene Domain", "custom_domain") is { } deny) return deny;
+
+        var domain = dto.Domain?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(domain) || !Uri.CheckHostName(domain).Equals(UriHostNameType.Dns))
+            return BadRequest(new { message = "Bitte eine gültige Domain angeben (z. B. buchung.deinefirma.de)." });
+
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
+        if (settings == null) return NotFound();
+
+        settings.CustomDomain = domain;
+        settings.CustomDomainStatus = "PendingVerification";
+        settings.CustomDomainRequestedAt = DateTime.UtcNow;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        await _audit.LogAsync("custom_domain.requested", "TenantSettings", settings.Id.ToString(), domain);
+
+        return Ok(new { domain = settings.CustomDomain, status = settings.CustomDomainStatus, requestedAt = settings.CustomDomainRequestedAt });
+    }
+
+    // ── DELETE /api/tenant/domain ────────────────────────────────────
+    [HttpDelete("domain")]
+    public async Task<IActionResult> RemoveDomain()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
+        if (settings == null) return NotFound();
+
+        settings.CustomDomain = null;
+        settings.CustomDomainStatus = "None";
+        settings.CustomDomainRequestedAt = null;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        await _audit.LogAsync("custom_domain.removed", "TenantSettings", settings.Id.ToString(), "");
+
+        return Ok(new { message = "Domain entfernt." });
+    }
+
+    // ── GET /api/tenant/digest ───────────────────────────────────────
+    [HttpGet("digest")]
+    public async Task<IActionResult> GetDigestFrequency()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+        if (await RequireAgencyPlanAsync("Team-Reports", "admin_digest") is { } deny) return deny;
+
+        var settings = await _db.TenantSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
+        if (settings == null) return NotFound();
+
+        return Ok(new { frequency = settings.DigestFrequency });
+    }
+
+    // ── PUT /api/tenant/digest ───────────────────────────────────────
+    [HttpPut("digest")]
+    public async Task<IActionResult> UpdateDigestFrequency([FromBody] UpdateDigestFrequencyDto dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+        if (await RequireAgencyPlanAsync("Team-Reports", "admin_digest") is { } deny) return deny;
+
+        if (dto.Frequency is not ("None" or "Daily" or "Weekly"))
+            return BadRequest(new { message = "Ungültige Frequenz. Erlaubt: None, Daily, Weekly." });
+
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
+        if (settings == null) return NotFound();
+
+        settings.DigestFrequency = dto.Frequency;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new { frequency = settings.DigestFrequency });
+    }
+
+    // ── GET /api/tenant/loyalty ───────────────────────────────────────
+    [HttpGet("loyalty")]
+    public async Task<IActionResult> GetLoyaltySettings()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+        if (await RequireAgencyPlanAsync("Treuepunkte", "loyalty_points") is { } deny) return deny;
+
+        var settings = await _db.TenantSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
+        if (settings == null) return NotFound();
+
+        return Ok(new { pointsPerBooking = settings.LoyaltyPointsPerBooking });
+    }
+
+    // ── PUT /api/tenant/loyalty ───────────────────────────────────────
+    [HttpPut("loyalty")]
+    public async Task<IActionResult> UpdateLoyaltySettings([FromBody] UpdateLoyaltySettingsDto dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+        if (await RequireAgencyPlanAsync("Treuepunkte", "loyalty_points") is { } deny) return deny;
+
+        if (dto.PointsPerBooking < 0)
+            return BadRequest(new { message = "Die Punktzahl darf nicht negativ sein." });
+
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
+        if (settings == null) return NotFound();
+
+        settings.LoyaltyPointsPerBooking = dto.PointsPerBooking;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        return Ok(new { pointsPerBooking = settings.LoyaltyPointsPerBooking });
     }
 
     // ── GET /api/tenant/location-admins ───────────────────────────
@@ -1136,6 +1301,9 @@ public record MollieStartRequestDto(
     bool BillingTermsAccepted = false);
 public record ChangeSubscriptionPlanDto(string Plan, string? Interval = null);
 public record CreateApiKeyDto(string Name);
+public record UpdateCustomDomainDto(string Domain);
+public record UpdateDigestFrequencyDto(string Frequency);
+public record UpdateLoyaltySettingsDto(int PointsPerBooking);
 public record InviteLocationAdminDto(string Email, string FirstName, string? LastName = null);
 public record CancelSubscriptionRequestDto(string? Reason);
 

@@ -68,6 +68,14 @@ public class GentleBookDbContext : DbContext
     public DbSet<BrandThemeProposal> BrandThemeProposals { get; set; }
     public DbSet<BrandAssetCandidate> BrandAssetCandidates { get; set; }
 
+    // ── Agency-Ausbau Runde 2 ─────────────────────────────────
+    public DbSet<Review> Reviews { get; set; }
+    public DbSet<LoyaltyPointsTransaction> LoyaltyPointsTransactions { get; set; }
+    public DbSet<IntakeFormField> IntakeFormFields { get; set; }
+    public DbSet<IntakeFormResponse> IntakeFormResponses { get; set; }
+    public DbSet<IntakeFormAnswer> IntakeFormAnswers { get; set; }
+    public DbSet<Voucher> Vouchers { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -105,6 +113,12 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<BrandImportResult>().HasQueryFilter(r => CurrentTenantId == null || r.TenantId == CurrentTenantId);
         modelBuilder.Entity<BrandThemeProposal>().HasQueryFilter(p => CurrentTenantId == null || p.TenantId == CurrentTenantId);
         modelBuilder.Entity<BrandAssetCandidate>().HasQueryFilter(a => CurrentTenantId == null || a.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Review>().HasQueryFilter(r => CurrentTenantId == null || r.TenantId == CurrentTenantId);
+        modelBuilder.Entity<LoyaltyPointsTransaction>().HasQueryFilter(l => CurrentTenantId == null || l.TenantId == CurrentTenantId);
+        modelBuilder.Entity<IntakeFormField>().HasQueryFilter(f => CurrentTenantId == null || f.TenantId == CurrentTenantId);
+        modelBuilder.Entity<IntakeFormResponse>().HasQueryFilter(r => CurrentTenantId == null || r.TenantId == CurrentTenantId);
+        modelBuilder.Entity<IntakeFormAnswer>().HasQueryFilter(a => CurrentTenantId == null || a.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Voucher>().HasQueryFilter(v => CurrentTenantId == null || v.TenantId == CurrentTenantId);
 
         modelBuilder.Entity<BrandImportJob>(entity =>
         {
@@ -143,6 +157,67 @@ public class GentleBookDbContext : DbContext
             entity.Property(w => w.ReservationToken).HasMaxLength(128);
             entity.HasIndex(w => new { w.TenantId, w.Status, w.PreferredDate });
             entity.HasIndex(w => w.ReservationToken);
+        });
+
+        // ── Agency-Ausbau Runde 2 ──────────────────────────────
+        // Restrict (not Cascade) on every FK here except the direct TenantId one: Tenant already
+        // cascades to Booking/Customer/IntakeFormResponse/IntakeFormField, so a second cascade
+        // path into the same tables would hit SQL Server's "multiple cascade paths" error 1785
+        // (same fix already applied earlier for TrialAccessInvitations/Booking.LocationId/etc.).
+        modelBuilder.Entity<Review>(entity =>
+        {
+            entity.HasOne(r => r.Tenant).WithMany().HasForeignKey(r => r.TenantId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(r => r.Booking).WithMany().HasForeignKey(r => r.BookingId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(r => r.Customer).WithMany().HasForeignKey(r => r.CustomerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(r => r.BookingId).IsUnique(); // at most one review per booking
+            entity.HasIndex(r => new { r.TenantId, r.IsPublished });
+        });
+
+        modelBuilder.Entity<LoyaltyPointsTransaction>(entity =>
+        {
+            entity.Property(l => l.Reason).IsRequired().HasMaxLength(50);
+            entity.HasOne(l => l.Tenant).WithMany().HasForeignKey(l => l.TenantId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(l => l.Customer).WithMany().HasForeignKey(l => l.CustomerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(l => l.Booking).WithMany().HasForeignKey(l => l.BookingId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(l => new { l.TenantId, l.CustomerId });
+            // One automatic award per booking — the partial-unique-ish guard is enforced in
+            // LoyaltyService itself (checks for an existing BookingId row before inserting) since
+            // BookingId is nullable (manual adjustments have none) and SQL Server unique indexes
+            // treat NULLs as distinct anyway, so a DB-level unique index wouldn't fully cover it.
+        });
+
+        modelBuilder.Entity<IntakeFormField>(entity =>
+        {
+            entity.Property(f => f.Label).IsRequired().HasMaxLength(200);
+            entity.HasOne(f => f.Tenant).WithMany().HasForeignKey(f => f.TenantId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(f => new { f.TenantId, f.DisplayOrder });
+        });
+
+        modelBuilder.Entity<IntakeFormResponse>(entity =>
+        {
+            entity.HasOne(r => r.Tenant).WithMany().HasForeignKey(r => r.TenantId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(r => r.Booking).WithMany().HasForeignKey(r => r.BookingId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(r => r.BookingId).IsUnique(); // at most one response per booking
+        });
+
+        modelBuilder.Entity<IntakeFormAnswer>(entity =>
+        {
+            entity.Property(a => a.Value).IsRequired().HasMaxLength(2000);
+            entity.HasOne(a => a.Tenant).WithMany().HasForeignKey(a => a.TenantId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(a => a.Response).WithMany(r => r.Answers).HasForeignKey(a => a.ResponseId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(a => a.Field).WithMany(f => f.Answers).HasForeignKey(a => a.FieldId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(a => a.ResponseId);
+        });
+
+        modelBuilder.Entity<Voucher>(entity =>
+        {
+            entity.Property(v => v.Code).IsRequired().HasMaxLength(30);
+            entity.Property(v => v.Note).HasMaxLength(500);
+            entity.Property(v => v.InitialAmount).HasPrecision(10, 2);
+            entity.Property(v => v.RemainingAmount).HasPrecision(10, 2);
+            entity.HasOne(v => v.Tenant).WithMany().HasForeignKey(v => v.TenantId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(v => v.Customer).WithMany().HasForeignKey(v => v.CustomerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(v => new { v.TenantId, v.Code }).IsUnique();
         });
 
         // ── AuditLog (kein Tenant-Filter: SuperAdmin liest plattformweit,

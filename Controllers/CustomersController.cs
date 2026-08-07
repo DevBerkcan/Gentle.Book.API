@@ -1,4 +1,7 @@
-﻿using GentleBook.Api.DTOs;
+﻿using GentleBook.Api.Configuration;
+using GentleBook.Api.Data;
+using GentleBook.Api.Data.Entities;
+using GentleBook.Api.DTOs;
 using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -12,14 +15,90 @@ namespace GentleBook.Api.Controllers;
 public class CustomersController : ControllerBase
 {
     private readonly CustomerService _customerService;
+    private readonly GentleBookDbContext _db;
+    private readonly ITenantContext _tenantContext;
+    private readonly LoyaltyService _loyaltyService;
     private readonly ILogger<CustomersController> _logger;
 
     public CustomersController(
         CustomerService customerService,
+        GentleBookDbContext db,
+        ITenantContext tenantContext,
+        LoyaltyService loyaltyService,
         ILogger<CustomersController> logger)
     {
         _customerService = customerService;
+        _db = db;
+        _tenantContext = tenantContext;
+        _loyaltyService = loyaltyService;
         _logger = logger;
+    }
+
+    private async Task<IActionResult?> RequireAgencyPlanAsync()
+    {
+        if (_tenantContext.TenantId is not { } tenantId) return Unauthorized(new { message = "Kein Tenant im Token" });
+
+        var currentPlan = await _db.Subscriptions
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => (SubscriptionPlan?)s.Plan)
+            .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
+
+        var requiredPlanName = AgencyFeatureGate.ValidateForPlan(currentPlan);
+        if (requiredPlanName != null)
+        {
+            return StatusCode(402, new
+            {
+                message = $"Treuepunkte sind dem {requiredPlanName}-Plan vorbehalten.",
+                feature = "loyalty_points",
+                upgrade = true,
+                currentPlan = PlanLimits.Get(currentPlan).DisplayName,
+                requiredPlan = requiredPlanName,
+            });
+        }
+        return null;
+    }
+
+    /// <summary>Point balance + ledger history for a customer (Agency).</summary>
+    [HttpGet("{id:guid}/loyalty")]
+    public async Task<IActionResult> GetLoyalty(Guid id)
+    {
+        if (await RequireAgencyPlanAsync() is { } deny) return deny;
+
+        var customer = await _db.Customers.FirstOrDefaultAsync(c => c.Id == id);
+        if (customer == null) return NotFound(new { message = "Kunde nicht gefunden" });
+
+        var history = await _db.LoyaltyPointsTransactions
+            .Where(l => l.CustomerId == id)
+            .OrderByDescending(l => l.CreatedAt)
+            .Take(50)
+            .Select(l => new { l.Id, l.Points, l.Reason, l.CreatedAt })
+            .ToListAsync();
+
+        return Ok(new { points = customer.LoyaltyPoints, history });
+    }
+
+    /// <summary>Manual staff point adjustment, e.g. in-person redemption (Agency, TenantAdmin/SuperAdmin only).</summary>
+    [HttpPost("{id:guid}/loyalty/adjust")]
+    public async Task<IActionResult> AdjustLoyalty(Guid id, [FromBody] AdjustLoyaltyRequestDto dto)
+    {
+        if (!IsAdminRequest()) return Forbid();
+        if (await RequireAgencyPlanAsync() is { } deny) return deny;
+        if (dto.Points == 0) return BadRequest(new { message = "Die Punktzahl darf nicht 0 sein." });
+
+        try
+        {
+            var newBalance = await _loyaltyService.AdjustPointsAsync(
+                _tenantContext.TenantId!.Value, id, dto.Points, string.IsNullOrWhiteSpace(dto.Reason) ? "manual_redemption" : dto.Reason);
+            return Ok(new { points = newBalance });
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────
@@ -199,3 +278,5 @@ public class CustomersController : ControllerBase
         return Ok(results);
     }
 }
+
+public record AdjustLoyaltyRequestDto(int Points, string? Reason);

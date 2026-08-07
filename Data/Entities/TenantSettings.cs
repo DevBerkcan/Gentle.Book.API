@@ -63,6 +63,19 @@ public class TenantSettings
     public DateTime? LastBrandAnalysisOn { get; set; }
     public string? LastBrandAnalysisStatus { get; set; } // mirrors BrandImportJobStatus as string
 
+    // ── Treuepunkte (Agency) ───────────────────────────────────
+    public int LoyaltyPointsPerBooking { get; set; } = 0; // 0 = Feature deaktiviert
+
+    // ── Team-Reports (Agency) ──────────────────────────────────
+    public string DigestFrequency { get; set; } = "None"; // "None" | "Daily" | "Weekly"
+
+    // ── Eigene Domain (Agency) ─────────────────────────────────
+    // No automatic Vercel provisioning yet (see plan) — SuperAdmin flips CustomDomainStatus to
+    // "Verified" by hand once the domain has been added in the Vercel dashboard.
+    public string? CustomDomain { get; set; }
+    public string CustomDomainStatus { get; set; } = "None"; // "None" | "PendingVerification" | "Verified" | "Failed"
+    public DateTime? CustomDomainRequestedAt { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 

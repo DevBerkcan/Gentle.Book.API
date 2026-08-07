@@ -21,10 +21,14 @@ public class Booking
     // Kommunikation
     public DateTime? ConfirmationSentAt { get; set; }
     public DateTime? ReminderSentAt { get; set; }
+    public DateTime? ReviewRequestSentAt { get; set; }
 
     // Notizen
     public string? CustomerNotes { get; set; }
     public string? AdminNotes { get; set; }
+
+    /// <summary>Informational only — the Voucher.Code redeemed against this booking, if any (no FK/nav, same soft-reference shortcut as BrandImportJob.CreatedBy). No payment processing happens here.</summary>
+    public string? RedeemedVoucherCode { get; set; }
 
     // Timestamps
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

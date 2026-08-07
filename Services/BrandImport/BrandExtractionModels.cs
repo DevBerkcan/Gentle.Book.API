@@ -22,8 +22,15 @@ public sealed class ExtractedContent
     public string? Address { get; set; }
     public string? OpeningHours { get; set; }
     public List<string> SocialLinks { get; set; } = new();
-    public List<string> Services { get; set; } = new();
+    public List<DetectedServiceDto> Services { get; set; } = new();
 }
+
+/// <summary>
+/// One bookable service/treatment as read off a tenant's existing website by
+/// <see cref="IServiceListExtractor"/>. Price/duration are null whenever the source text didn't
+/// state them — callers must not invent values, only apply sane fallbacks at import time.
+/// </summary>
+public sealed record DetectedServiceDto(string Name, decimal? PriceAmount, string? Currency, int? DurationMinutes);
 
 public sealed class ExtractedComponentStyle
 {

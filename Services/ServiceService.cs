@@ -521,10 +521,15 @@ public class ServiceService
                 item.TenantId == tenantId && item.IsDefault && item.IsActive);
         if (dto.LocationId.HasValue && location == null)
             throw new ArgumentException("Standort nicht gefunden");
-        var tenantCurrency = location?.Currency ?? await _context.TenantSettings
-            .Where(s => s.TenantId == tenantId)
-            .Select(s => s.DefaultCurrency)
-            .FirstOrDefaultAsync() ?? "EUR";
+        // dto.Currency was previously accepted but silently discarded — every service ended up on
+        // the location/tenant default regardless of what the caller asked for. Now respected when
+        // explicitly provided (e.g. brand-import services carrying a detected non-default currency).
+        var tenantCurrency = !string.IsNullOrWhiteSpace(dto.Currency)
+            ? dto.Currency
+            : location?.Currency ?? await _context.TenantSettings
+                .Where(s => s.TenantId == tenantId)
+                .Select(s => s.DefaultCurrency)
+                .FirstOrDefaultAsync() ?? "EUR";
 
         // Validate category
         var category = await _context.ServiceCategories.FirstOrDefaultAsync(c => c.Id == dto.CategoryId && c.TenantId == tenantId);
@@ -603,10 +608,15 @@ public class ServiceService
                 item.TenantId == tenantId && item.IsDefault && item.IsActive);
         if (dto.LocationId.HasValue && location == null)
             throw new ArgumentException("Standort nicht gefunden");
-        var tenantCurrency = location?.Currency ?? await _context.TenantSettings
-            .Where(s => s.TenantId == tenantId)
-            .Select(s => s.DefaultCurrency)
-            .FirstOrDefaultAsync() ?? "EUR";
+        // dto.Currency was previously accepted but silently discarded — every service ended up on
+        // the location/tenant default regardless of what the caller asked for. Now respected when
+        // explicitly provided (e.g. brand-import services carrying a detected non-default currency).
+        var tenantCurrency = !string.IsNullOrWhiteSpace(dto.Currency)
+            ? dto.Currency
+            : location?.Currency ?? await _context.TenantSettings
+                .Where(s => s.TenantId == tenantId)
+                .Select(s => s.DefaultCurrency)
+                .FirstOrDefaultAsync() ?? "EUR";
 
         var service = await _context.Services
             .Include(s => s.ServiceEmployees)

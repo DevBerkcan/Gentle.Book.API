@@ -10,12 +10,14 @@ public class AdminService
     private readonly GentleBookDbContext _context;
     private readonly ILogger<AdminService> _logger;
     private readonly EmailService _emailService;
+    private readonly LoyaltyService _loyaltyService;
 
-    public AdminService(GentleBookDbContext context, ILogger<AdminService> logger, EmailService emailService)
+    public AdminService(GentleBookDbContext context, ILogger<AdminService> logger, EmailService emailService, LoyaltyService loyaltyService)
     {
         _context = context;
         _logger = logger;
         _emailService = emailService;
+        _loyaltyService = loyaltyService;
     }
 
     public async Task<DashboardOverviewDto> GetDashboardOverviewAsync(Guid? employeeId = null)
@@ -360,6 +362,12 @@ public class AdminService
             booking.CancelledAt = DateTime.UtcNow;
 
         await _context.SaveChangesAsync();
+
+        // Same trigger point as the automatic completion job (BookingCompletionService) — a
+        // customer earns points whether staff completed the booking by hand or it auto-completed.
+        // No-ops for non-Agency tenants / disabled feature (see LoyaltyService).
+        if (newStatus == BookingStatus.Completed && oldStatus != BookingStatus.Completed)
+            await _loyaltyService.AwardPointsForBookingAsync(booking.Id);
 
         _logger.LogInformation(
             "Booking {BookingId} status updated from {OldStatus} to {NewStatus} by admin",

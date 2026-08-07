@@ -200,8 +200,13 @@ builder.Services.AddScoped<BlockedTimeSlotService>();
 builder.Services.AddScoped<AvailabilityService>();
 builder.Services.AddScoped<BookingService>();
 builder.Services.AddScoped<WaitlistService>();
+builder.Services.AddScoped<LoyaltyService>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddScoped<ReminderService>();
+builder.Services.AddScoped<BookingCompletionService>();
+builder.Services.AddScoped<ReviewRequestService>();
+builder.Services.AddScoped<AdminDigestService>();
+builder.Services.AddScoped<VoucherService>();
 builder.Services.AddScoped<ManualBookingService>();
 builder.Services.AddScoped<EmployeeService>();
 builder.Services.AddScoped<CustomerService>();
@@ -235,6 +240,9 @@ builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IHtmlBrandExtract
 // No real AI provider is wired in yet (see IAiProviderAdapter above) — DeterministicBrandAnalyzer
 // is the always-available, no-AI fallback path described in the feature spec.
 builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IBrandAiAnalyzer, GentleBook.Api.Services.BrandImport.DeterministicBrandAnalyzer>();
+// Services/pricing extraction reuses the same platform-wide OpenAiClient as IAiProviderAdapter —
+// it self-skips (empty list) when Ai:ApiKey is unset, so no conditional registration needed here.
+builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IServiceListExtractor, GentleBook.Api.Services.BrandImport.LlmServiceListExtractor>();
 builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IWebsiteBrandAnalysisService, GentleBook.Api.Services.BrandImport.WebsiteBrandAnalysisService>();
 builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IBrandImportApplyService, GentleBook.Api.Services.BrandImport.BrandImportApplyService>();
 builder.Services.AddHttpContextAccessor();

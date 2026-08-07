@@ -13,4 +13,6 @@ public record ApplyBrandProposalRequest(
     bool ApplyTypography,
     bool ApplyDescription,
     bool ApplySocialLinks,
-    Guid? SelectedLogoAssetId);
+    Guid? SelectedLogoAssetId,
+    bool ApplyServices = false,
+    List<string>? SelectedServiceNames = null);

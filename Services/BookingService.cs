@@ -253,6 +253,21 @@ public class BookingService
     }
 
     /// <summary>
+    /// Loyalty point balance per tenant this email is a customer of (Agency tenants only —
+    /// LoyaltyService never awards points elsewhere, so other tenants would just show 0).
+    /// Same cross-tenant-by-email lookup as GetBookingsByEmailAsync above.
+    /// </summary>
+    public async Task<List<(string TenantName, int Points)>> GetLoyaltyBalancesByEmailAsync(string email)
+    {
+        var customers = await _context.Customers
+            .Include(c => c.Tenant)
+            .Where(c => c.Email != null && c.Email.ToLower() == email.ToLower() && c.LoyaltyPoints > 0)
+            .ToListAsync();
+
+        return customers.Select(c => (c.Tenant.Name, c.LoyaltyPoints)).ToList();
+    }
+
+    /// <summary>
     /// Get all bookings.
     /// If employeeId is provided, only that employee's bookings are returned.
     /// If null, all bookings are returned (admin view).

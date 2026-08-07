@@ -12,17 +12,20 @@ public class ManualBookingService
     private readonly ILogger<ManualBookingService> _logger;
     private readonly EmailService _emailService;
     private readonly ITenantContext _tenantContext;
+    private readonly VoucherService _voucherService;
 
     public ManualBookingService(
         GentleBookDbContext context,
         ILogger<ManualBookingService> logger,
         EmailService emailService,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext,
+        VoucherService voucherService)
     {
         _context = context;
         _logger = logger;
         _emailService = emailService;
         _tenantContext = tenantContext;
+        _voucherService = voucherService;
     }
 
     public async Task<ManualBookingResponseDto> CreateManualBookingAsync(CreateManualBookingDto dto)
@@ -124,6 +127,15 @@ public class ManualBookingService
         customer.TotalBookings++;
         customer.LastVisit = DateTime.UtcNow;
         customer.UpdatedAt = DateTime.UtcNow;
+
+        // Voucher redemption happens inside the same transaction as the booking — if the code
+        // is invalid/expired/exhausted, the whole manual booking creation rolls back rather than
+        // leaving a booking with a silently-failed "paid by voucher" note.
+        if (!string.IsNullOrWhiteSpace(dto.VoucherCode))
+        {
+            var voucher = await _voucherService.RedeemAsync(tenantId, dto.VoucherCode, service.Price);
+            booking.RedeemedVoucherCode = voucher.Code;
+        }
 
         await _context.SaveChangesAsync();
         await tx.CommitAsync();

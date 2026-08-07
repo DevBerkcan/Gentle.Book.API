@@ -2,6 +2,7 @@ using System.Reflection;
 using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
+using GentleBook.Api.DTOs;
 using GentleBook.Api.Options;
 using MailKit.Net.Smtp;
 using MailKit.Security;
@@ -342,6 +343,231 @@ public class EmailService
 
         _context.EmailLogs.Add(emailLog);
         await _context.SaveChangesAsync();
+    }
+
+    /// <summary>Same HMAC-signed token mechanism as the cancel-booking link, just a different action tag.</summary>
+    public string GenerateReviewToken(Guid bookingId) => GenerateActionToken(bookingId, "review");
+
+    /// <summary>Same HMAC-signed token mechanism as the cancel-booking link, just a different action tag.</summary>
+    public string GenerateIntakeFormToken(Guid bookingId) => GenerateActionToken(bookingId, "intake");
+
+    /// <summary>Sent by ReviewRequestService once a booking auto-completes (Agency only). Never re-sent for the same booking (Booking.ReviewRequestSentAt guards that at the caller).</summary>
+    public async Task<bool> SendReviewRequestEmailAsync(Booking booking, Customer customer, Service service, string tenantName, string? tenantLogoUrl, string primaryColor)
+    {
+        if (string.IsNullOrWhiteSpace(customer.Email)) return false;
+
+        var emailLog = new EmailLog
+        {
+            TenantId = booking.TenantId,
+            BookingId = booking.Id,
+            EmailType = EmailType.ReviewRequest,
+            RecipientEmail = customer.Email,
+            Subject = $"Wie war Ihr Termin bei {tenantName}?",
+            Status = EmailStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        try
+        {
+            var reviewUrl = $"{FrontendUrl.TrimEnd('/')}/review/{GenerateReviewToken(booking.Id)}";
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(tenantName, _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(customer.FullName, customer.Email));
+            message.Subject = emailLog.Subject;
+
+            var content = $@"
+                <div class='greeting'>Hallo {customer.FirstName},</div>
+                <p style='color: var(--text-secondary); margin-bottom: 24px;'>
+                    wir hoffen, Ihr Termin „{service.Name}“ bei {tenantName} hat Ihnen gefallen. Wir würden uns sehr
+                    über eine kurze Bewertung freuen — das dauert nur eine Minute.
+                </p>
+                <div class='cancel-section'>
+                    <a href='{reviewUrl}' style='display: inline-block; background: linear-gradient(135deg, {primaryColor} 0%, {DarkenHex(primaryColor)} 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px;'>
+                        Jetzt bewerten
+                    </a>
+                </div>";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = GetBaseEmailTemplate("Wie war Ihr Termin?", content, tenantName, tenantLogoUrl, primaryColor),
+                TextBody = $"Hallo {customer.FirstName},\n\nwir würden uns über eine kurze Bewertung Ihres Termins „{service.Name}“ bei {tenantName} freuen:\n{reviewUrl}",
+            };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            emailLog.Status = EmailStatus.Sent;
+            emailLog.SentAt = DateTime.UtcNow;
+            _logger.LogInformation("Review request email sent to {Email}", customer.Email);
+        }
+        catch (Exception ex)
+        {
+            emailLog.Status = EmailStatus.Failed;
+            emailLog.ErrorMessage = ex.Message;
+            _logger.LogError(ex, "Failed to send review request email to {Email}", customer.Email);
+            _context.EmailLogs.Add(emailLog);
+            await _context.SaveChangesAsync();
+            return false;
+        }
+
+        _context.EmailLogs.Add(emailLog);
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>Daily/weekly team-report digest (Agency). Sent by AdminDigestService, one row per Agency tenant whose TenantSettings.DigestFrequency matches the run.</summary>
+    public async Task<bool> SendAdminDigestEmailAsync(Guid tenantId, string recipientEmail, string tenantName, string? tenantLogoUrl, string primaryColor, string frequencyLabel, DashboardStatisticsDto stats)
+    {
+        if (string.IsNullOrWhiteSpace(recipientEmail)) return false;
+
+        var emailLog = new EmailLog
+        {
+            TenantId = tenantId,
+            EmailType = EmailType.AdminDigest,
+            RecipientEmail = recipientEmail,
+            Subject = $"Dein {frequencyLabel}-Report — {tenantName}",
+            Status = EmailStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(tenantName, _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(tenantName, recipientEmail));
+            message.Subject = emailLog.Subject;
+
+            var revenueRows = string.Join("", stats.RevenueThisMonthByCurrency.Select(kv =>
+                $"<tr><td style='padding: 6px 0; color: var(--text-secondary);'>Umsatz {kv.Key} (Monat)</td><td style='padding: 6px 0; text-align: right; font-weight: 600;'>{kv.Value:N2} {kv.Key}</td></tr>"));
+
+            var topServiceRows = string.Join("", stats.PopularServices.Take(3).Select(s =>
+                $"<tr><td style='padding: 6px 0; color: var(--text-secondary);'>{s.ServiceName}</td><td style='padding: 6px 0; text-align: right; font-weight: 600;'>{s.BookingCount} Buchungen</td></tr>"));
+
+            var content = $@"
+                <div class='greeting'>Hallo,</div>
+                <p style='color: var(--text-secondary); margin-bottom: 24px;'>
+                    hier ist dein {frequencyLabel}-Report für {tenantName}.
+                </p>
+                <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>
+                    <tr><td style='padding: 6px 0; color: var(--text-secondary);'>Buchungen diesen Monat</td><td style='padding: 6px 0; text-align: right; font-weight: 600;'>{stats.TotalBookingsThisMonth}</td></tr>
+                    <tr><td style='padding: 6px 0; color: var(--text-secondary);'>Neue Kund:innen diesen Monat</td><td style='padding: 6px 0; text-align: right; font-weight: 600;'>{stats.NewCustomersThisMonth}</td></tr>
+                    {revenueRows}
+                </table>
+                {(topServiceRows.Length > 0 ? $@"
+                <p style='color: var(--text-secondary); font-weight: 600; margin-bottom: 8px;'>Top-Services</p>
+                <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>{topServiceRows}</table>" : "")}
+                <div class='cancel-section'>
+                    <a href='{FrontendUrl.TrimEnd('/')}/admin/dashboard' style='display: inline-block; background: linear-gradient(135deg, {primaryColor} 0%, {DarkenHex(primaryColor)} 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px;'>
+                        Zum Dashboard
+                    </a>
+                </div>";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = GetBaseEmailTemplate($"Dein {frequencyLabel}-Report", content, tenantName, tenantLogoUrl, primaryColor),
+                TextBody = $"Dein {frequencyLabel}-Report für {tenantName}:\n\nBuchungen diesen Monat: {stats.TotalBookingsThisMonth}\nNeue Kund:innen diesen Monat: {stats.NewCustomersThisMonth}\n\nDashboard: {FrontendUrl.TrimEnd('/')}/admin/dashboard",
+            };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            emailLog.Status = EmailStatus.Sent;
+            emailLog.SentAt = DateTime.UtcNow;
+            _logger.LogInformation("Admin digest email sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            emailLog.Status = EmailStatus.Failed;
+            emailLog.ErrorMessage = ex.Message;
+            _logger.LogError(ex, "Failed to send admin digest email to {Email}", recipientEmail);
+            _context.EmailLogs.Add(emailLog);
+            await _context.SaveChangesAsync();
+            return false;
+        }
+
+        _context.EmailLogs.Add(emailLog);
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>Sent when a voucher/session-package is issued to a customer (Agency). Code + remaining balance, no payment link — the tenant collects payment itself.</summary>
+    public async Task<bool> SendVoucherIssuedEmailAsync(Guid tenantId, string recipientEmail, string customerName, string code, VoucherType type, decimal? remainingAmount, int? remainingSessions, string tenantName, string? tenantLogoUrl, string primaryColor)
+    {
+        if (string.IsNullOrWhiteSpace(recipientEmail)) return false;
+
+        var emailLog = new EmailLog
+        {
+            TenantId = tenantId,
+            EmailType = EmailType.VoucherIssued,
+            RecipientEmail = recipientEmail,
+            Subject = $"Dein Gutschein bei {tenantName}",
+            Status = EmailStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        var valueLabel = type == VoucherType.MonetaryValue
+            ? $"{remainingAmount:N2} Guthaben"
+            : $"{remainingSessions} Sitzung(en)";
+
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(tenantName, _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(customerName, recipientEmail));
+            message.Subject = emailLog.Subject;
+
+            var content = $@"
+                <div class='greeting'>Hallo {customerName},</div>
+                <p style='color: var(--text-secondary); margin-bottom: 24px;'>
+                    du hast einen Gutschein bei {tenantName} erhalten.
+                </p>
+                <table style='width: 100%; border-collapse: collapse; margin-bottom: 20px;'>
+                    <tr><td style='padding: 6px 0; color: var(--text-secondary);'>Code</td><td style='padding: 6px 0; text-align: right; font-weight: 700; letter-spacing: 1px;'>{code}</td></tr>
+                    <tr><td style='padding: 6px 0; color: var(--text-secondary);'>Guthaben</td><td style='padding: 6px 0; text-align: right; font-weight: 600;'>{valueLabel}</td></tr>
+                </table>
+                <p style='color: var(--text-secondary); font-size: 14px;'>
+                    Nenne diesen Code einfach bei deiner nächsten Buchung.
+                </p>";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = GetBaseEmailTemplate("Dein Gutschein", content, tenantName, tenantLogoUrl, primaryColor),
+                TextBody = $"Hallo {customerName},\n\ndu hast einen Gutschein bei {tenantName} erhalten.\n\nCode: {code}\nGuthaben: {valueLabel}\n\nNenne diesen Code einfach bei deiner nächsten Buchung.",
+            };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            emailLog.Status = EmailStatus.Sent;
+            emailLog.SentAt = DateTime.UtcNow;
+            _logger.LogInformation("Voucher issued email sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            emailLog.Status = EmailStatus.Failed;
+            emailLog.ErrorMessage = ex.Message;
+            _logger.LogError(ex, "Failed to send voucher issued email to {Email}", recipientEmail);
+            _context.EmailLogs.Add(emailLog);
+            await _context.SaveChangesAsync();
+            return false;
+        }
+
+        _context.EmailLogs.Add(emailLog);
+        await _context.SaveChangesAsync();
+        return true;
     }
 
     public async Task SendWelcomeEmailAsync(Customer customer, Guid tenantId)

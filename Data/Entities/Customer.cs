@@ -18,6 +18,7 @@ public class Customer
     public string? EmailVerificationToken { get; set; }
     public DateTime? EmailVerificationTokenExpiry { get; set; }
     public DateTime? ConsentGivenAt { get; set; }
+    public int LoyaltyPoints { get; set; } = 0;
 
     // Navigation
     public Tenant Tenant { get; set; } = null!;

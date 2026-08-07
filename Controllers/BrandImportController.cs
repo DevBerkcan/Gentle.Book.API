@@ -343,7 +343,9 @@ public class BrandImportController : ControllerBase
             request.ApplyTypography,
             request.ApplyDescription,
             request.ApplySocialLinks,
-            request.SelectedLogoAssetId);
+            request.SelectedLogoAssetId,
+            request.ApplyServices,
+            request.SelectedServiceNames);
 
         var applyResult = await _applyService.ApplyAsync(tenantId, id, request.ProposalId, options, ct);
         if (!applyResult.Success)
@@ -356,7 +358,12 @@ public class BrandImportController : ControllerBase
             details: $"resultId={id}",
             tenantId: tenantId);
 
-        return Ok(new { message = "Branding-Entwurf angewendet." });
+        return Ok(new
+        {
+            message = "Branding-Entwurf angewendet.",
+            importedServicesCount = applyResult.ImportedServicesCount,
+            skippedServicesCount = applyResult.SkippedServicesCount,
+        });
     }
 
     [HttpPost("assets/{id:guid}/select")]

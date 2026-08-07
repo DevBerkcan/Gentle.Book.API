@@ -10,7 +10,8 @@ public record CreateManualBookingDto(
     string? Email,
     string? Phone,
     string? CustomerNotes,
-    Guid? EmployeeId    
+    Guid? EmployeeId,
+    string? VoucherCode
 );
 
 public record ManualBookingResponseDto(

@@ -178,6 +178,19 @@ public class BookingsController : ControllerBase
         return Ok(bookings);
     }
 
+    /// <summary>Loyalty point balance(s) for the customer behind a valid magic-link token — one entry per tenant they have points at (Agency only).</summary>
+    [HttpGet("my/loyalty")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetMyLoyaltyPoints([FromQuery] string token)
+    {
+        var email = string.IsNullOrWhiteSpace(token) ? null : _portalTokens.ValidateToken(token);
+        if (email == null)
+            return Unauthorized(new { message = "Der Zugriffslink ist ungültig oder abgelaufen. Bitte fordern Sie einen neuen an." });
+
+        var balances = await _bookingService.GetLoyaltyBalancesByEmailAsync(email);
+        return Ok(balances.Select(b => new { tenantName = b.TenantName, points = b.Points }));
+    }
+
     // ─────────────────────────────────────────────────────────────
     // AUTHENTICATED ENDPOINTS (require JWT)
     // ─────────────────────────────────────────────────────────────

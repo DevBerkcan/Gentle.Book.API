@@ -24,7 +24,10 @@ public enum EmailType
     Reminder,
     Cancellation,
     AvailabilityNotification,
-    Welcome
+    Welcome,
+    ReviewRequest,
+    AdminDigest,
+    VoucherIssued,
 }
 
 public enum EmailStatus

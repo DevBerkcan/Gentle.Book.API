@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
+using GentleBook.Api.DTOs;
 using Microsoft.EntityFrameworkCore;
 
 namespace GentleBook.Api.Services.BrandImport;
@@ -19,9 +20,19 @@ public sealed record ApplyBrandProposalOptions(
     bool ApplyTypography,
     bool ApplyDescription,
     bool ApplySocialLinks,
-    Guid? SelectedLogoAssetId);
+    Guid? SelectedLogoAssetId,
+    bool ApplyServices = false,
+    // null = import every detected service; otherwise only the named subset (admin unchecked some
+    // rows in the Services card before confirming) — mirrors SelectedLogoAssetId's "pick a specific
+    // candidate" shape.
+    List<string>? SelectedServiceNames = null);
 
-public sealed record ApplyBrandProposalResult(bool Success, string? ErrorCode, string? ErrorMessageSafe);
+public sealed record ApplyBrandProposalResult(
+    bool Success,
+    string? ErrorCode,
+    string? ErrorMessageSafe,
+    int ImportedServicesCount = 0,
+    int SkippedServicesCount = 0);
 
 public interface IBrandImportApplyService
 {
@@ -47,17 +58,22 @@ public sealed class BrandImportApplyService : IBrandImportApplyService
     private readonly GentleBookDbContext _db;
     private readonly ISafeWebsiteFetcher _fetcher;
     private readonly IWebHostEnvironment _env;
+    private readonly ServiceService _serviceService;
     private readonly ILogger<BrandImportApplyService> _logger;
+
+    private const string ImportedCategoryName = "Von Website importiert";
 
     public BrandImportApplyService(
         GentleBookDbContext db,
         ISafeWebsiteFetcher fetcher,
         IWebHostEnvironment env,
+        ServiceService serviceService,
         ILogger<BrandImportApplyService> logger)
     {
         _db = db;
         _fetcher = fetcher;
         _env = env;
+        _serviceService = serviceService;
         _logger = logger;
     }
 
@@ -169,6 +185,18 @@ public sealed class BrandImportApplyService : IBrandImportApplyService
             }
         }
 
+        var importedServicesCount = 0;
+        var skippedServicesCount = 0;
+        if (options.ApplyServices)
+        {
+            var content = JsonSerializer.Deserialize<ExtractedContent>(proposal.ContentJson);
+            if (content != null && content.Services.Count > 0)
+            {
+                (importedServicesCount, skippedServicesCount) = await ImportServicesAsync(
+                    tenantId, content.Services, options.SelectedServiceNames, settings.DefaultCurrency, cancellationToken);
+            }
+        }
+
         settings.UpdatedAt = DateTime.UtcNow;
         proposal.IsSelected = true;
         proposal.IsApplied = true;
@@ -179,7 +207,89 @@ public sealed class BrandImportApplyService : IBrandImportApplyService
         if (job != null) job.Status = BrandImportJobStatus.Applied;
 
         await _db.SaveChangesAsync(cancellationToken);
-        return new ApplyBrandProposalResult(true, null, null);
+        return new ApplyBrandProposalResult(true, null, null, importedServicesCount, skippedServicesCount);
+    }
+
+    // Creates a Service row per detected treatment, capped at the tenant's remaining plan quota.
+    // Reuses ServiceService.CreateServiceAsync so currency resolution/validation/plan-limit
+    // enforcement stay in exactly one place instead of being duplicated here.
+    private async Task<(int Imported, int Skipped)> ImportServicesAsync(
+        Guid tenantId,
+        List<DetectedServiceDto> detectedServices,
+        List<string>? selectedNames,
+        string tenantDefaultCurrency,
+        CancellationToken cancellationToken)
+    {
+        var candidates = selectedNames == null
+            ? detectedServices
+            : detectedServices.Where(s => selectedNames.Contains(s.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+        if (candidates.Count == 0) return (0, 0);
+
+        var existingNames = await _db.Services
+            .Where(s => s.TenantId == tenantId && s.IsActive)
+            .Select(s => s.Name)
+            .ToListAsync(cancellationToken);
+        candidates = candidates
+            .Where(s => !existingNames.Contains(s.Name, StringComparer.OrdinalIgnoreCase))
+            .GroupBy(s => s.Name, StringComparer.OrdinalIgnoreCase).Select(g => g.First()) // dedupe within the detected list itself
+            .ToList();
+        if (candidates.Count == 0) return (0, 0);
+
+        var category = await _db.ServiceCategories
+            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Name == ImportedCategoryName, cancellationToken);
+        if (category == null)
+        {
+            var maxOrder = await _db.ServiceCategories.Where(c => c.TenantId == tenantId).AnyAsync(cancellationToken)
+                ? await _db.ServiceCategories.Where(c => c.TenantId == tenantId).MaxAsync(c => c.DisplayOrder, cancellationToken)
+                : -1;
+            try
+            {
+                var created = await _serviceService.CreateCategoryAsync(new CreateCategoryDto(
+                    ImportedCategoryName, "Automatisch aus der Website-Analyse übernommene Leistungen", maxOrder + 1));
+                category = await _db.ServiceCategories.FirstOrDefaultAsync(c => c.Id == created.Id, cancellationToken);
+            }
+            catch (ArgumentException)
+            {
+                // Race: another request created the same category between our check and here.
+                category = await _db.ServiceCategories
+                    .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Name == ImportedCategoryName, cancellationToken);
+            }
+        }
+        if (category == null) return (0, candidates.Count);
+
+        var imported = 0;
+        var order = await _db.Services.Where(s => s.TenantId == tenantId && s.CategoryId == category.Id).AnyAsync(cancellationToken)
+            ? await _db.Services.Where(s => s.TenantId == tenantId && s.CategoryId == category.Id).MaxAsync(s => s.DisplayOrder, cancellationToken) + 1
+            : 1;
+
+        foreach (var detected in candidates)
+        {
+            try
+            {
+                await _serviceService.CreateServiceAsync(new CreateServiceDto(
+                    Name: detected.Name,
+                    Description: null,
+                    DurationMinutes: detected.DurationMinutes ?? 30, // no duration detected on the source page — reasonable default, editable afterward
+                    BufferTimeMinutes: 10,
+                    Price: detected.PriceAmount ?? 0, // no price detected — created as "0", not silently dropped, so the admin still sees/can fill in every recognized treatment
+                    DisplayOrder: order++,
+                    CategoryId: category.Id,
+                    Currency: string.IsNullOrWhiteSpace(detected.Currency) ? tenantDefaultCurrency : detected.Currency));
+                imported++;
+            }
+            catch (InvalidOperationException)
+            {
+                // Plan's MaxServices reached mid-import — stop cleanly, report the rest as skipped
+                // instead of throwing away a partially-successful import.
+                break;
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogInformation("Skipped one brand-import service '{Name}': {Reason}", detected.Name, ex.Message);
+            }
+        }
+
+        return (imported, candidates.Count - imported);
     }
 
     private async Task<string?> DownloadAndStoreLogoAsync(Guid tenantId, Uri logoUri, CancellationToken cancellationToken)
