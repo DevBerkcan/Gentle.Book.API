@@ -851,13 +851,17 @@ Diese Nachricht wurde automatisch generiert.";
             message.ReplyTo.Add(new MailboxAddress(senderName, senderEmail));
             message.Subject = $"[Support] {companyName} ({tenantSlug}): {subject}";
 
+            // GentleBook brand teal (#17A398) darkened via the shared helper — keeps every
+            // platform-owned email on the same palette instead of ad-hoc gradient stops.
+            var brandTealDark = DarkenHex("#17A398");
+
             var html = $@"<!DOCTYPE html>
 <html lang='de'>
 <head><meta charset='UTF-8'></head>
 <body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
 <div style='max-width:600px;margin:0 auto'>
   <!-- Header -->
-  <div style='background:linear-gradient(135deg,#17A398,#1EC4B0);border-radius:16px 16px 0 0;padding:28px 32px;'>
+  <div style='background:linear-gradient(135deg,#17A398,{brandTealDark});border-radius:16px 16px 0 0;padding:28px 32px;'>
     <h1 style='color:#fff;margin:0;font-size:20px;font-weight:700'>📩 Support-Anfrage</h1>
     <p style='color:rgba(255,255,255,0.75);margin:6px 0 0;font-size:13px'>Eingegangen über GentleBook Dashboard</p>
   </div>
@@ -890,7 +894,7 @@ Diese Nachricht wurde automatisch generiert.";
     <div style='background:#f8fafc;border-left:4px solid #17A398;border-radius:0 8px 8px 0;padding:16px 20px;font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap'>{messageBody}</div>
     <!-- CTA -->
     <div style='margin-top:28px;padding-top:20px;border-top:1px solid #e5e7eb;text-align:center'>
-      <a href='mailto:{senderEmail}' style='background:linear-gradient(135deg,#17A398,#1EC4B0);color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:600;font-size:14px;display:inline-block'>
+      <a href='mailto:{senderEmail}' style='background:linear-gradient(135deg,#17A398,{brandTealDark});color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:600;font-size:14px;display:inline-block'>
         Direkt antworten →
       </a>
     </div>
@@ -1772,12 +1776,14 @@ STORNIERUNG:
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = "Passwort zurücksetzen – GentleBook";
 
+            var brandTealDark = DarkenHex("#17A398");
+
             var html = $@"<!DOCTYPE html>
 <html lang='de'>
 <head><meta charset='UTF-8'></head>
 <body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
 <div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#17A398,#1EC4B0);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+  <div style='background:linear-gradient(135deg,#17A398,{brandTealDark});border-radius:16px 16px 0 0;padding:32px;text-align:center'>
     <div style='width:56px;height:56px;background:rgba(255,255,255,0.2);border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px'>
       <span style='font-size:28px'>🔐</span>
     </div>
@@ -1790,7 +1796,7 @@ STORNIERUNG:
       Du hast eine Anfrage zum Zurücksetzen deines Passworts gestellt. Klicke auf den Button unten, um ein neues Passwort festzulegen.
     </p>
     <div style='text-align:center;margin:28px 0'>
-      <a href='{resetUrl}' style='background:linear-gradient(135deg,#17A398,#1EC4B0);color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block;box-shadow:0 4px 14px rgba(23,163,152,0.3)'>
+      <a href='{resetUrl}' style='background:linear-gradient(135deg,#17A398,{brandTealDark});color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block;box-shadow:0 4px 14px rgba(23,163,152,0.3)'>
         Passwort zurücksetzen →
       </a>
     </div>
@@ -2786,6 +2792,7 @@ GentleBook · support@gentlegroup.de";
             var urgencyBg     = daysLeft <= 3 ? "#fef2f2" : "#fffbeb";
             var urgencyBorder = daysLeft <= 3 ? "#fecaca" : "#fde68a";
             var urgencyText   = daysLeft <= 3 ? "#991b1b" : "#92400e";
+            var brandTealDark = DarkenHex("#17A398");
 
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
@@ -2838,7 +2845,7 @@ GentleBook · support@gentlegroup.de";
                                 </div>
                               </td>
                               <td style="width:33%;padding:4px">
-                                <div style="background:#17A398;border:1px solid #128577;border-radius:12px;padding:16px;text-align:center">
+                                <div style="background:#17A398;border:1px solid {brandTealDark};border-radius:12px;padding:16px;text-align:center">
                                   <p style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);margin:0 0 4px;text-transform:uppercase">Professional ⭐</p>
                                   <p style="font-size:28px;font-weight:900;color:#fff;margin:0;line-height:1">€59</p>
                                   <p style="font-size:11px;color:rgba(255,255,255,0.6);margin:2px 0 8px">/Monat</p>
@@ -2951,6 +2958,7 @@ GentleBook · support@gentlegroup.de";
                 ? _emailOptions.BaseUrl?.Replace("/api", "") ?? "https://gentle-book-ui.vercel.app"
                 : _emailOptions.FrontendUrl;
             var subscriptionUrl = $"{frontendBase}/admin/subscription";
+            var brandTealDark = DarkenHex("#17A398");
 
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
@@ -2998,7 +3006,7 @@ GentleBook · support@gentlegroup.de";
                                 </div>
                               </td>
                               <td style="width:33%;padding:4px">
-                                <div style="background:#17A398;border:1px solid #128577;border-radius:12px;padding:16px;text-align:center">
+                                <div style="background:#17A398;border:1px solid {brandTealDark};border-radius:12px;padding:16px;text-align:center">
                                   <p style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);margin:0 0 4px;text-transform:uppercase">Professional ⭐</p>
                                   <p style="font-size:28px;font-weight:900;color:#fff;margin:0;line-height:1">€59</p>
                                   <p style="font-size:11px;color:rgba(255,255,255,0.6);margin:2px 0 8px">/Monat</p>
@@ -3116,6 +3124,7 @@ GentleBook · support@gentlegroup.de";
 
             var planPrice = planName switch { "Starter" => "€29", "Professional" => "€59", "Agency" => "Preis auf Anfrage", _ => "" };
             var planPriceSuffix = planName == "Agency" ? "" : "/Monat";
+            var brandTealDark = DarkenHex("#17A398");
 
             var html = $"""
                 <!DOCTYPE html>
@@ -3127,7 +3136,7 @@ GentleBook · support@gentlegroup.de";
                       <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
 
                         <!-- Header -->
-                        <tr><td style="background:linear-gradient(135deg,#17A398 0%,#128577 100%);padding:28px 32px;text-align:center">
+                        <tr><td style="background:linear-gradient(135deg,#17A398 0%,{brandTealDark} 100%);padding:28px 32px;text-align:center">
                           <p style="font-size:22px;font-weight:800;color:#fff;margin:0;letter-spacing:-0.5px">✨ GentleBook</p>
                           <p style="font-size:12px;color:rgba(255,255,255,0.7);margin:4px 0 0">Buchungssystem</p>
                         </td></tr>
@@ -3142,9 +3151,9 @@ GentleBook · support@gentlegroup.de";
 
                           <!-- Requested plan box -->
                           <div style="background:#f0fdfc;border:1px solid #99f6e4;border-radius:12px;padding:20px 24px;margin:0 0 24px;text-align:center">
-                            <p style="font-size:12px;font-weight:700;color:#128577;margin:0 0 4px;text-transform:uppercase">Angefragter Plan</p>
+                            <p style="font-size:12px;font-weight:700;color:{brandTealDark};margin:0 0 4px;text-transform:uppercase">Angefragter Plan</p>
                             <p style="font-size:32px;font-weight:900;color:#17A398;margin:0;line-height:1">{planName}</p>
-                            <p style="font-size:18px;color:#128577;margin:4px 0 0;font-weight:600">{planPrice}{(planPriceSuffix == "" ? "" : " / Monat")}</p>
+                            <p style="font-size:18px;color:{brandTealDark};margin:4px 0 0;font-weight:600">{planPrice}{(planPriceSuffix == "" ? "" : " / Monat")}</p>
                           </div>
 
                           <p style="font-size:13px;color:#9ca3af;line-height:1.6;margin:0">
@@ -3214,6 +3223,7 @@ GentleBook · support@gentlegroup.de";
             var adminUrl = $"{FrontendUrl}/superadmin/requests";
             var planPrice = planName switch { "Starter" => "€29", "Professional" => "€59", "Agency" => "Preis auf Anfrage", _ => "" };
             var planPriceSuffix = planName == "Agency" ? "" : "/Monat";
+            var brandTealDark = DarkenHex("#17A398");
 
             var html = $"""
                 <!DOCTYPE html>
@@ -3225,7 +3235,7 @@ GentleBook · support@gentlegroup.de";
                       <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
 
                         <!-- Header -->
-                        <tr><td style="background:linear-gradient(135deg,#17A398 0%,#128577 100%);padding:28px 32px;text-align:center">
+                        <tr><td style="background:linear-gradient(135deg,#17A398 0%,{brandTealDark} 100%);padding:28px 32px;text-align:center">
                           <p style="font-size:22px;font-weight:800;color:#fff;margin:0">🔔 Neue Abo-Anfrage</p>
                           <p style="font-size:12px;color:rgba(255,255,255,0.7);margin:4px 0 0">GentleBook Superadmin</p>
                         </td></tr>
