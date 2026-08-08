@@ -190,6 +190,9 @@ public class GentleBookDbContext : DbContext
         {
             entity.Property(f => f.Label).IsRequired().HasMaxLength(200);
             entity.HasOne(f => f.Tenant).WithMany().HasForeignKey(f => f.TenantId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(f => f.Category).WithMany().HasForeignKey(f => f.CategoryId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(f => f.ConditionalOnField).WithMany().HasForeignKey(f => f.ConditionalOnFieldId).OnDelete(DeleteBehavior.Restrict);
+            entity.Property(f => f.ConditionalOnValue).HasMaxLength(500);
             entity.HasIndex(f => new { f.TenantId, f.DisplayOrder });
         });
 
@@ -215,6 +218,7 @@ public class GentleBookDbContext : DbContext
             entity.Property(v => v.Note).HasMaxLength(500);
             entity.Property(v => v.InitialAmount).HasPrecision(10, 2);
             entity.Property(v => v.RemainingAmount).HasPrecision(10, 2);
+            entity.Property(v => v.PercentageValue).HasPrecision(5, 2);
             entity.HasOne(v => v.Tenant).WithMany().HasForeignKey(v => v.TenantId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(v => v.Customer).WithMany().HasForeignKey(v => v.CustomerId).OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(v => new { v.TenantId, v.Code }).IsUnique();
@@ -259,6 +263,8 @@ public class GentleBookDbContext : DbContext
             entity.Property(e => e.AccentColor).HasMaxLength(20);
             entity.Property(e => e.DefaultCurrency).HasMaxLength(3).HasDefaultValue("EUR");
             entity.Property(e => e.TimeZone).HasMaxLength(100).HasDefaultValue("Europe/Berlin");
+            entity.Property(e => e.LoyaltyRewardType).HasMaxLength(30).HasDefaultValue("MonetaryValue");
+            entity.Property(e => e.LoyaltyRewardValue).HasPrecision(10, 2);
         });
 
         modelBuilder.Entity<BusinessLocation>(entity =>

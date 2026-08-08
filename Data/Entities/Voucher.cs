@@ -9,6 +9,7 @@ public enum VoucherType
 {
     MonetaryValue,
     SessionPackage,
+    PercentageDiscount,
 }
 
 public enum VoucherStatus
@@ -34,6 +35,9 @@ public class Voucher
     public decimal? RemainingAmount { get; set; }
     public int? InitialSessions { get; set; }
     public int? RemainingSessions { get; set; }
+
+    /// <summary>Only for Type == PercentageDiscount. InitialSessions/RemainingSessions double as "uses remaining" for this type (default 1 = single-use).</summary>
+    public decimal? PercentageValue { get; set; }
 
     public DateTime? ExpiresAt { get; set; }
     public VoucherStatus Status { get; set; } = VoucherStatus.Active;

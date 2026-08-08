@@ -66,6 +66,11 @@ public class TenantSettings
     // ── Treuepunkte (Agency) ───────────────────────────────────
     public int LoyaltyPointsPerBooking { get; set; } = 0; // 0 = Feature deaktiviert
 
+    // ── Stammkunden-Belohnung (Agency) ──────────────────────────
+    public int LoyaltyRewardEveryNVisits { get; set; } = 0; // 0 = deaktiviert
+    public string LoyaltyRewardType { get; set; } = "MonetaryValue"; // "MonetaryValue" | "PercentageDiscount" | "SessionPackage"
+    public decimal? LoyaltyRewardValue { get; set; }
+
     // ── Team-Reports (Agency) ──────────────────────────────────
     public string DigestFrequency { get; set; } = "None"; // "None" | "Daily" | "Weekly"
 

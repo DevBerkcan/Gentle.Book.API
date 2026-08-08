@@ -28,6 +28,7 @@ public enum EmailType
     ReviewRequest,
     AdminDigest,
     VoucherIssued,
+    IntakeFormReminder,
 }
 
 public enum EmailStatus

@@ -27,4 +27,7 @@ public static class TestServiceFactory
             scopeFactory,
             TestConfiguration.Build());
     }
+
+    public static VoucherService CreateVoucherService(GentleBookDbContext db) =>
+        new(db, CreateEmailService(db), NullLogger<VoucherService>.Instance);
 }

@@ -13,17 +13,20 @@ public class BookingService
     private readonly ILogger<BookingService> _logger;
     private readonly EmailService _emailService;
     private readonly IBackgroundJobClient _jobs;
+    private readonly VoucherService _voucherService;
 
     public BookingService(
         GentleBookDbContext context,
         ILogger<BookingService> logger,
         EmailService emailService,
-        IBackgroundJobClient jobs)
+        IBackgroundJobClient jobs,
+        VoucherService voucherService)
     {
         _context = context;
         _jobs = jobs;
         _logger = logger;
         _emailService = emailService;
+        _voucherService = voucherService;
     }
 
     // ── CREATE ────────────────────────────────────────────────────
@@ -200,6 +203,10 @@ public class BookingService
         customer.TotalBookings++;
         customer.LastVisit = DateTime.SpecifyKind(bookingDateTime, DateTimeKind.Utc);
         customer.UpdatedAt = DateTime.UtcNow;
+
+        // Same trigger point as the manual/staff booking flow (ManualBookingService) — a
+        // customer is rewarded regardless of whether they booked themselves or staff did.
+        await _voucherService.MaybeIssueAutoRewardAsync(tenantId, customer);
 
         await _context.SaveChangesAsync();
         await tx.CommitAsync();

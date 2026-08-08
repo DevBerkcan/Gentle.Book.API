@@ -1,9 +1,9 @@
 // Data/Entities/IntakeFormEntities.cs
-// One shared digital intake/consultation form per tenant (not per service, not per location —
-// see the Agency-Ausbau-Runde-2 plan). The set of active IntakeFormField rows *is* the form;
-// there is no separate "template" object. TenantAdmin and LocationAdmin can both edit the fields
-// (LocationAdmin only ever sees/edits its own tenant's rows via the same global query filter as
-// everywhere else); response *viewing* is location-scoped for LocationAdmin via the linked Booking.
+// One "Formulare" set per tenant, gated to industries where it makes sense (see
+// Configuration/IntakeFormIndustryGate.cs) — not per service, but per service *category*
+// (IntakeFormField.CategoryId, null = applies to every category). FormType groups fields into
+// display sections (Anamnese/Einverständnis/Fragebogen/Nachsorge) without needing separate form
+// instances/tokens — still one combined form + one token per booking.
 namespace GentleBook.Api.Data.Entities;
 
 public enum IntakeFormFieldType
@@ -12,6 +12,16 @@ public enum IntakeFormFieldType
     Textarea,
     YesNo,
     MultipleChoice,
+    Checkboxes,
+    Date,
+}
+
+public enum IntakeFormType
+{
+    Anamnese,
+    Einverstaendnis,
+    Fragebogen,
+    Nachsorge,
 }
 
 public class IntakeFormField
@@ -21,9 +31,17 @@ public class IntakeFormField
 
     public string Label { get; set; } = string.Empty;
     public IntakeFormFieldType FieldType { get; set; } = IntakeFormFieldType.Text;
+    public IntakeFormType FormType { get; set; } = IntakeFormType.Anamnese;
 
-    /// <summary>JSON string array of choices — only meaningful for MultipleChoice.</summary>
+    /// <summary>JSON string array of choices — only meaningful for MultipleChoice/Checkboxes.</summary>
     public string? OptionsJson { get; set; }
+
+    /// <summary>Null = applies to every service category. Set = only shown for bookings whose Service.CategoryId matches.</summary>
+    public Guid? CategoryId { get; set; }
+
+    /// <summary>Both set together: this field is only relevant/shown when the referenced field's answer equals ConditionalOnValue.</summary>
+    public Guid? ConditionalOnFieldId { get; set; }
+    public string? ConditionalOnValue { get; set; }
 
     public bool IsRequired { get; set; } = false;
     public bool IsActive { get; set; } = true;
@@ -34,6 +52,8 @@ public class IntakeFormField
 
     // Navigation
     public Tenant Tenant { get; set; } = null!;
+    public ServiceCategory? Category { get; set; }
+    public IntakeFormField? ConditionalOnField { get; set; }
     public ICollection<IntakeFormAnswer> Answers { get; set; } = new List<IntakeFormAnswer>();
 }
 

@@ -255,7 +255,13 @@ public class TenantController : ControllerBase
             .FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
         if (settings == null) return NotFound();
 
-        return Ok(new { pointsPerBooking = settings.LoyaltyPointsPerBooking });
+        return Ok(new
+        {
+            pointsPerBooking = settings.LoyaltyPointsPerBooking,
+            rewardEveryNVisits = settings.LoyaltyRewardEveryNVisits,
+            rewardType = settings.LoyaltyRewardType,
+            rewardValue = settings.LoyaltyRewardValue,
+        });
     }
 
     // ── PUT /api/tenant/loyalty ───────────────────────────────────────
@@ -268,15 +274,30 @@ public class TenantController : ControllerBase
 
         if (dto.PointsPerBooking < 0)
             return BadRequest(new { message = "Die Punktzahl darf nicht negativ sein." });
+        if (dto.RewardEveryNVisits < 0)
+            return BadRequest(new { message = "Die Besuchsanzahl darf nicht negativ sein." });
+        if (dto.RewardEveryNVisits > 0 && dto.RewardType is not ("MonetaryValue" or "PercentageDiscount" or "SessionPackage"))
+            return BadRequest(new { message = "Ungültiger Belohnungstyp." });
+        if (dto.RewardEveryNVisits > 0 && (dto.RewardValue is null or <= 0))
+            return BadRequest(new { message = "Bitte einen gültigen Belohnungswert angeben." });
 
         var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);
         if (settings == null) return NotFound();
 
         settings.LoyaltyPointsPerBooking = dto.PointsPerBooking;
+        settings.LoyaltyRewardEveryNVisits = dto.RewardEveryNVisits;
+        settings.LoyaltyRewardType = dto.RewardType ?? "MonetaryValue";
+        settings.LoyaltyRewardValue = dto.RewardValue;
         settings.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
 
-        return Ok(new { pointsPerBooking = settings.LoyaltyPointsPerBooking });
+        return Ok(new
+        {
+            pointsPerBooking = settings.LoyaltyPointsPerBooking,
+            rewardEveryNVisits = settings.LoyaltyRewardEveryNVisits,
+            rewardType = settings.LoyaltyRewardType,
+            rewardValue = settings.LoyaltyRewardValue,
+        });
     }
 
     // ── GET /api/tenant/location-admins ───────────────────────────
@@ -500,6 +521,7 @@ public class TenantController : ControllerBase
                 settings.LinktreeStyle,
                 settings.LinktreeConfig,
                 Slug = tenant?.Slug,
+                IndustryType = tenant?.IndustryType.ToString(),
             }
         });
     }
@@ -1303,7 +1325,7 @@ public record ChangeSubscriptionPlanDto(string Plan, string? Interval = null);
 public record CreateApiKeyDto(string Name);
 public record UpdateCustomDomainDto(string Domain);
 public record UpdateDigestFrequencyDto(string Frequency);
-public record UpdateLoyaltySettingsDto(int PointsPerBooking);
+public record UpdateLoyaltySettingsDto(int PointsPerBooking, int RewardEveryNVisits, string? RewardType, decimal? RewardValue);
 public record InviteLocationAdminDto(string Email, string FirstName, string? LastName = null);
 public record CancelSubscriptionRequestDto(string? Reason);
 

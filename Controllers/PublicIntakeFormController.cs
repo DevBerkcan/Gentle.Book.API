@@ -1,7 +1,9 @@
 // Controllers/PublicIntakeFormController.cs
-// Public, anonymous endpoints for the digital intake/consultation form. Reached either via the
-// "for-booking" check (plain bookingId, same trust level as the existing anonymous GET
-// /bookings/{id}) or directly via the HMAC-signed token (EmailService.GenerateIntakeFormToken).
+// Public, anonymous endpoints for the digital "Formulare" (intake/consultation form). Reached
+// either via the "for-booking" check (plain bookingId, same trust level as the existing
+// anonymous GET /bookings/{id}) or directly via the HMAC-signed token
+// (EmailService.GenerateIntakeFormToken). Fields are filtered to the booking's service category
+// (CategoryId == null means "all categories") — see Data/Entities/IntakeFormEntities.cs.
 using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
@@ -28,25 +30,37 @@ public class PublicIntakeFormController : ControllerBase
         _logger = logger;
     }
 
+    /// <summary>Is the form available for this tenant+booking at all: Agency plan, allowed industry, ≥1 active field for the booking's category?</summary>
+    private async Task<bool> IsFormAvailableAsync(Guid tenantId, Guid categoryId)
+    {
+        var plan = await _db.Subscriptions.IgnoreQueryFilters()
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => (SubscriptionPlan?)s.Plan)
+            .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
+        if (AgencyFeatureGate.ValidateForPlan(plan) != null) return false;
+
+        var industry = await _db.Tenants.IgnoreQueryFilters()
+            .Where(t => t.Id == tenantId)
+            .Select(t => t.IndustryType)
+            .FirstOrDefaultAsync();
+        if (IntakeFormIndustryGate.ValidateForIndustry(industry) != null) return false;
+
+        return await _db.IntakeFormFields.IgnoreQueryFilters()
+            .AnyAsync(f => f.TenantId == tenantId && f.IsActive && (f.CategoryId == null || f.CategoryId == categoryId));
+    }
+
     /// <summary>
-    /// Checked from the booking-confirmation page: is there an intake form to fill out for this
-    /// booking? Only true for Agency tenants with ≥1 active field and no existing response yet.
+    /// Checked from the booking-confirmation page: is there a form to fill out for this booking?
     /// </summary>
     [HttpGet("for-booking/{bookingId:guid}")]
     public async Task<IActionResult> CheckForBooking(Guid bookingId)
     {
-        var booking = await _db.Bookings.IgnoreQueryFilters().FirstOrDefaultAsync(b => b.Id == bookingId);
+        var booking = await _db.Bookings.IgnoreQueryFilters()
+            .Include(b => b.Service)
+            .FirstOrDefaultAsync(b => b.Id == bookingId);
         if (booking == null) return Ok(new { available = false });
 
-        var plan = await _db.Subscriptions.IgnoreQueryFilters()
-            .Where(s => s.TenantId == booking.TenantId)
-            .Select(s => (SubscriptionPlan?)s.Plan)
-            .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
-        if (AgencyFeatureGate.ValidateForPlan(plan) != null) return Ok(new { available = false });
-
-        var hasActiveFields = await _db.IntakeFormFields.IgnoreQueryFilters()
-            .AnyAsync(f => f.TenantId == booking.TenantId && f.IsActive);
-        if (!hasActiveFields) return Ok(new { available = false });
+        if (!await IsFormAvailableAsync(booking.TenantId, booking.Service.CategoryId)) return Ok(new { available = false });
 
         var alreadySubmitted = await _db.IntakeFormResponses.IgnoreQueryFilters()
             .AnyAsync(r => r.BookingId == bookingId);
@@ -55,7 +69,7 @@ public class PublicIntakeFormController : ControllerBase
         return Ok(new { available = true, token = _emailService.GenerateIntakeFormToken(bookingId) });
     }
 
-    /// <summary>Loads the active fields (the form) for the booking behind the token.</summary>
+    /// <summary>Loads the active, category-matching fields (the form) for the booking behind the token.</summary>
     [HttpGet("{token}")]
     public async Task<IActionResult> GetForm(string token)
     {
@@ -73,6 +87,7 @@ public class PublicIntakeFormController : ControllerBase
 
         var booking = await _db.Bookings.IgnoreQueryFilters()
             .Include(b => b.Tenant)
+            .Include(b => b.Service)
             .FirstOrDefaultAsync(b => b.Id == bookingId);
         if (booking == null) return NotFound(new { message = "Buchung nicht gefunden." });
 
@@ -80,9 +95,14 @@ public class PublicIntakeFormController : ControllerBase
             .AnyAsync(r => r.BookingId == bookingId);
 
         var fields = await _db.IntakeFormFields.IgnoreQueryFilters()
-            .Where(f => f.TenantId == booking.TenantId && f.IsActive)
+            .Where(f => f.TenantId == booking.TenantId && f.IsActive &&
+                (f.CategoryId == null || f.CategoryId == booking.Service.CategoryId))
             .OrderBy(f => f.DisplayOrder)
-            .Select(f => new { f.Id, f.Label, fieldType = f.FieldType.ToString(), f.OptionsJson, f.IsRequired })
+            .Select(f => new
+            {
+                f.Id, f.Label, fieldType = f.FieldType.ToString(), formType = f.FormType.ToString(),
+                f.OptionsJson, f.IsRequired, f.ConditionalOnFieldId, f.ConditionalOnValue,
+            })
             .ToListAsync();
 
         return Ok(new { alreadySubmitted, tenantName = booking.Tenant.Name, fields });
@@ -104,19 +124,28 @@ public class PublicIntakeFormController : ControllerBase
             return BadRequest(new { message = "Ungültiger Link." });
         }
 
-        var booking = await _db.Bookings.IgnoreQueryFilters().FirstOrDefaultAsync(b => b.Id == bookingId);
+        var booking = await _db.Bookings.IgnoreQueryFilters()
+            .Include(b => b.Service)
+            .FirstOrDefaultAsync(b => b.Id == bookingId);
         if (booking == null) return NotFound(new { message = "Buchung nicht gefunden." });
 
         var alreadySubmitted = await _db.IntakeFormResponses.IgnoreQueryFilters().AnyAsync(r => r.BookingId == bookingId);
         if (alreadySubmitted) return BadRequest(new { message = "Für diese Buchung wurde bereits ein Formular ausgefüllt." });
 
         var activeFields = await _db.IntakeFormFields.IgnoreQueryFilters()
-            .Where(f => f.TenantId == booking.TenantId && f.IsActive)
+            .Where(f => f.TenantId == booking.TenantId && f.IsActive &&
+                (f.CategoryId == null || f.CategoryId == booking.Service.CategoryId))
             .ToListAsync();
 
         var answersByFieldId = request.Answers.ToDictionary(a => a.FieldId, a => a.Value);
 
-        foreach (var field in activeFields.Where(f => f.IsRequired))
+        // Required-ness only applies to fields whose condition (if any) is currently met —
+        // a hidden conditional field can't block submission.
+        bool IsFieldShown(IntakeFormField f) =>
+            f.ConditionalOnFieldId == null ||
+            (answersByFieldId.TryGetValue(f.ConditionalOnFieldId.Value, out var conditionValue) && conditionValue == f.ConditionalOnValue);
+
+        foreach (var field in activeFields.Where(f => f.IsRequired && IsFieldShown(f)))
         {
             if (!answersByFieldId.TryGetValue(field.Id, out var value) || string.IsNullOrWhiteSpace(value))
                 return BadRequest(new { message = $"Pflichtfeld „{field.Label}“ fehlt." });

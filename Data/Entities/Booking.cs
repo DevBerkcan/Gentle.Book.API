@@ -22,6 +22,7 @@ public class Booking
     public DateTime? ConfirmationSentAt { get; set; }
     public DateTime? ReminderSentAt { get; set; }
     public DateTime? ReviewRequestSentAt { get; set; }
+    public DateTime? IntakeFormReminderSentAt { get; set; }
 
     // Notizen
     public string? CustomerNotes { get; set; }

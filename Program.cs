@@ -205,6 +205,7 @@ builder.Services.AddScoped<AdminService>();
 builder.Services.AddScoped<ReminderService>();
 builder.Services.AddScoped<BookingCompletionService>();
 builder.Services.AddScoped<ReviewRequestService>();
+builder.Services.AddScoped<IntakeFormReminderService>();
 builder.Services.AddScoped<AdminDigestService>();
 builder.Services.AddScoped<VoucherService>();
 builder.Services.AddScoped<ManualBookingService>();

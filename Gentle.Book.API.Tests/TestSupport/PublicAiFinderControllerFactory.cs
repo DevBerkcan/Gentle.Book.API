@@ -22,7 +22,8 @@ public static class PublicAiFinderControllerFactory
             new NullAiProviderAdapter(), usageMeter, knowledge, db, NullLogger<AiOrchestrator>.Instance);
 
         var emailService = TestServiceFactory.CreateEmailService(db);
-        var bookingService = new BookingService(db, NullLogger<BookingService>.Instance, emailService, new FakeBackgroundJobClient());
+        var voucherService = TestServiceFactory.CreateVoucherService(db);
+        var bookingService = new BookingService(db, NullLogger<BookingService>.Instance, emailService, new FakeBackgroundJobClient(), voucherService);
         var bookingDraftService = new BookingDraftService(db, bookingService);
 
         return new PublicAiFinderController(db, engine, orchestrator, bookingDraftService);

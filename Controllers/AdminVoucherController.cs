@@ -85,7 +85,7 @@ public class AdminVoucherController : ControllerBase
             .Select(v => new
             {
                 v.Id, v.Code, type = v.Type.ToString(), status = v.Status.ToString(),
-                v.InitialAmount, v.RemainingAmount, v.InitialSessions, v.RemainingSessions,
+                v.InitialAmount, v.RemainingAmount, v.InitialSessions, v.RemainingSessions, v.PercentageValue,
                 v.ExpiresAt, v.IssuedAt, v.Note,
                 customerName = v.Customer != null ? v.Customer.FirstName + " " + v.Customer.LastName : null,
             })
@@ -109,7 +109,7 @@ public class AdminVoucherController : ControllerBase
 
         try
         {
-            var voucher = await _voucherService.IssueAsync(tenantId, type, dto.CustomerId, dto.Amount, dto.Sessions, dto.ExpiresAt, dto.Note, platformUserId);
+            var voucher = await _voucherService.IssueAsync(tenantId, type, dto.CustomerId, dto.Amount, dto.Sessions, dto.PercentageValue, dto.ExpiresAt, dto.Note, platformUserId);
 
             if (dto.CustomerId.HasValue)
             {
@@ -118,7 +118,7 @@ public class AdminVoucherController : ControllerBase
                 {
                     var settings = await _db.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == tenantId);
                     await _emailService.SendVoucherIssuedEmailAsync(
-                        tenantId, customer.Email, customer.FullName, voucher.Code, type, voucher.RemainingAmount, voucher.RemainingSessions,
+                        tenantId, customer.Email, customer.FullName, voucher.Code, type, voucher.RemainingAmount, voucher.RemainingSessions, voucher.PercentageValue,
                         settings?.CompanyName ?? "GentleBook", settings?.LogoUrl, settings?.PrimaryColor ?? "#8B7BC7");
                 }
             }
@@ -126,7 +126,7 @@ public class AdminVoucherController : ControllerBase
             return Ok(new
             {
                 voucher.Id, voucher.Code, type = voucher.Type.ToString(), status = voucher.Status.ToString(),
-                voucher.InitialAmount, voucher.RemainingAmount, voucher.InitialSessions, voucher.RemainingSessions,
+                voucher.InitialAmount, voucher.RemainingAmount, voucher.InitialSessions, voucher.RemainingSessions, voucher.PercentageValue,
                 voucher.ExpiresAt, voucher.IssuedAt, voucher.Note,
             });
         }
@@ -155,4 +155,4 @@ public class AdminVoucherController : ControllerBase
     }
 }
 
-public record IssueVoucherRequest(string Type, Guid? CustomerId, decimal? Amount, int? Sessions, DateTime? ExpiresAt, string? Note);
+public record IssueVoucherRequest(string Type, Guid? CustomerId, decimal? Amount, int? Sessions, decimal? PercentageValue, DateTime? ExpiresAt, string? Note);

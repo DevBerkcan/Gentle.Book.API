@@ -62,6 +62,13 @@ namespace GentleBook.Api.Options
                 s => s.SendReviewRequestsAsync(),
                 "0 */2 * * *");
 
+            // Every 3 hours — Agency + allowed-industry only: remind customers with an unfilled
+            // intake form ~24h after booking, while the appointment is still upcoming.
+            _recurringJobManager.AddOrUpdate<IntakeFormReminderService>(
+                "send-intake-form-reminders",
+                s => s.SendRemindersAsync(),
+                "0 */3 * * *");
+
             // Daily 07:00 UTC — Agency only: team-report digest per TenantSettings.DigestFrequency
             // (Daily tenants every run, Weekly tenants only on Mondays).
             _recurringJobManager.AddOrUpdate<AdminDigestService>(

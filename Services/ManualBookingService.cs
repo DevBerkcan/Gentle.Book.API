@@ -133,9 +133,13 @@ public class ManualBookingService
         // leaving a booking with a silently-failed "paid by voucher" note.
         if (!string.IsNullOrWhiteSpace(dto.VoucherCode))
         {
-            var voucher = await _voucherService.RedeemAsync(tenantId, dto.VoucherCode, service.Price);
+            var (voucher, _) = await _voucherService.RedeemAsync(tenantId, dto.VoucherCode, service.Price);
             booking.RedeemedVoucherCode = voucher.Code;
         }
+
+        // Same trigger point as the public booking flow (BookingService.CreateBookingAsync) —
+        // a customer is rewarded regardless of whether staff or the customer made the booking.
+        await _voucherService.MaybeIssueAutoRewardAsync(tenantId, customer);
 
         await _context.SaveChangesAsync();
         await tx.CommitAsync();

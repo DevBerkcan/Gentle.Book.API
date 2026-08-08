@@ -351,6 +351,74 @@ public class EmailService
     /// <summary>Same HMAC-signed token mechanism as the cancel-booking link, just a different action tag.</summary>
     public string GenerateIntakeFormToken(Guid bookingId) => GenerateActionToken(bookingId, "intake");
 
+    /// <summary>Sent by IntakeFormReminderService ~24h after booking if the form is still unfilled. Never re-sent for the same booking (Booking.IntakeFormReminderSentAt guards that at the caller).</summary>
+    public async Task<bool> SendIntakeFormReminderEmailAsync(Booking booking, Customer customer, string tenantName, string? tenantLogoUrl, string primaryColor)
+    {
+        if (string.IsNullOrWhiteSpace(customer.Email)) return false;
+
+        var emailLog = new EmailLog
+        {
+            TenantId = booking.TenantId,
+            BookingId = booking.Id,
+            EmailType = EmailType.IntakeFormReminder,
+            RecipientEmail = customer.Email,
+            Subject = $"Erinnerung: Formular für deinen Termin bei {tenantName}",
+            Status = EmailStatus.Pending,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        try
+        {
+            var formUrl = $"{FrontendUrl.TrimEnd('/')}/intake-form/{GenerateIntakeFormToken(booking.Id)}";
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(tenantName, _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(customer.FullName, customer.Email));
+            message.Subject = emailLog.Subject;
+
+            var content = $@"
+                <div class='greeting'>Hallo {customer.FirstName},</div>
+                <p style='color: var(--text-secondary); margin-bottom: 24px;'>
+                    bitte vervollständige noch das kurze Formular für deinen bevorstehenden Termin bei {tenantName} — das dauert nur eine Minute.
+                </p>
+                <div class='cancel-section'>
+                    <a href='{formUrl}' style='display: inline-block; background: linear-gradient(135deg, {primaryColor} 0%, {DarkenHex(primaryColor)} 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 40px; font-weight: 600; font-size: 16px;'>
+                        Formular ausfüllen
+                    </a>
+                </div>";
+
+            var builder = new BodyBuilder
+            {
+                HtmlBody = GetBaseEmailTemplate("Formular noch offen", content, tenantName, tenantLogoUrl, primaryColor),
+                TextBody = $"Hallo {customer.FirstName},\n\nbitte vervollständige noch das Formular für deinen Termin bei {tenantName}:\n{formUrl}",
+            };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            emailLog.Status = EmailStatus.Sent;
+            emailLog.SentAt = DateTime.UtcNow;
+            _logger.LogInformation("Intake form reminder email sent to {Email}", customer.Email);
+        }
+        catch (Exception ex)
+        {
+            emailLog.Status = EmailStatus.Failed;
+            emailLog.ErrorMessage = ex.Message;
+            _logger.LogError(ex, "Failed to send intake form reminder email to {Email}", customer.Email);
+            _context.EmailLogs.Add(emailLog);
+            await _context.SaveChangesAsync();
+            return false;
+        }
+
+        _context.EmailLogs.Add(emailLog);
+        await _context.SaveChangesAsync();
+        return true;
+    }
+
     /// <summary>Sent by ReviewRequestService once a booking auto-completes (Agency only). Never re-sent for the same booking (Booking.ReviewRequestSentAt guards that at the caller).</summary>
     public async Task<bool> SendReviewRequestEmailAsync(Booking booking, Customer customer, Service service, string tenantName, string? tenantLogoUrl, string primaryColor)
     {
@@ -500,7 +568,7 @@ public class EmailService
     }
 
     /// <summary>Sent when a voucher/session-package is issued to a customer (Agency). Code + remaining balance, no payment link — the tenant collects payment itself.</summary>
-    public async Task<bool> SendVoucherIssuedEmailAsync(Guid tenantId, string recipientEmail, string customerName, string code, VoucherType type, decimal? remainingAmount, int? remainingSessions, string tenantName, string? tenantLogoUrl, string primaryColor)
+    public async Task<bool> SendVoucherIssuedEmailAsync(Guid tenantId, string recipientEmail, string customerName, string code, VoucherType type, decimal? remainingAmount, int? remainingSessions, decimal? percentageValue, string tenantName, string? tenantLogoUrl, string primaryColor)
     {
         if (string.IsNullOrWhiteSpace(recipientEmail)) return false;
 
@@ -514,9 +582,12 @@ public class EmailService
             CreatedAt = DateTime.UtcNow,
         };
 
-        var valueLabel = type == VoucherType.MonetaryValue
-            ? $"{remainingAmount:N2} Guthaben"
-            : $"{remainingSessions} Sitzung(en)";
+        var valueLabel = type switch
+        {
+            VoucherType.MonetaryValue => $"{remainingAmount:N2} Guthaben",
+            VoucherType.PercentageDiscount => $"{percentageValue:N0}% Rabatt",
+            _ => $"{remainingSessions} Sitzung(en)",
+        };
 
         try
         {
