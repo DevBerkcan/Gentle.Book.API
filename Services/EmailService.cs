@@ -2459,7 +2459,13 @@ GentleBook · support@gentlegroup.de";
         var safeFirstName = System.Net.WebUtility.HtmlEncode(firstName);
         var safeTenantName = System.Net.WebUtility.HtmlEncode(tenantName);
         var safeActivationUrl = System.Net.WebUtility.HtmlEncode(activationUrl);
-        var bookingUrl = $"{FrontendUrl}/booking/{tenantSlug}";
+        var frontendRoot = FrontendUrl.TrimEnd('/');
+        var bookingUrl = $"{frontendRoot}/booking/{tenantSlug}";
+        var loginUrl = $"{frontendRoot}/admin/login";
+        var safeBookingUrl = System.Net.WebUtility.HtmlEncode(bookingUrl);
+        var safeLoginUrl = System.Net.WebUtility.HtmlEncode(loginUrl);
+        var safeTenantSlug = System.Net.WebUtility.HtmlEncode(tenantSlug);
+        var safeRecipientEmail = System.Net.WebUtility.HtmlEncode(recipientEmail);
         var expires = invitationExpiresAt.ToString("dd.MM.yyyy");
 
         var message = new MimeMessage();
@@ -2473,6 +2479,9 @@ GentleBook · support@gentlegroup.de";
 wie besprochen haben wir GentleBook für {tenantName} vorbereitet.
 
 Buchungsseite: {bookingUrl}
+Buchungssystem-ID: {tenantSlug}
+Spätere Anmeldung: {loginUrl}
+E-Mail-Adresse: {recipientEmail}
 Testdauer nach Freischaltung: 14 Tage
 Zahlungsmethode: nicht erforderlich
 Automatische kostenpflichtige Verlängerung: nein
@@ -2482,6 +2491,8 @@ Bitte bestätigen Sie vor Beginn des Tests Ihre Unternehmereigenschaft, die AGB,
 
 Der Bestätigungslink ist bis {expires} gültig. Ihre Bestätigung startet die Testphase noch nicht. GentleBook prüft anschließend die vorbereitete Einrichtung und gibt den Zugang gesondert frei. Beginn, Ende und Zugangsdaten erhalten Sie mit der Freischaltungsbestätigung.
 
+Für Ihre spätere Anmeldung kopieren Sie die Buchungssystem-ID „{tenantSlug}“ in das gleichnamige Login-Feld. Das Passwort legen Sie erst über die Freischaltungsbestätigung fest; vorher ist noch kein Login möglich.
+
 GentleBook · support@gentlegroup.de",
             HtmlBody = $@"<!DOCTYPE html><html lang='de'><head><meta charset='UTF-8'></head>
 <body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
@@ -2489,6 +2500,17 @@ GentleBook · support@gentlegroup.de",
 <h1 style='color:#14162B;font-size:22px;margin:0 0 20px'>Ihr GentleBook-Testzugang ist vorbereitet</h1>
 <p style='color:#374151'>Hallo {safeFirstName},</p>
 <p style='color:#6b7280;line-height:1.6'>Wie besprochen haben wir GentleBook für <strong>{safeTenantName}</strong> vorbereitet. Ihre Bestätigung startet die Testphase noch nicht. GentleBook prüft anschließend die Einrichtung und gibt den Zugang gesondert frei. Eine Zahlungsmethode ist nicht erforderlich und es erfolgt keine automatische kostenpflichtige Verlängerung.</p>
+<div style='margin:20px 0;background:#F8FAFF;border:1px solid #C7D2FE;border-radius:12px;padding:18px 20px'>
+  <p style='margin:0 0 8px;color:#1f2937;font-size:14px;font-weight:700'>Ihre Systeminformationen</p>
+  <p style='margin:0 0 8px;color:#6b7280;font-size:13px;line-height:1.5'>Diese Angaben benötigen Sie nach der Freischaltung für den Admin-Login. Die Buchungssystem-ID ist der Kurzname Ihres Systems, keine Nummer und nicht Ihre E-Mail-Adresse.</p>
+  <p style='margin:0;color:#374151;font-size:13px;line-height:1.8'>
+    Buchungsseite: <a href='{safeBookingUrl}' style='color:#4F46E5'>{safeBookingUrl}</a><br>
+    Admin-Login: <a href='{safeLoginUrl}' style='color:#4F46E5'>{safeLoginUrl}</a><br>
+    Buchungssystem-ID: <strong style='font-family:monospace;user-select:all'>{safeTenantSlug}</strong><br>
+    E-Mail-Adresse: <span style='font-family:monospace;user-select:all'>{safeRecipientEmail}</span>
+  </p>
+  <p style='margin:8px 0 0;color:#6b7280;font-size:12px'>Das Passwort legen Sie erst mit der separaten Freischaltungsbestätigung fest. Vorher ist noch kein Login möglich.</p>
+</div>
 <p style='margin:28px 0'><a href='{safeActivationUrl}' style='display:inline-block;background:#6355E4;color:#fff;text-decoration:none;padding:13px 20px;border-radius:10px;font-weight:700'>Testbedingungen und AVV bestätigen</a></p>
 <p style='color:#6b7280;font-size:13px;line-height:1.6'>Der Link ist bis {expires} gültig. Beginn und Ende der 14-tägigen Testphase sowie Ihre Zugangsdaten werden erst mit der separaten Freischaltungsbestätigung mitgeteilt.</p>
 </div></body></html>"
@@ -2680,8 +2702,12 @@ GentleBook · support@gentlegroup.de";
                 ? _emailOptions.BaseUrl?.Replace("/api", "") ?? "https://gentle-book-ui.vercel.app"
                 : _emailOptions.FrontendUrl;
             var profileUrl  = $"{frontendBase}/booking/{tenantSlug}";
+            var loginUrl    = $"{frontendBase.TrimEnd('/')}/admin/login";
             var settingsUrl = $"{frontendBase}/admin/settings";
             var linksUrl    = $"{frontendBase}/admin/links";
+            var safeLoginUrl = System.Net.WebUtility.HtmlEncode(loginUrl);
+            var safeTenantSlug = System.Net.WebUtility.HtmlEncode(tenantSlug);
+            var safeRecipientEmail = System.Net.WebUtility.HtmlEncode(recipientEmail);
             var trialPeriodBlock = trialStartedAt.HasValue && trialEndsAt.HasValue ? $"""
                         <tr>
                           <td style="background:#ffffff;padding:0 32px 24px;">
@@ -2855,6 +2881,37 @@ GentleBook · support@gentlegroup.de";
 
                         {trialPeriodBlock}
 
+                        <!-- LOGIN DETAILS -->
+                        <tr>
+                          <td style="background:#ffffff;padding:0 32px 28px;">
+                            <div style="background:#F8FAFF;border:1px solid #C7D2FE;border-radius:14px;padding:20px;">
+                              <p style="margin:0 0 6px;color:#1E1E1E;font-size:15px;font-weight:700;">&#128273; Ihre Zugangsdaten</p>
+                              <p style="margin:0 0 16px;color:#6B7280;font-size:13px;line-height:1.6;">
+                                Nach dem Festlegen Ihres Passworts melden Sie sich im Admin-Login mit diesen Angaben an. Die <strong>Buchungssystem-ID</strong> ist der eindeutige Kurzname Ihres Systems &mdash; keine Nummer und nicht Ihre E-Mail-Adresse.
+                              </p>
+                              <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:separate;border-spacing:0 8px;">
+                                <tr>
+                                  <td style="width:38%;color:#6B7280;font-size:12px;font-weight:600;">Admin-Login</td>
+                                  <td style="background:#ffffff;border:1px solid #E5E7EB;border-radius:8px;padding:10px 12px;font-family:Consolas,'Courier New',monospace;font-size:13px;word-break:break-all;"><a href="{safeLoginUrl}" style="color:#4F46E5;text-decoration:none;">{safeLoginUrl}</a></td>
+                                </tr>
+                                <tr>
+                                  <td style="width:38%;color:#6B7280;font-size:12px;font-weight:600;">Buchungssystem-ID</td>
+                                  <td style="background:#ffffff;border:1px solid #E5E7EB;border-radius:8px;padding:10px 12px;font-family:Consolas,'Courier New',monospace;font-size:14px;font-weight:700;word-break:break-all;user-select:all;">{safeTenantSlug}</td>
+                                </tr>
+                                <tr>
+                                  <td style="width:38%;color:#6B7280;font-size:12px;font-weight:600;">E-Mail-Adresse</td>
+                                  <td style="background:#ffffff;border:1px solid #E5E7EB;border-radius:8px;padding:10px 12px;font-family:Consolas,'Courier New',monospace;font-size:13px;word-break:break-all;user-select:all;">{safeRecipientEmail}</td>
+                                </tr>
+                                <tr>
+                                  <td style="width:38%;color:#6B7280;font-size:12px;font-weight:600;">Passwort</td>
+                                  <td style="color:#374151;font-size:13px;padding:10px 12px;">Legen Sie es über den Button unten selbst fest.</td>
+                                </tr>
+                              </table>
+                              <p style="margin:12px 0 0;color:#6B7280;font-size:12px;line-height:1.5;">Tipp: Markieren und kopieren Sie die Buchungssystem-ID genau wie oben angezeigt und fügen Sie sie in das gleichnamige Login-Feld ein.</p>
+                            </div>
+                          </td>
+                        </tr>
+
                         <!-- PACKAGE -->
                         <tr>
                           <td style="background:#ffffff;padding:0 32px 28px;">
@@ -3020,6 +3077,14 @@ GentleBook · support@gentlegroup.de";
                 Ihr {industryLabel} "{tenantName}" ist einsatzbereit.
 
                 PAKET: {planDisplayName} — {planPrice}
+
+                IHRE ZUGANGSDATEN:
+                Admin-Login: {loginUrl}
+                Buchungssystem-ID: {tenantSlug}
+                E-Mail-Adresse: {recipientEmail}
+                Passwort: Legen Sie es über den folgenden Link selbst fest.
+
+                Die Buchungssystem-ID ist der eindeutige Kurzname Ihres Systems (keine Nummer und nicht Ihre E-Mail-Adresse). Kopieren Sie exakt "{tenantSlug}" in das Feld "Buchungssystem-ID".
 
                 {trialPeriodText}PASSWORT FESTLEGEN (72h gültig):
                 {setupUrl}
