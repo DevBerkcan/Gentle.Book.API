@@ -11,8 +11,18 @@ public static class TestDbContextFactory
 {
     public static GentleBookDbContext Create()
     {
+        return Create(Guid.NewGuid().ToString());
+    }
+
+    /// <summary>
+    /// Creates a second, independently-tracked GentleBookDbContext against the SAME named
+    /// in-memory store — for tests simulating two concurrent requests, which in production each
+    /// get their own scoped DbContext hitting the same real database.
+    /// </summary>
+    public static GentleBookDbContext Create(string dbName)
+    {
         var options = new DbContextOptionsBuilder<GentleBookDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseInMemoryDatabase(dbName)
             .Options;
 
         return new GentleBookDbContext(options);

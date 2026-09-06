@@ -14,7 +14,7 @@
     <PackageReference Include="Hangfire.Core" Version="1.8.22" />
     <PackageReference Include="Hangfire.SqlServer" Version="1.8.22" />
     <PackageReference Include="MailKit" Version="4.17.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.5" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -23,6 +23,14 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="8.0.11" />
     <PackageReference Include="QuestPDF" Version="2024.10.3" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
+    <!-- Direct overrides (NuGet nearest-wins) for transitive vulnerabilities pulled in by both
+         JwtBearer and Microsoft.Data.SqlClient (Microsoft.IdentityModel.JsonWebTokens/
+         System.IdentityModel.Tokens.Jwt @7.0.3, CVE-2024-21319, fixed >=7.1.2) and by Hangfire
+         (Newtonsoft.Json @11.0.1, CVE-2024-21907, fixed >=13.0.1). See "dotnet list package
+         vulnerable, include-transitive" for the full scan. -->
+    <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="7.7.3" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.7.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
 
   <ItemGroup>

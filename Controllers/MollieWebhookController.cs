@@ -41,34 +41,43 @@ public class MollieWebhookController : ControllerBase
         var resourceType = id.StartsWith("sub_") ? "subscription" : "payment";
 
         if (resourceType == "payment")
-        {
-            await HandlePaymentAsync(id);
-            return Ok();
-        }
+            return await HandlePaymentAsync(id) ?? Ok();
 
         // Subscription-resource webhooks carry a bare subscription id with no customerId,
         // so the owning Subscription row (and thus its MollieCustomerId) must be resolved
         // from our own DB before we can call Mollie's customer-scoped subscription endpoint.
         // Not dedup-guarded: ProcessSubscriptionEventAsync is already idempotent by design.
-        var eventRow = new MollieWebhookEvent { MollieResourceId = id, ResourceType = "subscription" };
-        _db.MollieWebhookEvents.Add(eventRow);
+        MollieSubscription subscription;
         try
         {
             var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.MollieSubscriptionId == id);
-            if (sub?.MollieCustomerId != null)
-            {
-                var subscription = await _mollie.GetSubscriptionAsync(sub.MollieCustomerId, id);
-                await _mollieService.ProcessSubscriptionEventAsync(subscription);
-                eventRow.ResultStatus = subscription.Status;
-            }
+            if (sub?.MollieCustomerId == null)
+                return Ok(); // no matching local subscription — nothing we can or should do
 
+            subscription = await _mollie.GetSubscriptionAsync(sub.MollieCustomerId, id);
+        }
+        catch (Exception ex)
+        {
+            // Distinct from a processing failure below: we couldn't even fetch the resource, so
+            // Mollie's own (fast, bounded) retry should fire instead of waiting up to an hour for
+            // the reconciliation job to notice — a flat 200 here would silently swallow the delivery.
+            _logger.LogError(ex, "Mollie webhook: failed to fetch subscription {Id}", id);
+            return StatusCode(502);
+        }
+
+        var eventRow = new MollieWebhookEvent { MollieResourceId = id, ResourceType = "subscription", ResultStatus = subscription.Status };
+        _db.MollieWebhookEvents.Add(eventRow);
+        try
+        {
+            await _mollieService.ProcessSubscriptionEventAsync(subscription);
             eventRow.ProcessedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
         }
         catch (Exception ex)
         {
-            // Log and still return 200 — Mollie retries indefinitely on non-2xx, and the hourly
-            // reconciliation job is the real safety net for anything that fails here.
+            // The resource itself was fetched fine — this is a local processing bug, not a
+            // delivery problem. Still 200: a persistent bug here must not turn into an endless
+            // Mollie retry storm; the hourly reconciliation job is the backstop for this case.
             _logger.LogError(ex, "Mollie webhook processing failed for subscription {Id}", id);
             eventRow.Notes = ex.Message;
             try { await _db.SaveChangesAsync(); } catch { /* best effort */ }
@@ -82,7 +91,9 @@ public class MollieWebhookController : ControllerBase
     // appeared), not assumed up front. This is what lets a later webhook call for the same
     // payment id (e.g. pending -> paid, or a chargeback arriving weeks after "paid") still get
     // processed instead of being dropped as a duplicate of an earlier, different-status call.
-    private async Task HandlePaymentAsync(string id)
+    // Returns a non-null IActionResult only when the caller should return something other than
+    // the default 200 (i.e. the fetch itself failed and Mollie should retry delivery).
+    private async Task<IActionResult?> HandlePaymentAsync(string id)
     {
         MolliePayment payment;
         try
@@ -92,27 +103,40 @@ public class MollieWebhookController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Mollie webhook: failed to fetch payment {Id}", id);
-            return; // let Mollie retry the delivery; reconciliation job is the backstop either way
+            return StatusCode(502); // let Mollie's own faster retry fire instead of waiting on the hourly reconciliation job
         }
 
         var dedupStatus = ComputeDedupStatus(payment);
 
-        var alreadyProcessed = await _db.MollieWebhookEvents.AnyAsync(e =>
-            e.MollieResourceId == id && e.ResourceType == "payment"
-            && e.ResultStatus == dedupStatus && e.ProcessedAt != null);
-        if (alreadyProcessed)
-            return;
+        var existing = await _db.MollieWebhookEvents.FirstOrDefaultAsync(e =>
+            e.MollieResourceId == id && e.ResourceType == "payment" && e.ResultStatus == dedupStatus);
+        if (existing?.ProcessedAt != null)
+            return null; // genuinely already handled
 
-        var eventRow = new MollieWebhookEvent { MollieResourceId = id, ResourceType = "payment", ResultStatus = dedupStatus };
-        try
+        MollieWebhookEvent eventRow;
+        if (existing != null)
         {
-            _db.MollieWebhookEvents.Add(eventRow);
-            await _db.SaveChangesAsync();
+            // A previous delivery for this exact (id, status) got as far as recording the dedup
+            // row but never finished processing (e.g. it crashed mid-way) — resume it instead of
+            // inserting a second row, which would hit the unique index and be misread as "another
+            // delivery is already handling this," permanently skipping the payment until the
+            // hourly reconciliation job happens to pick it up.
+            eventRow = existing;
         }
-        catch (DbUpdateException)
+        else
         {
-            // Unique-index race: another concurrent delivery for this exact (id, status) is already handling it.
-            return;
+            eventRow = new MollieWebhookEvent { MollieResourceId = id, ResourceType = "payment", ResultStatus = dedupStatus };
+            try
+            {
+                _db.MollieWebhookEvents.Add(eventRow);
+                await _db.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // Unique-index race: another concurrent delivery just inserted the same row a
+                // moment ago — safe to stop, that request (or the next redelivery) handles it.
+                return null;
+            }
         }
 
         try
@@ -127,6 +151,8 @@ public class MollieWebhookController : ControllerBase
             eventRow.Notes = ex.Message;
             try { await _db.SaveChangesAsync(); } catch { /* best effort */ }
         }
+
+        return null;
     }
 
     private static string ComputeDedupStatus(MolliePayment payment)

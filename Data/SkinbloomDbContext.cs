@@ -46,6 +46,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<WaitlistEntry> WaitlistEntries { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<MollieWebhookEvent> MollieWebhookEvents { get; set; }
+    public DbSet<MandateFlowClaim> MandateFlowClaims { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
     public DbSet<PlanPrice> PlanPrices { get; set; }
     public DbSet<IndustryProfile> IndustryProfiles { get; set; }
@@ -331,6 +332,12 @@ public class GentleBookDbContext : DbContext
             entity.HasIndex(e => new { e.MollieResourceId, e.ResultStatus })
                   .IsUnique()
                   .HasFilter("[ResourceType] = 'payment' AND [ResultStatus] IS NOT NULL");
+        });
+
+        // ── MandateFlowClaim ──────────────────────────────────
+        modelBuilder.Entity<MandateFlowClaim>(entity =>
+        {
+            entity.HasKey(e => e.SubscriptionId);
         });
 
         // ── Invoice ───────────────────────────────────────────

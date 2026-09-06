@@ -1,4 +1,5 @@
 using GentleBook.Api.Data;
+using GentleBook.Api.Data.Entities;
 using GentleBook.Api.Middleware;
 using GentleBook.Api.Options;
 using GentleBook.Api.Services;
@@ -553,6 +554,64 @@ using (var scope = app.Services.CreateScope())
     catch (Exception ex)
     {
         Console.Error.WriteLine($"[AI PLAYBOOK SEED ERROR] {ex.Message}");
+    }
+}
+
+// Dev-only demo tenants for local smoke testing — one per plan tier, each with a TenantAdmin
+// login. Idempotent (skipped if the slug already exists) and gated to Development so this never
+// runs against a real database.
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+    try
+    {
+        var demoPlans = new (string Slug, string Name, SubscriptionPlan Plan, SubscriptionStatus Status)[]
+        {
+            ("demo-trial", "Demo Salon Trial", SubscriptionPlan.Trial, SubscriptionStatus.Trial),
+            ("demo-starter", "Demo Salon Starter", SubscriptionPlan.Starter, SubscriptionStatus.Active),
+            ("demo-professional", "Demo Salon Professional", SubscriptionPlan.Professional, SubscriptionStatus.Active),
+            ("demo-agency", "Demo Salon Agency", SubscriptionPlan.Agency, SubscriptionStatus.Active),
+        };
+
+        foreach (var (slug, name, plan, status) in demoPlans)
+        {
+            if (await db.Tenants.IgnoreQueryFilters().AnyAsync(t => t.Slug == slug))
+                continue;
+
+            var tenant = new Tenant { Name = name, Slug = slug, IsActive = true, IndustryType = IndustryType.Hairdresser };
+            var subscription = new Subscription
+            {
+                TenantId = tenant.Id,
+                Tenant = tenant,
+                Plan = plan,
+                Interval = SubscriptionInterval.Monthly,
+                Status = status,
+                CurrentPeriodStart = status == SubscriptionStatus.Active ? DateTime.UtcNow : null,
+                CurrentPeriodEnd = status == SubscriptionStatus.Active ? DateTime.UtcNow.AddMonths(1) : null,
+                NegotiatedMonthlyPrice = plan == SubscriptionPlan.Agency ? 149m : null,
+                NegotiatedAnnualPrice = plan == SubscriptionPlan.Agency ? 1490m : null,
+            };
+            var settings = new TenantSettings { TenantId = tenant.Id, CompanyName = name, Email = $"{slug}@gentlebook.local" };
+            var admin = new PlatformUser
+            {
+                TenantId = tenant.Id,
+                Email = $"{slug}@gentlebook.local",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Demo123!"),
+                FirstName = "Demo",
+                LastName = "Admin",
+                Role = PlatformRole.TenantAdmin,
+                IsActive = true,
+            };
+
+            db.AddRange(tenant, subscription, settings, admin);
+        }
+
+        await db.SaveChangesAsync();
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[DEMO TENANT SEED ERROR] {ex.Message}");
     }
 }
 

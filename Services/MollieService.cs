@@ -107,31 +107,64 @@ public class MollieService
             pendingManual.Note = (pendingManual.Note ?? "") + " [Ersetzt durch Mollie-Zahlungsfluss]";
         }
 
-        var limits = PlanLimits.Get(planEnum);
-
-        var email = tenant.Settings.Email ?? "";
-        if (string.IsNullOrEmpty(sub.MollieCustomerId))
+        // Claim this subscription before calling Mollie at all — everything above this point
+        // only *reads* `sub`, so two near-simultaneous requests (double-click, two browser tabs)
+        // could otherwise both pass those checks before either writes, and both go on to create
+        // a real, separate Mollie "first payment" charge. `MandateFlowClaim.SubscriptionId` is
+        // the primary key, so whichever request inserts this row first wins; the second gets a
+        // primary-key violation instead of also calling Mollie.
+        var claimRow = new MandateFlowClaim { SubscriptionId = sub.Id };
+        _db.MandateFlowClaims.Add(claimRow);
+        try
         {
-            var customer = await _mollie.CreateCustomerAsync(
-                tenant.Settings.LegalCompanyName ?? tenant.Name, email, "de_DE");
-            sub.MollieCustomerId = customer.Id;
+            await _db.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            return new MollieFlowResult(false, "Es läuft bereits ein Zahlungsvorgang für dieses Abonnement. Bitte schließe diesen zuerst ab oder warte kurz.", null);
         }
 
-        var redirectUrl = $"{_options.Value.RedirectUrlBase.TrimEnd('/')}/admin/subscription?mollieReturn=1";
-        var payment = await _mollie.CreateFirstPaymentAsync(
-            sub.MollieCustomerId!,
-            intervalEnum.PriceFor(sub, limits),
-            "EUR",
-            $"GentleBook {limits.DisplayName}-Plan – Einrichtung SEPA-Mandat",
-            redirectUrl,
-            _options.Value.WebhookUrl,
-            new Dictionary<string, string> { ["tenantId"] = tenantId.ToString(), ["plan"] = planEnum.ToString(), ["interval"] = intervalEnum.ToString() });
+        var limits = PlanLimits.Get(planEnum);
 
-        sub.LastMolliePaymentId = payment.Id;
-        sub.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync();
+        try
+        {
+            var email = tenant.Settings.Email ?? "";
+            if (string.IsNullOrEmpty(sub.MollieCustomerId))
+            {
+                var customer = await _mollie.CreateCustomerAsync(
+                    tenant.Settings.LegalCompanyName ?? tenant.Name, email, "de_DE");
+                sub.MollieCustomerId = customer.Id;
+            }
 
-        return new MollieFlowResult(true, null, payment.CheckoutUrl());
+            var redirectUrl = $"{_options.Value.RedirectUrlBase.TrimEnd('/')}/admin/subscription?mollieReturn=1";
+            var payment = await _mollie.CreateFirstPaymentAsync(
+                sub.MollieCustomerId!,
+                intervalEnum.PriceFor(sub, limits),
+                "EUR",
+                $"GentleBook {limits.DisplayName}-Plan – Einrichtung SEPA-Mandat",
+                redirectUrl,
+                _options.Value.WebhookUrl,
+                new Dictionary<string, string> { ["tenantId"] = tenantId.ToString(), ["plan"] = planEnum.ToString(), ["interval"] = intervalEnum.ToString() });
+
+            sub.LastMolliePaymentId = payment.Id;
+            sub.UpdatedAt = DateTime.UtcNow;
+            _db.MandateFlowClaims.Remove(claimRow);
+            await _db.SaveChangesAsync();
+
+            return new MollieFlowResult(true, null, payment.CheckoutUrl());
+        }
+        catch
+        {
+            // Release the claim so a transient Mollie failure doesn't permanently lock the
+            // tenant out of ever starting the mandate flow again.
+            try
+            {
+                _db.MandateFlowClaims.Remove(claimRow);
+                await _db.SaveChangesAsync();
+            }
+            catch { /* best effort — a stuck claim row just needs manual cleanup later */ }
+            throw;
+        }
     }
 
     /// <summary>

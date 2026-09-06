@@ -27,6 +27,23 @@ public class MollieServiceChangePlanTests
             db, mollieClient, mollieOptions, new FakeBackgroundJobClient(), auditService, emailService, NullLogger<MollieService>.Instance);
     }
 
+    private static MollieService BuildWorkingMollieService(GentleBook.Api.Data.GentleBookDbContext db)
+    {
+        var httpContextAccessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
+        var auditService = new AuditService(db, httpContextAccessor, NullLogger<AuditService>.Instance);
+        var emailService = TestServiceFactory.CreateEmailService(db);
+        var mollieOptions = Options.Create(new MollieOptions());
+        var mollieClient = new MollieClient(
+            new HttpClient(new FakeHttpMessageHandler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"id\":\"sub_test\",\"status\":\"active\"}", System.Text.Encoding.UTF8, "application/json")
+            }))
+            { BaseAddress = new Uri("https://api.mollie.com/v2/") },
+            new StaticOptionsMonitor<MollieOptions>(new MollieOptions { ApiKey = "test_x" }));
+        return new MollieService(
+            db, mollieClient, mollieOptions, new FakeBackgroundJobClient(), auditService, emailService, NullLogger<MollieService>.Instance);
+    }
+
     private static (Tenant tenant, Subscription subscription) SeedActiveSubscription(GentleBook.Api.Data.GentleBookDbContext db, SubscriptionPlan plan)
     {
         var tenant = new Tenant { Name = "Salon Wechsel", Slug = "salon-wechsel-" + Guid.NewGuid(), IsActive = true };
@@ -128,5 +145,66 @@ public class MollieServiceChangePlanTests
 
         var reloaded = await db.Subscriptions.AsNoTracking().FirstAsync(s => s.TenantId == tenant.Id);
         Assert.Equal(SubscriptionPlan.Professional, reloaded.Plan);
+    }
+
+    [Fact]
+    public async Task ChangePlanAsync_DowngradeOverServiceLimit_IsBlockedWithoutTouchingMollieOrDb()
+    {
+        // Deliberately within Starter's employee limit (2) so the employee check at
+        // MollieService.cs:475-478 passes and the service-count branch at :480-483 — never
+        // reached by any prior test — is the one that actually fires here.
+        using var db = TestDbContextFactory.Create();
+        var (tenant, _) = SeedActiveSubscription(db, SubscriptionPlan.Professional);
+
+        for (var i = 0; i < 2; i++)
+            db.Employees.Add(new Employee { TenantId = tenant.Id, Name = $"Mitarbeiter {i}", IsActive = true });
+        var category = new ServiceCategory { TenantId = tenant.Id, Name = "Haarschnitt" };
+        db.ServiceCategories.Add(category);
+        for (var i = 0; i < 16; i++) // Starter MaxServices = 15
+            db.Services.Add(new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = $"Service {i}", DurationMinutes = 30, Price = 20m, IsActive = true });
+        await db.SaveChangesAsync();
+
+        var mollieService = BuildMollieService(db);
+
+        var result = await mollieService.ChangePlanAsync(tenant.Id, "Starter", "Monthly");
+
+        Assert.False(result.Success);
+        Assert.Contains("aktive Services", result.Error);
+
+        var reloaded = await db.Subscriptions.AsNoTracking().FirstAsync(s => s.TenantId == tenant.Id);
+        Assert.Equal(SubscriptionPlan.Professional, reloaded.Plan);
+    }
+
+    [Fact]
+    public async Task ChangePlanAsync_UpgradeWithinLimits_Succeeds()
+    {
+        using var db = TestDbContextFactory.Create();
+        var (tenant, _) = SeedActiveSubscription(db, SubscriptionPlan.Starter);
+        var mollieService = BuildWorkingMollieService(db);
+
+        var result = await mollieService.ChangePlanAsync(tenant.Id, "Professional", "Monthly");
+
+        Assert.True(result.Success);
+        Assert.Equal("Professional", result.Plan);
+        var reloaded = await db.Subscriptions.AsNoTracking().FirstAsync(s => s.TenantId == tenant.Id);
+        Assert.Equal(SubscriptionPlan.Professional, reloaded.Plan);
+    }
+
+    [Fact]
+    public async Task ChangePlanAsync_DowngradeWithinLimits_Succeeds()
+    {
+        using var db = TestDbContextFactory.Create();
+        var (tenant, _) = SeedActiveSubscription(db, SubscriptionPlan.Professional);
+        // Well within Starter's limits (2 employees, 15 services) — nothing to block this downgrade.
+        db.Employees.Add(new Employee { TenantId = tenant.Id, Name = "Einzige Kraft", IsActive = true });
+        await db.SaveChangesAsync();
+        var mollieService = BuildWorkingMollieService(db);
+
+        var result = await mollieService.ChangePlanAsync(tenant.Id, "Starter", "Monthly");
+
+        Assert.True(result.Success);
+        Assert.Equal("Starter", result.Plan);
+        var reloaded = await db.Subscriptions.AsNoTracking().FirstAsync(s => s.TenantId == tenant.Id);
+        Assert.Equal(SubscriptionPlan.Starter, reloaded.Plan);
     }
 }

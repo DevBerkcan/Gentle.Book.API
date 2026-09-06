@@ -995,6 +995,96 @@ public class SuperAdminController : ControllerBase
     }
 
     /// <summary>
+    /// Realized (Mollie-collected) revenue, churn rate, and trial→paid conversion rate per
+    /// week/month — deliberately separate from /stats' MRR, which is a forward-looking snapshot
+    /// of currently-recurring prices, not money that has actually been collected.
+    /// </summary>
+    [HttpGet("revenue")]
+    public async Task<IActionResult> GetRevenue([FromQuery] string granularity = "month", [FromQuery] int periods = 12)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var isWeekly = string.Equals(granularity, "week", StringComparison.OrdinalIgnoreCase);
+        periods = Math.Clamp(periods, 1, 52);
+        var now = DateTime.UtcNow;
+        var culture = new System.Globalization.CultureInfo("de-DE");
+
+        DateTime PeriodStart(int indexFromOldest)
+        {
+            if (isWeekly)
+            {
+                var daysSinceMonday = ((int)now.DayOfWeek + 6) % 7;
+                var thisMonday = now.Date.AddDays(-daysSinceMonday);
+                return thisMonday.AddDays(-7 * (periods - 1 - indexFromOldest));
+            }
+            var thisMonthStart = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+            return thisMonthStart.AddMonths(-(periods - 1 - indexFromOldest));
+        }
+        DateTime PeriodEnd(DateTime start) => isWeekly ? start.AddDays(7) : start.AddMonths(1);
+
+        var earliestStart = PeriodStart(0);
+
+        var invoices = await _db.Invoices
+            .Where(i => i.IssueDate >= earliestStart)
+            .Select(i => new { i.IssueDate, i.Amount })
+            .ToListAsync();
+
+        var cancellations = await _db.Subscriptions
+            .Where(s => s.CancelledAt != null && s.CancelledAt >= earliestStart)
+            .Select(s => s.CancelledAt!.Value)
+            .ToListAsync();
+
+        // "Ever paying" = completed at least one real Mollie mandate signup — used both as the
+        // churn denominator (who could churn at all) and the conversion-rate numerator.
+        var everPaying = await _db.Subscriptions
+            .Where(s => s.MollieMandateSignedAt != null)
+            .Select(s => new { s.MollieMandateSignedAt, s.CancelledAt })
+            .ToListAsync();
+
+        var trialEndCohorts = await _db.Subscriptions
+            .Where(s => s.TrialEndsAt >= earliestStart)
+            .Select(s => new { s.TrialEndsAt, s.MollieMandateSignedAt })
+            .ToListAsync();
+
+        var buckets = new List<object>();
+        for (var i = 0; i < periods; i++)
+        {
+            var start = PeriodStart(i);
+            var end = PeriodEnd(start);
+
+            var periodInvoices = invoices.Where(inv => inv.IssueDate >= start && inv.IssueDate < end).ToList();
+            var realizedRevenue = periodInvoices.Sum(inv => inv.Amount);
+
+            var churned = cancellations.Count(c => c >= start && c < end);
+            // Zahlende Tenants zu Periodenbeginn: Mandat vor Periodenbeginn signiert und eine
+            // etwaige Kündigung (falls vorhanden) liegt nicht vor Periodenbeginn.
+            var activeAtStart = everPaying.Count(s => s.MollieMandateSignedAt < start && (s.CancelledAt == null || s.CancelledAt >= start));
+            decimal? churnRate = activeAtStart > 0 ? Math.Round(100m * churned / activeAtStart, 1) : null;
+
+            var cohort = trialEndCohorts.Where(t => t.TrialEndsAt >= start && t.TrialEndsAt < end).ToList();
+            var converted = cohort.Count(t => t.MollieMandateSignedAt != null);
+            decimal? conversionRate = cohort.Count > 0 ? Math.Round(100m * converted / cohort.Count, 1) : null;
+
+            buckets.Add(new
+            {
+                PeriodStart = start,
+                PeriodEnd = end,
+                Label = isWeekly ? $"KW {System.Globalization.ISOWeek.GetWeekOfYear(start)}" : start.ToString("MMM yy", culture),
+                RealizedRevenue = realizedRevenue,
+                InvoiceCount = periodInvoices.Count,
+                ChurnedTenants = churned,
+                ActiveTenantsAtStart = activeAtStart,
+                ChurnRatePercent = churnRate,
+                TrialsEnded = cohort.Count,
+                Converted = converted,
+                ConversionRatePercent = conversionRate,
+            });
+        }
+
+        return Ok(new { Granularity = isWeekly ? "week" : "month", Periods = periods, Buckets = buckets });
+    }
+
+    /// <summary>
     /// KI-Nutzungskosten der letzten 30 Tage, pro Tenant aufgeschlüsselt — Grundlage, um
     /// individuell verhandelte Agency-Preise (Subscription.NegotiatedMonthlyPrice) anhand der
     /// tatsächlich entstandenen OpenAI-Kosten zu kalibrieren/nachzuverhandeln.
