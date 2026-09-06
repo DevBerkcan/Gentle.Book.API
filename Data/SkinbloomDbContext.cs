@@ -679,6 +679,13 @@ public class GentleBookDbContext : DbContext
             entity.Property(e => e.ContactEmail).IsRequired().HasMaxLength(200);
             entity.Property(e => e.Status).IsRequired().HasMaxLength(20).HasDefaultValue("Pending");
             entity.Property(e => e.Note).HasMaxLength(500);
+            entity.Property(e => e.OfferedMonthlyPrice).HasPrecision(10, 2);
+            entity.Property(e => e.OfferedAnnualPrice).HasPrecision(10, 2);
+            entity.Property(e => e.AcceptedPrice).HasPrecision(10, 2);
+            entity.Property(e => e.AcceptedInterval).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.AcceptedTermsVersion).HasMaxLength(32);
+            entity.Property(e => e.AcceptedByEmail).HasMaxLength(200);
+            entity.Property(e => e.AcceptedIpAddress).HasMaxLength(64);
             entity.HasOne(e => e.Tenant)
                   .WithMany()
                   .HasForeignKey(e => e.TenantId)

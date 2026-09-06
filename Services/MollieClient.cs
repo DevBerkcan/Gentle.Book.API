@@ -73,7 +73,7 @@ public class MollieClient
 
     public async Task<MollieSubscription> CreateSubscriptionAsync(
         string customerId, string mandateId, decimal amount, string currency, string interval,
-        string description, string webhookUrl, IDictionary<string, string>? metadata, CancellationToken ct = default)
+        DateTime startDate, string description, string webhookUrl, IDictionary<string, string>? metadata, CancellationToken ct = default)
     {
         var req = new HttpRequestMessage(HttpMethod.Post, $"customers/{customerId}/subscriptions")
         {
@@ -82,6 +82,7 @@ public class MollieClient
                 amount = new { currency, value = amount.ToString("F2") },
                 mandateId,
                 interval,
+                startDate = startDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
                 description,
                 webhookUrl,
                 metadata
@@ -105,6 +106,20 @@ public class MollieClient
     public async Task<List<MolliePayment>> GetSubscriptionPaymentsAsync(string customerId, string subscriptionId, CancellationToken ct = default)
     {
         var req = new HttpRequestMessage(HttpMethod.Get, $"customers/{customerId}/subscriptions/{subscriptionId}/payments");
+        Authorize(req);
+        var res = await _http.SendAsync(req, ct);
+        res.EnsureSuccessStatusCode();
+        var wrapper = await res.Content.ReadFromJsonAsync<MollieEmbeddedPayments>(cancellationToken: ct);
+        return wrapper?.Embedded?.Payments ?? new List<MolliePayment>();
+    }
+
+    // Full payment history for a customer — unlike GetSubscriptionPaymentsAsync, this also
+    // includes the very first mandate-setup payment (made before the subscription resource
+    // exists) and any abandoned/cancelled checkout attempts, so a SuperAdmin billing overview
+    // can show the complete picture without needing Mollie's own dashboard.
+    public async Task<List<MolliePayment>> GetCustomerPaymentsAsync(string customerId, CancellationToken ct = default)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, $"customers/{customerId}/payments?limit=50");
         Authorize(req);
         var res = await _http.SendAsync(req, ct);
         res.EnsureSuccessStatusCode();
@@ -172,6 +187,8 @@ public class MolliePayment
     public string Id { get; set; } = "";
     public string Status { get; set; } = ""; // open, pending, paid, failed, canceled, expired
     public string? SequenceType { get; set; }
+    public string? Description { get; set; }
+    public DateTime CreatedAt { get; set; }
     public string? CustomerId { get; set; }
     public string? MandateId { get; set; }
     public string? SubscriptionId { get; set; }
@@ -207,12 +224,21 @@ public class MollieSubscription
     public string? MandateId { get; set; }
     public string? CustomerId { get; set; }
     public MollieAmount? Amount { get; set; }
+    public DateTime? NextPaymentDate { get; set; }
 }
 
 public class MollieMandate
 {
     public string Id { get; set; } = "";
     public string Status { get; set; } = ""; // valid, pending, invalid
+    public MollieMandateDetails? Details { get; set; }
+}
+
+public class MollieMandateDetails
+{
+    public string? ConsumerName { get; set; }
+    public string? ConsumerAccount { get; set; }
+    public string? ConsumerBic { get; set; }
 }
 
 public class MollieEmbeddedPayments

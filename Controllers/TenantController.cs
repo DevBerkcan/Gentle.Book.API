@@ -1185,11 +1185,12 @@ public class TenantController : ControllerBase
 
         var activeMollieSub = await _db.Subscriptions
             .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.MollieSubscriptionId != null);
-        if (activeMollieSub != null)
+        if (activeMollieSub != null && dto.Plan != "Agency")
             return BadRequest(new { message = "Sie haben bereits ein Mollie-Abonnement — bitte verwalten Sie Ihren Plan über die Zahlungsseite." });
 
         var existing = await _db.SubscriptionRequests
-            .FirstOrDefaultAsync(r => r.TenantId == tenantId && r.Status == "Pending");
+            .FirstOrDefaultAsync(r => r.TenantId == tenantId &&
+                (r.Status == "Pending" || r.Status == "Offered" || r.Status == "Accepted"));
         if (existing != null)
             return BadRequest(new { message = "Es gibt bereits eine offene Anfrage für dieses System." });
 
@@ -1232,7 +1233,73 @@ public class TenantController : ControllerBase
         }
         catch { /* E-Mails sind nicht geschäftskritisch */ }
 
-        return Ok(new { message = "Anfrage erfolgreich gesendet. Wir aktivieren Ihren Plan innerhalb von 24 Stunden.", requestId = request.Id });
+        return Ok(new { message = "Anfrage erfolgreich gesendet. Bei Agency erhalten Sie zuerst ein verbindliches Angebot mit Monats- und Jahrespreis.", requestId = request.Id });
+    }
+
+    // POST /api/tenant/subscription-request/{id}/accept
+    [HttpPost("subscription-request/{id:guid}/accept")]
+    public async Task<IActionResult> AcceptAgencyOffer(Guid id, [FromBody] AcceptAgencyOfferDto dto)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+        if (!dto.BusinessConfirmed || !dto.TermsAccepted || !dto.BillingTermsAccepted || !dto.PriceAccepted)
+            return BadRequest(new { message = "Alle Vertrags- und Preisbestätigungen sind erforderlich." });
+        if (!Enum.TryParse<SubscriptionInterval>(dto.Interval, true, out var interval))
+            return BadRequest(new { message = "Bitte monatliche oder jährliche Abrechnung wählen." });
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var request = await _db.SubscriptionRequests.FirstOrDefaultAsync(r => r.Id == id && r.TenantId == tenantId);
+        if (request == null) return NotFound(new { message = "Angebot nicht gefunden." });
+        if (request.RequestedPlan != "Agency" || request.Status is not ("Offered" or "Accepted"))
+            return BadRequest(new { message = "Dieses Agency-Angebot kann nicht angenommen werden." });
+        if (request.OfferExpiresAt == null || request.OfferExpiresAt < DateTime.UtcNow)
+            return BadRequest(new { message = "Dieses Angebot ist abgelaufen. Bitte fordern Sie ein neues Angebot an." });
+
+        var selectedPrice = interval == SubscriptionInterval.Yearly
+            ? request.OfferedAnnualPrice
+            : request.OfferedMonthlyPrice;
+        if (selectedPrice == null || selectedPrice <= 0)
+            return BadRequest(new { message = "Für das gewählte Intervall ist kein gültiger Preis hinterlegt." });
+
+        var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (sub == null) return BadRequest(new { message = "Kein Abonnement gefunden." });
+
+        sub.NegotiatedMonthlyPrice = request.OfferedMonthlyPrice;
+        sub.NegotiatedAnnualPrice = request.OfferedAnnualPrice;
+        request.Status = "Accepted";
+        request.AcceptedInterval = interval;
+        request.AcceptedPrice = selectedPrice;
+        request.AcceptedAt = DateTime.UtcNow;
+        request.AcceptedTermsVersion = LegalDocumentVersions.Terms;
+        request.AcceptedByUserId = JwtService.GetUserId(User);
+        request.AcceptedByEmail = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value
+            ?? User.FindFirst("email")?.Value;
+        request.AcceptedIpAddress = HttpContext.Connection.RemoteIpAddress?.ToString();
+
+        var hasExistingMollieSubscription = !string.IsNullOrEmpty(sub.MollieSubscriptionId) && sub.Status == SubscriptionStatus.Active;
+        if (hasExistingMollieSubscription)
+        {
+            var change = await _mollieService.ApplyAcceptedAgencyOfferAsync(tenantId, interval);
+            if (!change.Success) return BadRequest(new { message = change.Error });
+            request.Status = "Activated";
+            request.ProcessedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+        }
+        else
+        {
+            var flow = await _mollieService.StartMandateFlowAsync(tenantId, "Agency", interval.ToString());
+            if (!flow.Success) return BadRequest(new { message = flow.Error });
+
+            await _audit.LogAsync("subscription.agency_offer_accepted", "SubscriptionRequest", request.Id.ToString(),
+                $"Agency {interval}, {selectedPrice:0.00} EUR, AGB {LegalDocumentVersions.Terms}, Preis/Unternehmer/Abrechnung bestätigt",
+                tenantId);
+            return Ok(new { checkoutUrl = flow.CheckoutUrl, activated = false });
+        }
+
+        await _audit.LogAsync("subscription.agency_offer_accepted", "SubscriptionRequest", request.Id.ToString(),
+            $"Agency {interval}, {selectedPrice:0.00} EUR, AGB {LegalDocumentVersions.Terms}, Preis/Unternehmer/Abrechnung bestätigt; bestehendes Mollie-Mandat aktualisiert",
+            tenantId);
+        return Ok(new { checkoutUrl = (string?)null, activated = true });
     }
 
     // GET /api/tenant/subscription-request/status
@@ -1254,12 +1321,20 @@ public class TenantController : ControllerBase
 
         return Ok(new
         {
-            hasPendingRequest = latest.Status == "Pending",
+            hasPendingRequest = latest.Status is "Pending" or "Offered" or "Accepted",
             request = new
             {
                 latest.Id,
                 latest.RequestedPlan,
                 latest.Status,
+                latest.Interval,
+                latest.OfferedMonthlyPrice,
+                latest.OfferedAnnualPrice,
+                latest.OfferedAt,
+                latest.OfferExpiresAt,
+                latest.AcceptedInterval,
+                latest.AcceptedPrice,
+                latest.AcceptedAt,
                 latest.CreatedAt,
                 latest.ProcessedAt,
             }
@@ -1321,6 +1396,12 @@ public record MollieStartRequestDto(
     bool BusinessConfirmed = false,
     bool TermsAccepted = false,
     bool BillingTermsAccepted = false);
+public record AcceptAgencyOfferDto(
+    string Interval,
+    bool BusinessConfirmed = false,
+    bool TermsAccepted = false,
+    bool BillingTermsAccepted = false,
+    bool PriceAccepted = false);
 public record ChangeSubscriptionPlanDto(string Plan, string? Interval = null);
 public record CreateApiKeyDto(string Name);
 public record UpdateCustomDomainDto(string Domain);

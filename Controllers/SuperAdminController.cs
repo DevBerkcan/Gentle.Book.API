@@ -98,6 +98,8 @@ public class SuperAdminController : ControllerBase
                     t.Subscription.TrialDaysRemaining,
                     t.Subscription.IsInTrial,
                     t.Subscription.IsAccessAllowed,
+                    t.Subscription.CurrentPeriodEnd,
+                    t.Subscription.PastDueSince,
                 }
             })
             .ToListAsync();
@@ -128,6 +130,21 @@ public class SuperAdminController : ControllerBase
 
         if (tenant == null) return NotFound();
         return Ok(tenant);
+    }
+
+    /// <summary>Live Mollie billing snapshot for one tenant — mandate/subscription status and
+    /// recent payment history fetched directly from Mollie, not from GentleBook's local DB, so
+    /// the SuperAdmin doesn't need to open Mollie's own dashboard to check on a customer.</summary>
+    [HttpGet("tenants/{id:guid}/billing")]
+    public async Task<IActionResult> GetTenantBilling(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var exists = await _db.Tenants.AsNoTracking().AnyAsync(t => t.Id == id);
+        if (!exists) return NotFound();
+
+        var live = await _mollieService.GetLiveBillingStatusAsync(id);
+        return Ok(live);
     }
 
     /// <summary>
@@ -699,6 +716,9 @@ public class SuperAdminController : ControllerBase
 
         if (!Enum.TryParse<SubscriptionPlan>(dto.Plan, ignoreCase: true, out var newPlan))
             return BadRequest(new { message = $"Ungültiger Plan: {dto.Plan}. Erlaubt: Trial, Starter, Professional, Agency" });
+
+        if (newPlan == SubscriptionPlan.Agency)
+            return BadRequest(new { message = "Agency darf nicht direkt aktiviert werden. Bitte eine Agency-Anfrage öffnen und dem Kunden ein Angebot senden." });
 
         // Only overwrite the interval if the caller explicitly specified one — a plain plan
         // change must not silently reset an existing yearly subscriber back to monthly.
@@ -1528,6 +1548,15 @@ public class SuperAdminController : ControllerBase
                 r.ContactEmail,
                 r.Status,
                 r.Note,
+                r.Interval,
+                r.OfferedMonthlyPrice,
+                r.OfferedAnnualPrice,
+                r.OfferedAt,
+                r.OfferExpiresAt,
+                r.AcceptedInterval,
+                r.AcceptedPrice,
+                r.AcceptedAt,
+                r.AcceptedByEmail,
                 r.CreatedAt,
                 r.ProcessedAt,
                 TenantId = r.TenantId,
@@ -1539,6 +1568,58 @@ public class SuperAdminController : ControllerBase
         var pendingCount = requests.Count(r => r.Status == "Pending");
 
         return Ok(new { data = requests, pendingCount });
+    }
+
+    // POST /api/superadmin/subscription-requests/{id}/offer
+    [HttpPost("subscription-requests/{id:guid}/offer")]
+    public async Task<IActionResult> SendAgencyOffer(Guid id, [FromBody] AgencyOfferDto dto)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+        if (dto.MonthlyPrice <= 0 || dto.AnnualPrice <= 0)
+            return BadRequest(new { message = "Monats- und Jahrespreis müssen größer als 0 sein." });
+
+        var request = await _db.SubscriptionRequests
+            .Include(r => r.Tenant)
+            .FirstOrDefaultAsync(r => r.Id == id);
+        if (request == null) return NotFound(new { message = "Anfrage nicht gefunden" });
+        if (request.RequestedPlan != "Agency")
+            return BadRequest(new { message = "Ein individuelles Angebot ist nur für Agency-Anfragen vorgesehen." });
+        if (request.Status is not ("Pending" or "Offered"))
+            return BadRequest(new { message = "Diese Anfrage kann nicht mehr angeboten werden." });
+
+        var now = DateTime.UtcNow;
+        request.OfferedMonthlyPrice = decimal.Round(dto.MonthlyPrice, 2);
+        request.OfferedAnnualPrice = decimal.Round(dto.AnnualPrice, 2);
+        request.OfferedAt = now;
+        request.OfferExpiresAt = now.AddDays(Math.Clamp(dto.ValidForDays ?? 14, 1, 90));
+        request.Status = "Offered";
+        request.Note = string.IsNullOrWhiteSpace(dto.Note) ? request.Note : dto.Note.Trim()[..Math.Min(dto.Note.Trim().Length, 500)];
+        await _db.SaveChangesAsync();
+
+        await _audit.LogAsync("subscription.offer_sent", "SubscriptionRequest", id.ToString(),
+            $"Agency-Angebot: {request.OfferedMonthlyPrice:0.00} EUR/Monat oder {request.OfferedAnnualPrice:0.00} EUR/Jahr; gültig bis {request.OfferExpiresAt:O}", request.TenantId);
+
+        try
+        {
+            var admin = await _db.PlatformUsers
+                .Where(u => u.TenantId == request.TenantId && u.Role == PlatformRole.TenantAdmin)
+                .OrderBy(u => u.CreatedAt)
+                .FirstOrDefaultAsync();
+            await _emailService.SendAgencyOfferEmailAsync(
+                request.ContactEmail,
+                admin?.FirstName ?? "Kunde",
+                request.Tenant.Name,
+                request.OfferedMonthlyPrice.Value,
+                request.OfferedAnnualPrice.Value,
+                request.OfferExpiresAt.Value);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send Agency offer email for request {Id}", id);
+            return StatusCode(502, new { message = "Das Angebot wurde gespeichert, aber die E-Mail konnte nicht versendet werden. Bitte prüfen Sie SMTP und senden Sie das Angebot erneut." });
+        }
+
+        return Ok(new { message = "Agency-Angebot wurde gespeichert und per E-Mail versendet." });
     }
 
     // POST /api/superadmin/subscription-requests/{id}/activate
@@ -1563,6 +1644,9 @@ public class SuperAdminController : ControllerBase
         };
 
         if (plan == null) return BadRequest(new { message = "Unbekannter Plan" });
+
+        if (plan == SubscriptionPlan.Agency)
+            return BadRequest(new { message = "Agency wird erst nach Annahme des Angebots und erfolgreicher Mollie-Zahlung automatisch aktiviert. Bitte senden Sie stattdessen ein Angebot." });
 
         var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == request.TenantId);
         if (sub?.MollieSubscriptionId != null && dto?.ConfirmOverrideMollie != true)
@@ -1757,5 +1841,6 @@ public record CreateTenantUserDto(string Email, string? Password, string FirstNa
 public record ExtendTrialDto(int Days);
 public record SetDomainStatusDto(string Status);
 public record ActivateRequestDto(string? Note, bool ConfirmOverrideMollie = false, decimal? NegotiatedMonthlyPrice = null, decimal? NegotiatedAnnualPrice = null);
+public record AgencyOfferDto(decimal MonthlyPrice, decimal AnnualPrice, int? ValidForDays = 14, string? Note = null);
 public record ChangePlanDto(string Plan, string? Interval = null, decimal? NegotiatedMonthlyPrice = null, decimal? NegotiatedAnnualPrice = null);
 public record UpdatePlanPriceDto(decimal MonthlyPrice, decimal AnnualPrice);

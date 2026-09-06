@@ -64,8 +64,12 @@ public class TenantMiddleware
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.TenantId == tenantId);
 
-        var expiredBillingAccess = subscription?.Status == SubscriptionStatus.Expired && IsBillingPath(path);
-        if (subscription == null || (!subscription.IsAccessAllowed && !expiredBillingAccess))
+        // A PastDue tenant must still be able to reach the billing endpoints to self-cancel —
+        // otherwise a customer with a failed payment is locked out of cancelling at all until
+        // the dunning job gives up on them days later.
+        var billingAccessDuringLockout = subscription?.Status is SubscriptionStatus.Expired or SubscriptionStatus.PastDue
+            && IsBillingPath(path);
+        if (subscription == null || (!subscription.IsAccessAllowed && !billingAccessDuringLockout))
         {
             context.Response.StatusCode = 402; // Payment Required
             await context.Response.WriteAsJsonAsync(new

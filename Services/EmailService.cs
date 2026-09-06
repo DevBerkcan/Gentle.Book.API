@@ -2146,7 +2146,7 @@ GentleBook · support@gentlegroup.de";
     /// <summary>
     /// Notifies the TenantAdmin that their requested plan was activated.
     /// </summary>
-    public async Task SendPlanActivatedEmailAsync(string recipientEmail, string firstName, string planName, decimal monthlyPrice)
+    public async Task SendPlanActivatedEmailAsync(string recipientEmail, string firstName, string planName, decimal price, SubscriptionInterval interval = SubscriptionInterval.Monthly, DateTime? nextBillingDate = null)
     {
         try
         {
@@ -2170,8 +2170,9 @@ GentleBook · support@gentlegroup.de";
   <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
     <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
     <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
-      Ihr <strong>{planName}</strong>-Plan ({monthlyPrice:0}&nbsp;€/Monat) wurde soeben aktiviert.
+      Ihr <strong>{planName}</strong>-Plan ({price:0.00}&nbsp;€/{(interval == SubscriptionInterval.Yearly ? "Jahr" : "Monat")}) wurde soeben aktiviert.
       Alle Funktionen Ihres Plans stehen ab sofort zur Verfügung.
+      {(nextBillingDate.HasValue ? $"Die nächste reguläre Abbuchung über {price:0.00}&nbsp;€ ist am {nextBillingDate:dd.MM.yyyy} vorgesehen." : "")}
     </p>
     <div style='text-align:center;margin:24px 0'>
       <a href='{FrontendUrl}/admin/subscription' style='background:linear-gradient(135deg,#6355E4,#17A398);color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block'>
@@ -2190,8 +2191,9 @@ GentleBook · support@gentlegroup.de";
 
 Hallo {firstName},
 
-Ihr {planName}-Plan ({monthlyPrice:0} €/Monat) wurde soeben aktiviert.
+Ihr {planName}-Plan ({price:0.00} €/{(interval == SubscriptionInterval.Yearly ? "Jahr" : "Monat")}) wurde soeben aktiviert.
 Alle Funktionen stehen ab sofort zur Verfügung.
+{(nextBillingDate.HasValue ? $"Die nächste reguläre Abbuchung über {price:0.00} € ist am {nextBillingDate:dd.MM.yyyy} vorgesehen." : "")}
 
 {FrontendUrl}/admin/subscription
 
@@ -3475,6 +3477,69 @@ GentleBook · support@gentlegroup.de";
         }
     }
 
+    public async Task SendAgencyOfferEmailAsync(
+        string toEmail,
+        string firstName,
+        string tenantName,
+        decimal monthlyPrice,
+        decimal annualPrice,
+        DateTime validUntil)
+    {
+        try
+        {
+            var offerUrl = $"{FrontendUrl.TrimEnd('/')}/admin/subscription";
+            var monthly = monthlyPrice.ToString("0.00", System.Globalization.CultureInfo.GetCultureInfo("de-DE"));
+            var annual = annualPrice.ToString("0.00", System.Globalization.CultureInfo.GetCultureInfo("de-DE"));
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(firstName, toEmail));
+            message.Subject = $"Ihr Agency-Angebot für {tenantName}";
+
+            var html = $"""
+                <!doctype html><html lang="de"><head><meta charset="utf-8"></head>
+                <body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif;color:#1f2937">
+                  <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:32px 16px">
+                    <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;margin:auto;background:#fff;border:1px solid #e5e7eb">
+                      <tr><td style="padding:28px 32px;background:#171827;color:#fff"><strong style="font-size:22px">GentleBook Agency</strong></td></tr>
+                      <tr><td style="padding:32px">
+                        <p style="font-size:16px;font-weight:700">Hallo {firstName},</p>
+                        <p style="font-size:14px;line-height:1.6;color:#4b5563">für {tenantName} liegt Ihr individuelles Agency-Angebot vor. Sie wählen selbst die gewünschte Abrechnung:</p>
+                        <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;border:1px solid #e5e7eb">
+                          <tr><td style="padding:16px;border-bottom:1px solid #e5e7eb">Monatlich</td><td align="right" style="padding:16px;border-bottom:1px solid #e5e7eb;font-weight:700">{monthly} € pro Monat</td></tr>
+                          <tr><td style="padding:16px">Jährlich</td><td align="right" style="padding:16px;font-weight:700">{annual} € pro Jahr</td></tr>
+                        </table>
+                        <p style="font-size:13px;color:#6b7280">Das Angebot ist bis einschließlich {validUntil:dd.MM.yyyy} gültig. Es entsteht noch kein kostenpflichtiges Abonnement. Erst Ihre ausdrückliche Auswahl und Zustimmung auf der Abonnement-Seite startet die Mollie-Zahlung beziehungsweise aktualisiert ein bereits erteiltes Mollie-Mandat.</p>
+                        <a href="{offerUrl}" style="display:block;margin-top:24px;padding:14px;background:#6355E4;color:#fff;text-decoration:none;text-align:center;font-weight:700">Angebot prüfen und auswählen</a>
+                      </td></tr>
+                    </table>
+                  </td></tr></table>
+                </body></html>
+                """;
+            var text = $"""
+                Ihr GentleBook Agency-Angebot für {tenantName}
+
+                Monatlich: {monthly} € pro Monat
+                Jährlich: {annual} € pro Jahr
+                Gültig bis: {validUntil:dd.MM.yyyy}
+
+                Es entsteht noch kein kostenpflichtiges Abonnement. Prüfen und auswählen:
+                {offerUrl}
+                """;
+
+            message.Body = new BodyBuilder { HtmlBody = html, TextBody = text }.ToMessageBody();
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send Agency offer email to {Email}", toEmail);
+            throw;
+        }
+    }
+
     public async Task SendSubscriptionRequestConfirmationAsync(string toEmail, string firstName, string planName, string tenantName)
     {
         try
@@ -3486,6 +3551,9 @@ GentleBook · support@gentlegroup.de";
 
             var planPrice = planName switch { "Starter" => "€29", "Professional" => "€59", "Agency" => "Preis auf Anfrage", _ => "" };
             var planPriceSuffix = planName == "Agency" ? "" : "/Monat";
+            var nextStep = planName == "Agency"
+                ? "Wir erstellen jetzt Ihr individuelles Angebot. Sie erhalten Monats- und Jahrespreis per E-Mail und entscheiden erst danach verbindlich."
+                : "Wir bearbeiten Ihre Anfrage und benachrichtigen Sie per E-Mail.";
             var brandTealDark = DarkenHex("#17A398");
 
             var html = $"""
@@ -3508,7 +3576,7 @@ GentleBook · support@gentlegroup.de";
                           <p style="font-size:16px;color:#1e1e1e;margin:0 0 8px;font-weight:600">Hallo {firstName},</p>
                           <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 24px">
                             wir haben Ihre Anfrage für den <strong style="color:#17A398">{planName}-Plan</strong> für <strong>{tenantName}</strong> erhalten.
-                            Wir aktivieren Ihren Plan innerhalb von 24 Stunden und benachrichtigen Sie per E-Mail.
+                            {nextStep}
                           </p>
 
                           <!-- Requested plan box -->
@@ -3548,7 +3616,7 @@ GentleBook · support@gentlegroup.de";
                 wir haben Ihre Anfrage für den {planName}-Plan ({planPrice}{planPriceSuffix})
                 für {tenantName} erhalten.
 
-                Aktivierung innerhalb von 24 Stunden.
+                {nextStep}
                 Bei Fragen: support@gentlegroup.de
 
                 © {DateTime.UtcNow.Year} GentleGroup

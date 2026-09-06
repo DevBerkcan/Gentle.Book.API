@@ -59,12 +59,19 @@ public class MollieService
         if (!Enum.TryParse<SubscriptionPlan>(plan, out var planEnum) || planEnum == SubscriptionPlan.Trial)
             return new MollieFlowResult(false, "Ungültiger Plan.", null);
 
-        // Agency has no fixed price ("Preis auf Anfrage") — self-service SEPA checkout would
-        // charge the global PlanLimits fallback, not the individually negotiated amount.
-        if (planEnum == SubscriptionPlan.Agency)
-            return new MollieFlowResult(false, "Der Agency-Plan wird individuell angeboten. Bitte fordern Sie ein Angebot an.", null);
-
         var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (planEnum == SubscriptionPlan.Agency && sub != null)
+        {
+            var acceptedOffer = await _db.SubscriptionRequests.FirstOrDefaultAsync(r =>
+                r.TenantId == tenantId && r.RequestedPlan == "Agency" && r.Status == "Accepted" &&
+                r.AcceptedInterval == intervalEnum && r.AcceptedPrice != null &&
+                (r.OfferExpiresAt == null || r.OfferExpiresAt >= DateTime.UtcNow));
+            var negotiatedPrice = intervalEnum == SubscriptionInterval.Yearly
+                ? sub.NegotiatedAnnualPrice
+                : sub.NegotiatedMonthlyPrice;
+            if (acceptedOffer == null || negotiatedPrice == null || negotiatedPrice <= 0)
+                return new MollieFlowResult(false, "Bitte nehmen Sie zuerst das konkrete Agency-Angebot an.", null);
+        }
         if (sub == null)
             return new MollieFlowResult(false, "Kein Abonnement gefunden.", null);
 
@@ -113,7 +120,7 @@ public class MollieService
         var redirectUrl = $"{_options.Value.RedirectUrlBase.TrimEnd('/')}/admin/subscription?mollieReturn=1";
         var payment = await _mollie.CreateFirstPaymentAsync(
             sub.MollieCustomerId!,
-            intervalEnum.PriceFor(limits),
+            intervalEnum.PriceFor(sub, limits),
             "EUR",
             $"GentleBook {limits.DisplayName}-Plan – Einrichtung SEPA-Mandat",
             redirectUrl,
@@ -205,15 +212,15 @@ public class MollieService
         {
             if (string.IsNullOrEmpty(sub.MollieSubscriptionId) && !string.IsNullOrEmpty(payment.MandateId))
             {
-                var limits = PlanLimits.Get(sub.Plan == SubscriptionPlan.Trial
-                    ? ParsePlanFromMetadata(payment) : sub.Plan);
+                var targetPlan = ParsePlanFromMetadata(payment);
+                var limits = PlanLimits.Get(targetPlan);
                 var intervalEnum = ParseIntervalFromMetadata(payment);
                 var mollieSub = await _mollie.CreateSubscriptionAsync(
                     sub.MollieCustomerId!, payment.MandateId!, intervalEnum.PriceFor(sub, limits), "EUR", intervalEnum.ToMollieInterval(),
-                    $"GentleBook {limits.DisplayName}-Abonnement", _options.Value.WebhookUrl,
+                    intervalEnum.AddInterval(DateTime.UtcNow), $"GentleBook {limits.DisplayName}-Abonnement", _options.Value.WebhookUrl,
                     new Dictionary<string, string> { ["tenantId"] = sub.TenantId.ToString() });
 
-                sub.Plan = ParsePlanFromMetadata(payment);
+                sub.Plan = targetPlan;
                 sub.Interval = intervalEnum;
                 sub.MollieMandateId = payment.MandateId;
                 sub.MollieSubscriptionId = mollieSub.Id;
@@ -225,6 +232,13 @@ public class MollieService
                 sub.CurrentPeriodStart = DateTime.UtcNow;
                 sub.CurrentPeriodEnd = sub.Interval.AddInterval(DateTime.UtcNow);
                 sub.UpdatedAt = DateTime.UtcNow;
+                var acceptedRequest = await _db.SubscriptionRequests.FirstOrDefaultAsync(r =>
+                    r.TenantId == sub.TenantId && r.RequestedPlan == sub.Plan.ToString() && r.Status == "Accepted");
+                if (acceptedRequest != null)
+                {
+                    acceptedRequest.Status = "Activated";
+                    acceptedRequest.ProcessedAt = DateTime.UtcNow;
+                }
                 await _db.Tenants.Where(t => t.Id == sub.TenantId)
                     .ExecuteUpdateAsync(update => update
                         .SetProperty(t => t.IsActive, true)
@@ -232,6 +246,7 @@ public class MollieService
                 await _db.SaveChangesAsync();
 
                 await _audit.LogAsync("mollie.subscription_activated", "Subscription", sub.Id.ToString(), sub.Plan.ToString(), sub.TenantId);
+                await SendActivationEmailAsync(sub, limits);
                 EnqueueInvoice(sub.Id, payment.Id);
             }
         }
@@ -486,6 +501,108 @@ public class MollieService
     /// override is allowed to exceed limits deliberately, e.g. a support case); failures are
     /// logged, never thrown, so the DB-level override always succeeds regardless of Mollie.
     /// </summary>
+    public async Task<ChangePlanResult> ApplyAcceptedAgencyOfferAsync(Guid tenantId, SubscriptionInterval interval)
+    {
+        var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (sub == null || sub.Status != SubscriptionStatus.Active || string.IsNullOrEmpty(sub.MollieSubscriptionId))
+            return new ChangePlanResult(false, "Kein aktives Mollie-Abonnement gefunden.", null, null);
+
+        var price = interval == SubscriptionInterval.Yearly ? sub.NegotiatedAnnualPrice : sub.NegotiatedMonthlyPrice;
+        if (price == null || price <= 0)
+            return new ChangePlanResult(false, "Für das gewählte Intervall ist kein Agency-Angebot hinterlegt.", null, null);
+
+        if (!await TryUpdateMollieSubscriptionAsync(sub, PlanLimits.Get(SubscriptionPlan.Agency), interval))
+            return new ChangePlanResult(false, "Die Preisänderung konnte bei Mollie nicht gespeichert werden.", null, null);
+
+        var oldPlan = sub.Plan;
+        var oldInterval = sub.Interval;
+        sub.Plan = SubscriptionPlan.Agency;
+        sub.Interval = interval;
+        sub.UpdatedAt = DateTime.UtcNow;
+
+        // Accepting a new paid offer implies the tenant wants to continue — otherwise they'd be
+        // billed the new Agency price yet still scheduled for cancellation at period end by
+        // ProcessPendingCancellationsAsync, which only looks at CancelRequestedAt.
+        var hadPendingCancellation = sub.CancelRequestedAt != null;
+        sub.CancelRequestedAt = null;
+        sub.CancelledAt = null;
+        sub.CancelReason = null;
+
+        await _db.SaveChangesAsync();
+        await _audit.LogAsync("subscription.agency_offer_applied", "Subscription", sub.Id.ToString(),
+            $"{oldPlan} ({oldInterval}) → Agency ({interval}), {price:0.00} EUR" + (hadPendingCancellation ? " [cleared pending cancellation]" : ""), tenantId);
+        await SendActivationEmailAsync(sub, PlanLimits.Get(SubscriptionPlan.Agency));
+
+        return new ChangePlanResult(true, null, sub.Plan.ToString(), sub.Interval.ToString());
+    }
+
+    public record MollieRecentPayment(string Id, string Status, decimal Amount, string Currency, string? Description, DateTime CreatedAt);
+
+    public record MollieLiveBillingStatus(
+        bool Available,
+        string? Error,
+        string? SubscriptionStatus,
+        DateTime? NextPaymentDate,
+        string? MandateStatus,
+        string? ConsumerName,
+        string? ConsumerAccountMasked,
+        List<MollieRecentPayment> RecentPayments);
+
+    /// <summary>
+    /// On-demand live read from Mollie for the SuperAdmin billing overview — deliberately not
+    /// cached/stored locally, so the admin always sees Mollie's own current truth (mandate
+    /// status, next charge date) instead of whatever GentleBook's DB last had from a webhook or
+    /// reconciliation run. Never throws — a Mollie outage degrades to "live check unavailable",
+    /// not a broken page; the caller still has the locally stored Subscription fields to fall
+    /// back on.
+    /// </summary>
+    public async Task<MollieLiveBillingStatus> GetLiveBillingStatusAsync(Guid tenantId)
+    {
+        var sub = await _db.Subscriptions.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (sub == null || string.IsNullOrEmpty(sub.MollieCustomerId))
+            return new MollieLiveBillingStatus(false, "Kein Mollie-Kunde für diesen Tenant.", null, null, null, null, null, new());
+
+        try
+        {
+            string? subscriptionStatus = null;
+            DateTime? nextPaymentDate = null;
+            if (!string.IsNullOrEmpty(sub.MollieSubscriptionId))
+            {
+                var mollieSub = await _mollie.GetSubscriptionAsync(sub.MollieCustomerId, sub.MollieSubscriptionId);
+                subscriptionStatus = mollieSub.Status;
+                nextPaymentDate = mollieSub.NextPaymentDate;
+            }
+
+            string? mandateStatus = null;
+            string? consumerName = null;
+            string? consumerAccountMasked = null;
+            if (!string.IsNullOrEmpty(sub.MollieMandateId))
+            {
+                var mandate = await _mollie.GetMandateAsync(sub.MollieCustomerId, sub.MollieMandateId);
+                mandateStatus = mandate?.Status;
+                consumerName = mandate?.Details?.ConsumerName;
+                consumerAccountMasked = MaskIban(mandate?.Details?.ConsumerAccount);
+            }
+
+            var payments = await _mollie.GetCustomerPaymentsAsync(sub.MollieCustomerId);
+            var recentPayments = payments
+                .OrderByDescending(p => p.CreatedAt)
+                .Take(20)
+                .Select(p => new MollieRecentPayment(p.Id, p.Status, p.Amount?.AsDecimal ?? 0m, p.Amount?.Currency ?? "EUR", p.Description, p.CreatedAt))
+                .ToList();
+
+            return new MollieLiveBillingStatus(true, null, subscriptionStatus, nextPaymentDate, mandateStatus, consumerName, consumerAccountMasked, recentPayments);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Live Mollie billing status fetch failed for Subscription {SubscriptionId}", sub.Id);
+            return new MollieLiveBillingStatus(false, "Live-Abfrage bei Mollie ist gerade fehlgeschlagen.", null, null, null, null, null, new());
+        }
+    }
+
+    private static string? MaskIban(string? iban) =>
+        string.IsNullOrEmpty(iban) || iban.Length < 8 ? iban : $"{iban[..4]} •••• •••• •••• {iban[^4..]}";
+
     public async Task<bool> TrySyncPlanToMollieAsync(Guid tenantId)
     {
         var sub = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == tenantId);
@@ -526,6 +643,24 @@ public class MollieService
             // Already cancelled/gone on Mollie's side — treat as success.
         }
         await _audit.LogAsync("subscription.cancel_mollie_retry_succeeded", "Subscription", sub.Id.ToString(), "", sub.TenantId);
+    }
+
+    private async Task SendActivationEmailAsync(Subscription sub, PlanLimits.Limits limits)
+    {
+        try
+        {
+            var admin = await _db.PlatformUsers
+                .Where(u => u.TenantId == sub.TenantId && u.Role == PlatformRole.TenantAdmin)
+                .OrderBy(u => u.CreatedAt)
+                .FirstOrDefaultAsync();
+            if (admin == null) return;
+            await _emailService.SendPlanActivatedEmailAsync(
+                admin.Email, admin.FirstName, limits.DisplayName, sub.Interval.PriceFor(sub, limits), sub.Interval, sub.CurrentPeriodEnd);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send activation email for Subscription {SubscriptionId}", sub.Id);
+        }
     }
 
     private async Task SendCancelConfirmationEmailAsync(Subscription sub)

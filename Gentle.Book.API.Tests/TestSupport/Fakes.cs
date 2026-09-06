@@ -36,6 +36,16 @@ public class StaticOptionsMonitor<T> : IOptionsMonitor<T>
     }
 }
 
+/// <summary>Stubs out real Mollie HTTP calls with a canned response, so MollieClient methods can be exercised without a network dependency.</summary>
+public class FakeHttpMessageHandler : HttpMessageHandler
+{
+    private readonly Func<HttpRequestMessage, HttpResponseMessage> _responder;
+    public FakeHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) => _responder = responder;
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+        Task.FromResult(_responder(request));
+}
+
 public class FakeWebHostEnvironment : IWebHostEnvironment
 {
     public string EnvironmentName { get; set; } = "Testing";

@@ -79,6 +79,46 @@ public class MollieReconciliationJob
             }
         }
 
-        _logger.LogInformation("Mollie reconciliation: checked {Count} subscription(s).", overdue.Count + pastDue.Count + stuckSignups.Count);
+        var mandateChecked = await CheckActiveMandatesAsync(db, mollie, scope.ServiceProvider.GetRequiredService<AuditService>());
+
+        _logger.LogInformation("Mollie reconciliation: checked {Count} subscription(s).", overdue.Count + pastDue.Count + stuckSignups.Count + mandateChecked);
+    }
+
+    // Actively verifies each Active subscription's SEPA mandate is still valid at Mollie —
+    // previously GentleBook only found out about a revoked mandate at the next failed charge,
+    // which could be up to a full billing cycle late. Reuses the existing PastDue/dunning
+    // machinery (SubscriptionService.ProcessDunningAsync) instead of a separate cancellation
+    // path, so a revoked mandate is handled exactly like any other failed-payment episode.
+    public async Task<int> CheckActiveMandatesAsync(GentleBookDbContext db, MollieClient mollie, AuditService audit)
+    {
+        var toCheck = await db.Subscriptions
+            .Where(s => s.Status == SubscriptionStatus.Active
+                     && s.MollieCustomerId != null
+                     && s.MollieMandateId != null)
+            .ToListAsync();
+
+        foreach (var sub in toCheck)
+        {
+            try
+            {
+                var mandate = await mollie.GetMandateAsync(sub.MollieCustomerId!, sub.MollieMandateId!);
+                if (mandate != null && mandate.Status != "valid")
+                {
+                    sub.Status = SubscriptionStatus.PastDue;
+                    sub.PastDueSince ??= DateTime.UtcNow;
+                    sub.UpdatedAt = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+
+                    _logger.LogWarning("Mollie mandate {MandateId} for Subscription {SubscriptionId} is {Status} — flagged PastDue.", sub.MollieMandateId, sub.Id, mandate.Status);
+                    await audit.LogAsync("mollie.mandate_invalid_detected", "Subscription", sub.Id.ToString(), mandate.Status, sub.TenantId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Mollie mandate check failed for Subscription {SubscriptionId}", sub.Id);
+            }
+        }
+
+        return toCheck.Count;
     }
 }
