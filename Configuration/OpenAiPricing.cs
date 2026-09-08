@@ -6,6 +6,12 @@ namespace GentleBook.Api.Configuration;
 // accurate for that one call, but the feature never breaks over a pricing-table gap.
 public static class OpenAiPricing
 {
+    // Applied to any tenant without an explicit TenantAiBudget.MonthlyBudgetUsd override — set
+    // individually per Agency customer once their real usage is known (SuperAdmin tenant detail
+    // page). WarningThresholdPercent is when the once-per-period warning email fires.
+    public const decimal PlatformDefaultMonthlyBudgetUsd = 20m;
+    public const decimal WarningThresholdPercent = 0.8m;
+
     private static readonly Dictionary<string, (decimal InputPerMillion, decimal OutputPerMillion)> Rates = new(StringComparer.OrdinalIgnoreCase)
     {
         ["gpt-4o-mini"] = (0.15m, 0.60m),

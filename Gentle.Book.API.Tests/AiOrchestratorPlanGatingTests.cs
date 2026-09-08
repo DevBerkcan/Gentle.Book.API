@@ -12,6 +12,7 @@ namespace Gentle.Book.API.Tests;
 public class SpyAiProviderAdapter : IAiProviderAdapter
 {
     public int CallCount { get; private set; }
+    public int ChatTurnCallCount { get; private set; }
 
     public Task<AiProviderMessage?> ExplainFinderResultAsync(
         Guid tenantId, string? freeText, ServiceFinderResult result,
@@ -29,6 +30,23 @@ public class SpyAiProviderAdapter : IAiProviderAdapter
             SuggestedEmployeeIds: new List<Guid>(),
             RequiresHumanConsultation: false));
     }
+
+    public Task<AiProviderMessage?> ChatTurnAsync(
+        Guid tenantId, IReadOnlyList<(string Role, string Content)> history, string latestMessage,
+        ServiceFinderResult result, CancellationToken cancellationToken)
+    {
+        ChatTurnCallCount++;
+        return Task.FromResult<AiProviderMessage?>(new AiProviderMessage(
+            Message: "Spy chat response",
+            InputTokens: 10,
+            OutputTokens: 5,
+            EstimatedCost: 0.001m,
+            Model: "spy-model",
+            SuggestedServiceIds: result.Recommendations.Select(r => r.ServiceId).ToList(),
+            SuggestedGuidanceIds: new List<Guid>(),
+            SuggestedEmployeeIds: new List<Guid>(),
+            RequiresHumanConsultation: false));
+    }
 }
 
 public class AiOrchestratorPlanGatingTests
@@ -37,8 +55,9 @@ public class AiOrchestratorPlanGatingTests
     {
         var spy = new SpyAiProviderAdapter();
         var usageMeter = new AiUsageMeter(db);
+        var usageGate = new AiUsageGate(db);
         var knowledge = new KnowledgeRetrievalService(db);
-        var orchestrator = new AiOrchestrator(spy, usageMeter, knowledge, db, NullLogger<AiOrchestrator>.Instance);
+        var orchestrator = new AiOrchestrator(spy, usageMeter, usageGate, knowledge, db, NullLogger<AiOrchestrator>.Instance);
         return (orchestrator, spy);
     }
 
@@ -59,6 +78,24 @@ public class AiOrchestratorPlanGatingTests
         var tenant = new Tenant { Name = "T", Slug = "t-" + Guid.NewGuid(), IsActive = true };
         db.Tenants.Add(tenant);
         db.Subscriptions.Add(new Subscription { TenantId = tenant.Id, Tenant = tenant, Plan = plan, Status = SubscriptionStatus.Active });
+        await db.SaveChangesAsync();
+
+        var (orchestrator, spy) = Build(db);
+
+        var response = await orchestrator.BuildFinderResponseAsync(tenant.Id, EmptyResult(), null, CancellationToken.None);
+
+        Assert.Equal(0, spy.CallCount);
+        Assert.True(response.UsedAiFallback);
+    }
+
+    [Fact]
+    public async Task BuildFinderResponseAsync_AgencyPlanBudgetExhausted_NeverCallsProviderAndFallsBack()
+    {
+        using var db = TestDbContextFactory.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(tenant);
+        db.Subscriptions.Add(new Subscription { TenantId = tenant.Id, Tenant = tenant, Plan = SubscriptionPlan.Agency, Status = SubscriptionStatus.Active });
+        db.TenantAiBudgets.Add(new TenantAiBudget { TenantId = tenant.Id, CurrentPeriodCostUsd = GentleBook.Api.Configuration.OpenAiPricing.PlatformDefaultMonthlyBudgetUsd });
         await db.SaveChangesAsync();
 
         var (orchestrator, spy) = Build(db);

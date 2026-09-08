@@ -26,10 +26,12 @@ public class EmployeesController : ControllerBase
     private readonly ILogger<EmployeesController> _logger;
     private readonly OpenAiClient _openAiClient;
     private readonly IAiUsageMeter _aiUsageMeter;
+    private readonly IAiUsageGate _aiUsageGate;
     private readonly IOptions<AiProviderOptions> _aiOptions;
 
     public EmployeesController(EmployeeService employeeService, GentleBookDbContext db, IConfiguration config, AuditService audit,
-        IWebHostEnvironment env, ILogger<EmployeesController> logger, OpenAiClient openAiClient, IAiUsageMeter aiUsageMeter, IOptions<AiProviderOptions> aiOptions)
+        IWebHostEnvironment env, ILogger<EmployeesController> logger, OpenAiClient openAiClient, IAiUsageMeter aiUsageMeter,
+        IAiUsageGate aiUsageGate, IOptions<AiProviderOptions> aiOptions)
     {
         _employeeService = employeeService;
         _db = db;
@@ -38,6 +40,7 @@ public class EmployeesController : ControllerBase
         _env = env;
         _openAiClient = openAiClient;
         _aiUsageMeter = aiUsageMeter;
+        _aiUsageGate = aiUsageGate;
         _aiOptions = aiOptions;
         _logger = logger;
     }
@@ -266,6 +269,9 @@ public class EmployeesController : ControllerBase
 
         if (string.IsNullOrWhiteSpace(_aiOptions.Value.ApiKey))
             return StatusCode(503, new { message = "Der KI-Anbieter ist derzeit nicht konfiguriert." });
+
+        if (!await _aiUsageGate.IsWithinBudgetAsync(tenantId.Value, HttpContext.RequestAborted))
+            return StatusCode(503, new { message = "Das monatliche KI-Budget für diesen Tenant ist aufgebraucht. Bitte kontaktieren Sie den Support." });
 
         try
         {

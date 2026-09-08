@@ -35,7 +35,7 @@ public class EmployeesControllerLimitTests
 
         var controller = new EmployeesController(
             employeeService, db, TestConfiguration.Build(), audit, new FakeWebHostEnvironment(),
-            NullLogger<EmployeesController>.Instance, openAiClient, new AiUsageMeter(db), aiOptions);
+            NullLogger<EmployeesController>.Instance, openAiClient, new AiUsageMeter(db), new AiUsageGate(db), aiOptions);
 
         var services = new ServiceCollection();
         services.AddSingleton<ITenantContext>(tenantContext);

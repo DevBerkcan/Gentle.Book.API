@@ -1131,6 +1131,226 @@ public class SuperAdminController : ControllerBase
         });
     }
 
+    /// <summary>Per-tenant AI usage/budget detail — month-to-date spend against the tenant's
+    /// budget (custom override or platform default) and a 6-month cost trend. Surfaced on the
+    /// tenant detail page's Abo tab, next to the negotiated price, so re-negotiating an Agency
+    /// price has the same cost visibility the initial offer does (see SendAgencyOffer).</summary>
+    [HttpGet("tenants/{id:guid}/ai-usage")]
+    public async Task<IActionResult> GetTenantAiUsage(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var budget = await _db.TenantAiBudgets.AsNoTracking().FirstOrDefaultAsync(b => b.TenantId == id);
+        var effectiveBudget = budget?.MonthlyBudgetUsd ?? OpenAiPricing.PlatformDefaultMonthlyBudgetUsd;
+        var currentPeriodCost = budget?.CurrentPeriodCostUsd ?? 0m;
+
+        var since = DateTime.UtcNow.AddMonths(-6);
+        var usage = await _db.AiUsages.AsNoTracking()
+            .Where(u => u.TenantId == id && u.CreatedOn >= since)
+            .ToListAsync();
+
+        var byMonth = usage
+            .GroupBy(u => new { u.CreatedOn.Year, u.CreatedOn.Month })
+            .Select(g => new
+            {
+                Year = g.Key.Year,
+                Month = g.Key.Month,
+                Cost = g.Sum(u => u.EstimatedCost),
+                Requests = g.Count(),
+            })
+            .ToList();
+
+        var last6Months = Enumerable.Range(0, 6)
+            .Select(i => DateTime.UtcNow.AddMonths(-5 + i))
+            .Select(d => new
+            {
+                Year = d.Year,
+                Month = d.Month,
+                Label = d.ToString("MMM yyyy"),
+                Cost = byMonth.FirstOrDefault(m => m.Year == d.Year && m.Month == d.Month)?.Cost ?? 0m,
+                Requests = byMonth.FirstOrDefault(m => m.Year == d.Year && m.Month == d.Month)?.Requests ?? 0,
+            })
+            .ToList();
+
+        var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+        var monthToDate = usage.Where(u => u.CreatedOn >= monthStart).ToList();
+
+        var pendingRequest = await _db.AiActions.AsNoTracking()
+            .Where(a => a.TenantId == id && a.ActionType == AiBudgetRequestActionType && a.Status == "Pending")
+            .OrderByDescending(a => a.CreatedOn)
+            .FirstOrDefaultAsync();
+
+        return Ok(new
+        {
+            tenantId = id,
+            monthToDate = new
+            {
+                cost = monthToDate.Sum(u => u.EstimatedCost),
+                requests = monthToDate.Count,
+                inputTokens = monthToDate.Sum(u => u.InputTokens),
+                outputTokens = monthToDate.Sum(u => u.OutputTokens),
+            },
+            budget = new
+            {
+                monthlyBudgetUsd = effectiveBudget,
+                isCustomOverride = budget?.MonthlyBudgetUsd != null,
+                currentPeriodCostUsd = currentPeriodCost,
+                percentUsed = effectiveBudget > 0 ? Math.Round(currentPeriodCost / effectiveBudget * 100, 1) : 0,
+                isHardCapped = budget?.IsHardCapped ?? false,
+            },
+            pendingBudgetRequest = pendingRequest == null ? null : new
+            {
+                pendingRequest.Id,
+                pendingRequest.CreatedOn,
+                requested = ParseBudgetRequestInput(pendingRequest.InputJson),
+            },
+            last6Months,
+        });
+    }
+
+    /// <summary>Set (or clear, with null) a custom monthly AI budget for one tenant — overrides
+    /// the platform default (OpenAiPricing.PlatformDefaultMonthlyBudgetUsd). Typically set once
+    /// real usage data (this endpoint's sibling GetTenantAiUsage, or GetAiUsage) shows a tenant
+    /// consistently running close to the default.</summary>
+    [HttpPatch("tenants/{id:guid}/ai-budget")]
+    public async Task<IActionResult> SetTenantAiBudget(Guid id, [FromBody] SetAiBudgetDto dto)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+        if (dto.MonthlyBudgetUsd is < 0)
+            return BadRequest(new { message = "Das Budget darf nicht negativ sein." });
+
+        var budget = await _db.TenantAiBudgets.FirstOrDefaultAsync(b => b.TenantId == id);
+        if (budget == null)
+        {
+            budget = new TenantAiBudget { TenantId = id };
+            _db.TenantAiBudgets.Add(budget);
+        }
+
+        budget.MonthlyBudgetUsd = dto.MonthlyBudgetUsd;
+        budget.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        await _audit.LogAsync("ai_budget.overridden", "TenantAiBudget", budget.Id.ToString(),
+            dto.MonthlyBudgetUsd.HasValue ? $"Individuelles Budget auf {dto.MonthlyBudgetUsd:0.00}$ gesetzt" : "Individuelles Budget entfernt — Plattform-Standard gilt wieder",
+            id);
+
+        return Ok(new { tenantId = id, monthlyBudgetUsd = budget.MonthlyBudgetUsd });
+    }
+
+    /// <summary>Pending "more AI capacity" requests from tenants (AiFinderAdminController's
+    /// RequestBudgetIncrease), platform-wide — the SuperAdmin-side half of that request/approve
+    /// loop, same shape as the Agency subscription-request list.</summary>
+    [HttpGet("ai-budget-requests")]
+    public async Task<IActionResult> GetAiBudgetRequests([FromQuery] string status = "Pending")
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var actions = await _db.AiActions
+            .Where(a => a.ActionType == AiBudgetRequestActionType && (status == "All" || a.Status == status))
+            .OrderByDescending(a => a.CreatedOn)
+            .ToListAsync();
+
+        var tenantIds = actions.Select(a => a.TenantId).Distinct().ToList();
+        var tenants = await _db.Tenants.Include(t => t.Settings)
+            .Where(t => tenantIds.Contains(t.Id))
+            .ToDictionaryAsync(t => t.Id, t => new { Name = t.Settings != null ? t.Settings.CompanyName : t.Name, t.Slug });
+
+        var budgets = await _db.TenantAiBudgets.Where(b => tenantIds.Contains(b.TenantId)).ToDictionaryAsync(b => b.TenantId);
+
+        var items = actions.Select(a =>
+        {
+            var parsed = ParseBudgetRequestInput(a.InputJson);
+            var currentBudget = budgets.TryGetValue(a.TenantId, out var b) ? (b.MonthlyBudgetUsd ?? OpenAiPricing.PlatformDefaultMonthlyBudgetUsd) : OpenAiPricing.PlatformDefaultMonthlyBudgetUsd;
+            return new
+            {
+                a.Id,
+                a.TenantId,
+                CompanyName = tenants.GetValueOrDefault(a.TenantId)?.Name ?? "Unbekannt",
+                TenantSlug = tenants.GetValueOrDefault(a.TenantId)?.Slug ?? "",
+                a.Status,
+                a.CreatedOn,
+                a.ConfirmedOn,
+                requestedBudgetUsd = parsed.requestedBudgetUsd,
+                note = parsed.note,
+                currentBudgetUsd = currentBudget,
+            };
+        });
+
+        return Ok(new { items, pendingCount = actions.Count(a => a.Status == "Pending") });
+    }
+
+    /// <summary>Approves a pending AI budget increase request: sets TenantAiBudget.MonthlyBudgetUsd
+    /// and, since raising the budget clearly means the tenant should be able to use AI again right
+    /// away rather than waiting for tomorrow's reset job, immediately clears IsHardCapped if the
+    /// new budget covers the tenant's current spend.</summary>
+    [HttpPost("ai-budget-requests/{id:guid}/approve")]
+    public async Task<IActionResult> ApproveAiBudgetRequest(Guid id, [FromBody] ApproveAiBudgetRequestDto? dto = null)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var action = await _db.AiActions.FirstOrDefaultAsync(a => a.Id == id && a.ActionType == AiBudgetRequestActionType);
+        if (action == null) return NotFound(new { message = "Anfrage nicht gefunden." });
+        if (action.Status != "Pending") return BadRequest(new { message = "Diese Anfrage wurde bereits bearbeitet." });
+
+        var parsed = ParseBudgetRequestInput(action.InputJson);
+        var approvedAmount = dto?.ApprovedBudgetUsd ?? parsed.requestedBudgetUsd ?? OpenAiPricing.PlatformDefaultMonthlyBudgetUsd;
+
+        var budget = await _db.TenantAiBudgets.FirstOrDefaultAsync(b => b.TenantId == action.TenantId);
+        if (budget == null)
+        {
+            budget = new TenantAiBudget { TenantId = action.TenantId };
+            _db.TenantAiBudgets.Add(budget);
+        }
+        budget.MonthlyBudgetUsd = approvedAmount;
+        if (budget.CurrentPeriodCostUsd < approvedAmount) budget.IsHardCapped = false;
+        budget.UpdatedAt = DateTime.UtcNow;
+
+        action.Status = "Approved";
+        action.OutputJson = System.Text.Json.JsonSerializer.Serialize(new { approvedBudgetUsd = approvedAmount });
+        action.ConfirmedBy = JwtService.GetUserId(User);
+        action.ConfirmedOn = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        await _audit.LogAsync("ai_budget.increase_approved", "TenantAiBudget", budget.Id.ToString(),
+            $"Budget-Erhöhung genehmigt: {approvedAmount:0.00}$", action.TenantId);
+
+        return Ok(new { tenantId = action.TenantId, monthlyBudgetUsd = approvedAmount });
+    }
+
+    /// <summary>Declines a pending AI budget increase request without changing the tenant's budget.</summary>
+    [HttpPost("ai-budget-requests/{id:guid}/decline")]
+    public async Task<IActionResult> DeclineAiBudgetRequest(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var action = await _db.AiActions.FirstOrDefaultAsync(a => a.Id == id && a.ActionType == AiBudgetRequestActionType);
+        if (action == null) return NotFound(new { message = "Anfrage nicht gefunden." });
+        if (action.Status != "Pending") return BadRequest(new { message = "Diese Anfrage wurde bereits bearbeitet." });
+
+        action.Status = "Declined";
+        action.ConfirmedBy = JwtService.GetUserId(User);
+        action.ConfirmedOn = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        await _audit.LogAsync("ai_budget.increase_declined", "AiAction", action.Id.ToString(), null, action.TenantId);
+
+        return Ok(new { message = "Anfrage abgelehnt." });
+    }
+
+    private const string AiBudgetRequestActionType = "ai_budget_increase_request";
+
+    private static (decimal? requestedBudgetUsd, string? note) ParseBudgetRequestInput(string inputJson)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(inputJson);
+            var requested = doc.RootElement.TryGetProperty("requestedBudgetUsd", out var r) ? r.GetDecimal() : (decimal?)null;
+            var note = doc.RootElement.TryGetProperty("note", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String ? n.GetString() : null;
+            return (requested, note);
+        }
+        catch (System.Text.Json.JsonException) { return (null, null); }
+    }
+
     // ── Email Logs ────────────────────────────────────────────────────────
 
     /// <summary>Platform-wide email logs with optional filters.</summary>
@@ -1376,7 +1596,40 @@ public class SuperAdminController : ControllerBase
             DaysUntilAutoCancel = Math.Max(0, gracePeriodDays - (int)(now - s.PastDueSince!.Value).TotalDays),
         });
 
-        return Ok(new { cancelling, dunning, totalAtRisk = cancelling.Count + pastDue.Count });
+        // Third risk category: tenants at ≥80% of their AI budget this period. Unlike
+        // cancelling/dunning this never leads to a lost customer by itself (the budget gate
+        // degrades gracefully to non-AI responses, never cuts off booking) — it's here purely so
+        // a SuperAdmin notices a tenant outgrowing their negotiated price before it becomes a
+        // support ticket, rather than because anything is actually broken for that tenant.
+        var aiBudgets = await _db.TenantAiBudgets
+            .Where(b => b.CurrentPeriodCostUsd > 0)
+            .ToListAsync();
+        var aiCostRisk = aiBudgets
+            .Select(b => new
+            {
+                effectiveBudget = b.MonthlyBudgetUsd ?? OpenAiPricing.PlatformDefaultMonthlyBudgetUsd,
+                budget = b,
+            })
+            .Where(x => x.effectiveBudget > 0 && x.budget.CurrentPeriodCostUsd / x.effectiveBudget >= OpenAiPricing.WarningThresholdPercent)
+            .OrderByDescending(x => x.budget.CurrentPeriodCostUsd / x.effectiveBudget)
+            .ToList();
+        var aiCostRiskTenantIds = aiCostRisk.Select(x => x.budget.TenantId).ToList();
+        var aiCostRiskTenantNames = await _db.Tenants
+            .Include(t => t.Settings)
+            .Where(t => aiCostRiskTenantIds.Contains(t.Id))
+            .ToDictionaryAsync(t => t.Id, t => new { Name = t.Settings != null ? t.Settings.CompanyName : t.Name, t.Slug });
+        var aiCostRiskResult = aiCostRisk.Select(x => new
+        {
+            TenantId = x.budget.TenantId,
+            CompanyName = aiCostRiskTenantNames.GetValueOrDefault(x.budget.TenantId)?.Name ?? "Unbekannt",
+            TenantSlug = aiCostRiskTenantNames.GetValueOrDefault(x.budget.TenantId)?.Slug ?? "",
+            x.budget.CurrentPeriodCostUsd,
+            MonthlyBudgetUsd = x.effectiveBudget,
+            PercentUsed = Math.Round(x.budget.CurrentPeriodCostUsd / x.effectiveBudget * 100, 1),
+            x.budget.IsHardCapped,
+        });
+
+        return Ok(new { cancelling, dunning, aiCostRisk = aiCostRiskResult, totalAtRisk = cancelling.Count + pastDue.Count + aiCostRisk.Count });
     }
 
     // ── Tenant Stats ──────────────────────────────────────────────────────
@@ -1933,4 +2186,8 @@ public record SetDomainStatusDto(string Status);
 public record ActivateRequestDto(string? Note, bool ConfirmOverrideMollie = false, decimal? NegotiatedMonthlyPrice = null, decimal? NegotiatedAnnualPrice = null);
 public record AgencyOfferDto(decimal MonthlyPrice, decimal AnnualPrice, int? ValidForDays = 14, string? Note = null);
 public record ChangePlanDto(string Plan, string? Interval = null, decimal? NegotiatedMonthlyPrice = null, decimal? NegotiatedAnnualPrice = null);
+
+public record SetAiBudgetDto(decimal? MonthlyBudgetUsd);
+
+public record ApproveAiBudgetRequestDto(decimal? ApprovedBudgetUsd);
 public record UpdatePlanPriceDto(decimal MonthlyPrice, decimal AnnualPrice);

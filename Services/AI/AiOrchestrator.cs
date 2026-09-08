@@ -10,6 +10,7 @@ public sealed class AiOrchestrator : IAiOrchestrator
 {
     private readonly IAiProviderAdapter _provider;
     private readonly IAiUsageMeter _usageMeter;
+    private readonly IAiUsageGate _usageGate;
     private readonly IKnowledgeRetrievalService _knowledge;
     private readonly GentleBookDbContext _db;
     private readonly ILogger<AiOrchestrator> _logger;
@@ -17,12 +18,14 @@ public sealed class AiOrchestrator : IAiOrchestrator
     public AiOrchestrator(
         IAiProviderAdapter provider,
         IAiUsageMeter usageMeter,
+        IAiUsageGate usageGate,
         IKnowledgeRetrievalService knowledge,
         GentleBookDbContext db,
         ILogger<AiOrchestrator> logger)
     {
         _provider = provider;
         _usageMeter = usageMeter;
+        _usageGate = usageGate;
         _knowledge = knowledge;
         _db = db;
         _logger = logger;
@@ -54,10 +57,13 @@ public sealed class AiOrchestrator : IAiOrchestrator
             .Select(s => (SubscriptionPlan?)s.Plan)
             .FirstOrDefaultAsync(cancellationToken);
         var isAgency = tenantPlan.HasValue && AgencyFeatureGate.IsAgency(tenantPlan.Value);
+        // Budget check only needs to run for Agency tenants — no LLM call would happen for
+        // anyone else anyway, and skipping it avoids an extra DB round-trip on every other plan.
+        var withinBudget = isAgency && await _usageGate.IsWithinBudgetAsync(tenantId, cancellationToken);
 
         try
         {
-            var aiMessage = isAgency
+            var aiMessage = withinBudget
                 ? await _provider.ExplainFinderResultAsync(tenantId, freeText, result, knowledgeResults, cancellationToken)
                 : null;
             if (aiMessage != null)
@@ -113,6 +119,73 @@ public sealed class AiOrchestrator : IAiOrchestrator
             RequiresHumanConsultation: result.RequiresHumanConsultation,
             UsedAiFallback: true,
             Sources: sources);
+    }
+
+    // Same shape as BuildFinderResponseAsync above (deterministic engine first, AI sanitized
+    // against its allowed service IDs, real-time budget gate, graceful fallback on any failure)
+    // but for the chatbot widget: takes/returns conversation history instead of a one-shot
+    // explanation, and doesn't touch AiConversation/AiMessage itself — the calling controller
+    // owns persisting the conversation (it also needs to store the user's own message, which
+    // this method never sees written to disk).
+    public async Task<ChatbotTurnResponse> BuildChatbotTurnAsync(
+        Guid tenantId,
+        Guid conversationId,
+        IReadOnlyList<(string Role, string Content)> history,
+        ServiceFinderResult result,
+        string latestMessage,
+        CancellationToken cancellationToken)
+    {
+        var allowedServiceIds = result.Recommendations.Select(r => r.ServiceId).ToHashSet();
+
+        var tenantPlan = await _db.Subscriptions
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => (SubscriptionPlan?)s.Plan)
+            .FirstOrDefaultAsync(cancellationToken);
+        var isAgency = tenantPlan.HasValue && AgencyFeatureGate.IsAgency(tenantPlan.Value);
+        var withinBudget = isAgency && await _usageGate.IsWithinBudgetAsync(tenantId, cancellationToken);
+
+        try
+        {
+            var aiMessage = withinBudget
+                ? await _provider.ChatTurnAsync(tenantId, history, latestMessage, result, cancellationToken)
+                : null;
+            if (aiMessage != null)
+            {
+                await _usageMeter.TrackAsync(
+                    tenantId,
+                    feature: "ai_chatbot",
+                    model: aiMessage.Model,
+                    inputTokens: aiMessage.InputTokens,
+                    outputTokens: aiMessage.OutputTokens,
+                    estimatedCost: aiMessage.EstimatedCost,
+                    cancellationToken: cancellationToken);
+
+                var safeServiceIds = aiMessage.SuggestedServiceIds.Where(allowedServiceIds.Contains).ToList();
+                var message = string.IsNullOrWhiteSpace(aiMessage.Message) ? BuildFallbackMessage(result) : aiMessage.Message;
+
+                await WriteAuditAsync(tenantId, "AiChatbotTurn", "Completed", cancellationToken);
+
+                return new ChatbotTurnResponse(
+                    conversationId,
+                    message,
+                    safeServiceIds,
+                    RequiresHumanConsultation: aiMessage.RequiresHumanConsultation || result.RequiresHumanConsultation,
+                    UsedAiFallback: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "AI provider unavailable for chatbot turn. Falling back to deterministic message.");
+        }
+
+        await WriteAuditAsync(tenantId, "AiChatbotTurn", "Fallback", cancellationToken);
+
+        return new ChatbotTurnResponse(
+            conversationId,
+            BuildFallbackMessage(result),
+            result.Recommendations.Select(r => r.ServiceId).ToList(),
+            RequiresHumanConsultation: result.RequiresHumanConsultation,
+            UsedAiFallback: true);
     }
 
     private static string BuildFallbackMessage(ServiceFinderResult result)

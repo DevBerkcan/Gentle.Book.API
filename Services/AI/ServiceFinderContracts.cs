@@ -58,7 +58,27 @@ public interface IAiOrchestrator
         ServiceFinderResult result,
         string? freeText,
         CancellationToken cancellationToken);
+
+    Task<ChatbotTurnResponse> BuildChatbotTurnAsync(
+        Guid tenantId,
+        Guid conversationId,
+        IReadOnlyList<(string Role, string Content)> history,
+        ServiceFinderResult result,
+        string latestMessage,
+        CancellationToken cancellationToken);
 }
+
+// The chatbot's per-turn reply. Deliberately separate from OrchestratedFinderResponse (used by
+// the existing click-wizard Finder) rather than reused — the two features render very
+// differently (a single explanatory message vs. an ongoing back-and-forth) even though the
+// underlying safety pattern (deterministic engine first, AI sanitized against its allowed IDs,
+// fallback on any failure) is identical. See AiOrchestrator.BuildChatbotTurnAsync.
+public sealed record ChatbotTurnResponse(
+    Guid ConversationId,
+    string Reply,
+    IReadOnlyList<Guid> RecommendedServiceIds,
+    bool RequiresHumanConsultation,
+    bool UsedAiFallback);
 
 public sealed record AiProviderMessage(
     string Message,
@@ -79,11 +99,28 @@ public interface IAiProviderAdapter
         ServiceFinderResult result,
         IReadOnlyList<KnowledgeResult> knowledge,
         CancellationToken cancellationToken);
+
+    Task<AiProviderMessage?> ChatTurnAsync(
+        Guid tenantId,
+        IReadOnlyList<(string Role, string Content)> history,
+        string latestMessage,
+        ServiceFinderResult result,
+        CancellationToken cancellationToken);
 }
 
 public interface IAiUsageMeter
 {
     Task TrackAsync(Guid tenantId, string feature, string model, int inputTokens, int outputTokens, decimal estimatedCost, CancellationToken cancellationToken);
+}
+
+// Per-tenant monthly AI spend ceiling — checked before every LLM call, right alongside the
+// existing Agency-plan check in AiOrchestrator. "Not within budget" takes the same fallback path
+// as any other AI failure (see AiOrchestrator.BuildFinderResponseAsync's catch block): the caller
+// simply never calls the LLM for that tenant this period, and the deterministic response is
+// returned instead — no error surfaces to the customer.
+public interface IAiUsageGate
+{
+    Task<bool> IsWithinBudgetAsync(Guid tenantId, CancellationToken cancellationToken);
 }
 
 public sealed record KnowledgeResult(

@@ -228,6 +228,7 @@ if (aiApiKeyConfigured)
 else
     builder.Services.AddScoped<IAiProviderAdapter, NullAiProviderAdapter>();
 builder.Services.AddScoped<IAiUsageMeter, AiUsageMeter>();
+builder.Services.AddScoped<IAiUsageGate, AiUsageGate>();
 builder.Services.AddScoped<IKnowledgeRetrievalService, KnowledgeRetrievalService>();
 builder.Services.AddScoped<IAiOrchestrator, AiOrchestrator>();
 builder.Services.AddScoped<IBookingDraftService, BookingDraftService>();
@@ -250,6 +251,7 @@ builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IBrandImportApply
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddSingleton<SubscriptionService>();
+builder.Services.AddSingleton<GentleBook.Api.Services.AI.AiBudgetService>();
 
 // ── Hangfire ──────────────────────────────────────────────────────────────────
 builder.Services.AddHangfire(configuration => configuration

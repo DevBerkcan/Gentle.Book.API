@@ -250,6 +250,19 @@ public class AiKnowledgeChunk
     public AiKnowledgeDocument Document { get; set; } = null!;
 }
 
+// Status vocabulary for the chatbot widget (Channel="PublicChatbot") — the Finder's own
+// single-shot use (Channel="PublicFinder") only ever needs "Active". Defined once here rather
+// than left as an undocumented free string.
+public static class AiConversationStatus
+{
+    public const string Active = "Active";
+    public const string AwaitingEmployeeChoice = "AwaitingEmployeeChoice";
+    public const string AwaitingSlotChoice = "AwaitingSlotChoice";
+    public const string DraftCreated = "DraftCreated";
+    public const string Completed = "Completed";
+    public const string Abandoned = "Abandoned";
+}
+
 public class AiConversation
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -257,7 +270,8 @@ public class AiConversation
     public Guid? UserId { get; set; }
     public Guid? CustomerId { get; set; }
     public string Channel { get; set; } = "PublicFinder";
-    public string Status { get; set; } = "Active";
+    public string Status { get; set; } = AiConversationStatus.Active;
+    public Guid? BookingDraftId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<AiMessage> Messages { get; set; } = new List<AiMessage>();
@@ -299,4 +313,23 @@ public class AiUsage
     public int OutputTokens { get; set; } = 0;
     public decimal EstimatedCost { get; set; } = 0m;
     public DateTime CreatedOn { get; set; } = DateTime.UtcNow;
+}
+
+// Per-tenant monthly AI spend ceiling. A running total (CurrentPeriodCostUsd) rather than an
+// aggregation of AiUsage recomputed on every request — AiUsageMeter.TrackAsync increments it
+// inline on every AI call, so the budget gate (IAiUsageGate.IsWithinBudgetAsync) is a single
+// indexed read, cheap enough to call before every LLM call. IsHardCapped/HardCapWarningEmailSent
+// are idempotency flags for the daily reporting job (mirrors Subscription.DunningWarningEmailSent)
+// — they are NOT what enforces the cap; the gate always compares CurrentPeriodCostUsd against the
+// budget live, so enforcement is real-time, not dependent on that job having run today.
+public class TenantAiBudget
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid TenantId { get; set; }
+    public decimal? MonthlyBudgetUsd { get; set; } // null = platform default
+    public DateTime CurrentPeriodStart { get; set; } = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+    public decimal CurrentPeriodCostUsd { get; set; } = 0m;
+    public bool IsHardCapped { get; set; } = false;
+    public bool HardCapWarningEmailSent { get; set; } = false;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 }

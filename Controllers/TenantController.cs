@@ -520,6 +520,7 @@ public class TenantController : ControllerBase
                 settings.CancellationFeePercent,
                 settings.LinktreeStyle,
                 settings.LinktreeConfig,
+                settings.IsChatbotEnabled,
                 Slug = tenant?.Slug,
                 IndustryType = tenant?.IndustryType.ToString(),
             }
@@ -645,6 +646,24 @@ public class TenantController : ControllerBase
 
         if (dto.LinktreeConfig != null)
             settings.LinktreeConfig = dto.LinktreeConfig;
+
+        if (dto.IsChatbotEnabled.HasValue)
+        {
+            // The frontend already hides/disables this toggle for non-Agency tenants (same
+            // pattern as the LinktreeConfig template check above) — mirror it here since this
+            // endpoint is reachable directly. Turning it off is always allowed on any plan (a
+            // downgrade should never get stuck unable to disable a feature it no longer has).
+            if (dto.IsChatbotEnabled.Value)
+            {
+                var tenantPlan = await _db.Subscriptions
+                    .Where(s => s.TenantId == tenantId)
+                    .Select(s => s.Plan)
+                    .FirstOrDefaultAsync();
+                if (!AgencyFeatureGate.IsAgency(tenantPlan))
+                    return StatusCode(402, new { message = "Der Chat-Assistent ist ab dem Tarif \"Agency\" verfügbar.", feature = "aiChatbot", upgrade = true, requiredPlan = "Agency" });
+            }
+            settings.IsChatbotEnabled = dto.IsChatbotEnabled.Value;
+        }
 
         settings.UpdatedAt = DateTime.UtcNow;
 
@@ -1459,5 +1478,6 @@ public record UpdateTenantSettingsRequest(
     string? BillingZipCode,
     string? BillingCity,
     string? BillingCountry,
-    string? VatId
+    string? VatId,
+    bool? IsChatbotEnabled = null
 );

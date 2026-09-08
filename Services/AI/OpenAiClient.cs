@@ -29,18 +29,30 @@ public class OpenAiClient
 
     public async Task<OpenAiChatResult> CreateChatCompletionAsync(
         string systemPrompt, string userPrompt, CancellationToken ct = default)
+        => await CreateChatCompletionAsync(systemPrompt, userPrompt, priorTurns: null, ct);
+
+    /// <summary>
+    /// Same call, with prior conversation turns inserted between the system prompt and the
+    /// latest user message — used by the chatbot (Services/AI/AiOrchestrator.BuildChatbotTurnAsync)
+    /// so the model sees the conversation so far instead of treating every message as a fresh,
+    /// context-free request. The single-turn overload above (still used by the Finder's
+    /// explanation call and the AI tagline suggestion) is unchanged and passes no history.
+    /// </summary>
+    public async Task<OpenAiChatResult> CreateChatCompletionAsync(
+        string systemPrompt, string userPrompt, IReadOnlyList<(string Role, string Content)>? priorTurns, CancellationToken ct = default)
     {
         var model = string.IsNullOrWhiteSpace(_options.CurrentValue.Model) ? DefaultModel : _options.CurrentValue.Model;
+        var messages = new List<object> { new { role = "system", content = systemPrompt } };
+        if (priorTurns != null)
+            messages.AddRange(priorTurns.Select(t => (object)new { role = t.Role, content = t.Content }));
+        messages.Add(new { role = "user", content = userPrompt });
+
         var req = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
         {
             Content = JsonContent.Create(new
             {
                 model,
-                messages = new object[]
-                {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user", content = userPrompt },
-                },
+                messages,
                 temperature = 0.4,
             })
         };

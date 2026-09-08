@@ -74,6 +74,9 @@ namespace GentleBook.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("BookingDraftId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("Channel")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -2357,6 +2360,43 @@ namespace GentleBook.Api.Migrations
                     b.ToTable("Tenants");
                 });
 
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.TenantAiBudget", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal>("CurrentPeriodCostUsd")
+                        .HasPrecision(12, 4)
+                        .HasColumnType("decimal(12,4)");
+
+                    b.Property<DateTime>("CurrentPeriodStart")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("HardCapWarningEmailSent")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsHardCapped")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal?>("MonthlyBudgetUsd")
+                        .HasPrecision(12, 4)
+                        .HasColumnType("decimal(12,4)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique();
+
+                    b.ToTable("TenantAiBudgets");
+                });
+
             modelBuilder.Entity("GentleBook.Api.Data.Entities.TenantIndustryCapability", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2541,6 +2581,9 @@ namespace GentleBook.Api.Migrations
 
                     b.Property<string>("Email")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("IsChatbotEnabled")
+                        .HasColumnType("bit");
 
                     b.Property<DateTime?>("LastBrandAnalysisOn")
                         .HasColumnType("datetime2");

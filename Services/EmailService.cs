@@ -2347,6 +2347,76 @@ GentleBook · support@gentlegroup.de";
         }
     }
 
+    /// <summary>Sent once per billing period, when a tenant's AI spend crosses the warn threshold
+    /// (80% of their monthly budget). AI features keep working normally after this — it's an
+    /// early heads-up before the (separate, real-time) budget gate would start declining LLM
+    /// calls and quietly falling back to non-AI responses.</summary>
+    public async Task SendAiBudgetWarningEmailAsync(string recipientEmail, string firstName, decimal currentSpendUsd, decimal budgetUsd)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = "Dein KI-Budget nähert sich dem monatlichen Limit";
+
+            var html = $@"<!DOCTYPE html>
+<html lang='de'>
+<head><meta charset='UTF-8'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:520px;margin:0 auto'>
+  <div style='background:linear-gradient(135deg,#d97706,#f59e0b);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
+    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>KI-Budget fast erreicht</h1>
+    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
+  </div>
+  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
+    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
+    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
+      Deine KI-gestützten Features (Service-Finder, Chat-Assistent) haben diesen Monat bereits <strong>{currentSpendUsd:0.00} $</strong>
+      von deinem Budget von <strong>{budgetUsd:0.00} $</strong> verbraucht. Sollte das Budget vollständig aufgebraucht sein,
+      arbeiten diese Features automatisch ohne KI weiter — es kommt zu keiner Unterbrechung, nur zu weniger personalisierten Antworten,
+      bis dein Budget sich zu Beginn des nächsten Monats zurücksetzt.
+    </p>
+    <p style='font-size:13px;color:#9ca3af;line-height:1.6;margin:0'>
+      Falls du ein höheres Budget benötigst, kontaktiere uns gerne per E-Mail oder WhatsApp.
+    </p>
+    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
+      GentleBook · support@gentlegroup.de
+    </p>
+  </div>
+</div>
+</body>
+</html>";
+
+            var text = $@"KI-Budget fast erreicht – GentleBook
+
+Hallo {firstName},
+
+Deine KI-gestützten Features haben diesen Monat bereits {currentSpendUsd:0.00} $ von deinem Budget von {budgetUsd:0.00} $ verbraucht.
+Sollte das Budget vollständig aufgebraucht sein, arbeiten diese Features automatisch ohne KI weiter — keine Unterbrechung, nur weniger personalisierte Antworten, bis zur nächsten Periode.
+
+Falls du ein höheres Budget benötigst, kontaktiere uns gerne per E-Mail oder WhatsApp.
+
+GentleBook · support@gentlegroup.de";
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("AI budget warning email sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send AI budget warning email to {Email}", recipientEmail);
+            throw;
+        }
+    }
+
     /// <summary>Sent once, when the dunning grace period expires and the subscription is auto-cancelled.</summary>
     public async Task SendDunningFinalCancellationEmailAsync(string recipientEmail, string firstName, string planName)
     {

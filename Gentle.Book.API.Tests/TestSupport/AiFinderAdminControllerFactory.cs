@@ -22,8 +22,9 @@ public static class AiFinderAdminControllerFactory
         var engine = new ServiceFinderEngine(db);
         var knowledge = new KnowledgeRetrievalService(db);
         var usageMeter = new AiUsageMeter(db);
+        var usageGate = new AiUsageGate(db);
         var orchestrator = new AiOrchestrator(
-            new NullAiProviderAdapter(), usageMeter, knowledge, db, NullLogger<AiOrchestrator>.Instance);
+            new NullAiProviderAdapter(), usageMeter, usageGate, knowledge, db, NullLogger<AiOrchestrator>.Instance);
 
         var controller = new AiFinderAdminController(db, tenantContext, engine, orchestrator);
 

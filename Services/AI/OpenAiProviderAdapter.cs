@@ -69,6 +69,62 @@ public sealed class OpenAiProviderAdapter : IAiProviderAdapter
         }
     }
 
+    public async Task<AiProviderMessage?> ChatTurnAsync(
+        Guid tenantId,
+        IReadOnlyList<(string Role, string Content)> history,
+        string latestMessage,
+        ServiceFinderResult result,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var systemPrompt =
+                "Du bist der freundliche Chat-Buchungsassistent eines Dienstleistungsbetriebs (z. B. Salon, Studio, Praxis). " +
+                "Führe ein kurzes, natürliches Gespräch auf Deutsch, um herauszufinden, welcher Service am besten passt, und " +
+                "empfiehl dann konkret daraus. Stelle höchstens eine kurze Rückfrage pro Antwort, wenn wirklich nötig. " +
+                "Antworte AUSSCHLIESSLICH mit einem einzigen JSON-Objekt, ohne Markdown-Codeblock, exakt in dieser Form: " +
+                "{\"message\": string, \"suggestedServiceIds\": string[], \"suggestedGuidanceIds\": string[], " +
+                "\"suggestedEmployeeIds\": string[], \"requiresHumanConsultation\": boolean}. " +
+                "Nutze für die suggested*Ids-Felder ausschließlich IDs aus der Service-Liste unten — erfinde niemals eigene IDs. " +
+                "suggestedServiceIds darf leer bleiben, solange du noch Rückfragen stellst. " +
+                "Setze requiresHumanConsultation auf true, wenn die Anfrage eine individuelle Beratung vor Ort braucht.";
+
+            var userPrompt = new StringBuilder();
+            userPrompt.AppendLine($"Neue Nachricht der Kundschaft: \"{latestMessage}\"");
+            userPrompt.AppendLine("Verfügbare Services (nur diese IDs dürfen in suggestedServiceIds verwendet werden):");
+            foreach (var r in result.Recommendations)
+                userPrompt.AppendLine($"- id={r.ServiceId}, name=\"{r.ServiceName}\", preis={r.Price} {r.Currency}, dauer={r.DurationMinutes}min");
+            if (result.SuggestedEmployeeIds.Count > 0)
+                userPrompt.AppendLine("Erlaubte Mitarbeiter-IDs für suggestedEmployeeIds: " + string.Join(", ", result.SuggestedEmployeeIds));
+
+            var completion = await _client.CreateChatCompletionAsync(systemPrompt, userPrompt.ToString(), history, cancellationToken);
+            var parsed = ParseJsonResponse(completion.Content);
+            if (parsed == null)
+            {
+                _logger.LogWarning("OpenAI chatbot response was not valid JSON for tenant {TenantId}.", tenantId);
+                return null;
+            }
+
+            var estimatedCost = OpenAiPricing.EstimateCost(completion.Model, completion.InputTokens, completion.OutputTokens);
+
+            return new AiProviderMessage(
+                Message: parsed.Value.Message,
+                InputTokens: completion.InputTokens,
+                OutputTokens: completion.OutputTokens,
+                EstimatedCost: estimatedCost,
+                Model: completion.Model,
+                SuggestedServiceIds: parsed.Value.SuggestedServiceIds,
+                SuggestedGuidanceIds: parsed.Value.SuggestedGuidanceIds,
+                SuggestedEmployeeIds: parsed.Value.SuggestedEmployeeIds,
+                RequiresHumanConsultation: parsed.Value.RequiresHumanConsultation);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "OpenAI chatbot call failed for tenant {TenantId} — falling back to deterministic message.", tenantId);
+            return null;
+        }
+    }
+
     private static string BuildUserPrompt(string? freeText, ServiceFinderResult result, IReadOnlyList<KnowledgeResult> knowledge)
     {
         var sb = new StringBuilder();

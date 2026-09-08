@@ -142,3 +142,37 @@ public sealed record BookingDraftResponseDto(
     Guid? EmployeeId);
 
 public sealed record ConfirmBookingDraftRequestDto(bool CustomerConfirmed);
+
+// ── Chatbot widget (public/{slug}/chatbot) ─────────────────────────────
+// One endpoint, one request shape, driven by which optional field is populated — the client
+// (ChatbotWidget.tsx) holds the accumulated selection in its own React state and resends
+// whatever's relevant on every call rather than the server tracking step-local state itself
+// (AiConversation.Status still records where the conversation is, for display/enforcement, but
+// isn't the source of truth the server reads back to reconstruct "what did they already pick").
+public sealed record ChatbotMessageRequestDto(
+    Guid? ConversationId,
+    string? Message,
+    Guid? SelectedServiceId,
+    Guid? SelectedEmployeeId,
+    bool AnyEmployee,
+    string? SelectedDate,
+    string? SelectedTime,
+    CustomerInfoDto? Customer,
+    bool ConfirmBooking = false);
+
+public sealed record ChatbotEmployeeOptionDto(Guid EmployeeId, string Name, string? Role);
+
+public sealed record ChatbotSlotOptionDto(string Date, string Time, string Label);
+
+public sealed record ChatbotMessageResponseDto(
+    Guid ConversationId,
+    string Status,
+    string Reply,
+    IReadOnlyList<ServiceRecommendationDto> RecommendedServices,
+    IReadOnlyList<ChatbotEmployeeOptionDto> EmployeeOptions,
+    IReadOnlyList<ChatbotSlotOptionDto> SlotOptions,
+    bool RequiresCustomerInfo,
+    Guid? BookingDraftId,
+    BookingResponseDto? ConfirmedBooking,
+    bool RequiresHumanConsultation,
+    bool UsedAiFallback);

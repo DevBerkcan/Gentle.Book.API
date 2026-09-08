@@ -33,10 +33,11 @@ public class EmployeesControllerAiTaglineTests
             new HttpClient(new FakeHttpMessageHandler(responder ?? (_ => throw new InvalidOperationException("OpenAI should not be called in this test.")))) { BaseAddress = new Uri("https://api.openai.com/v1/") },
             new StaticOptionsMonitor<AiProviderOptions>(new AiProviderOptions { ApiKey = aiApiKey }));
         var aiUsageMeter = new AiUsageMeter(db);
+        var aiUsageGate = new AiUsageGate(db);
 
         var controller = new EmployeesController(
             employeeService, db, TestConfiguration.Build(), audit, new FakeWebHostEnvironment(),
-            NullLogger<EmployeesController>.Instance, openAiClient, aiUsageMeter, aiOptions);
+            NullLogger<EmployeesController>.Instance, openAiClient, aiUsageMeter, aiUsageGate, aiOptions);
 
         // SuggestTagline resolves ITenantContext from HttpContext.RequestServices rather than a
         // constructor field — wire a minimal service provider so that resolution succeeds.
@@ -89,6 +90,23 @@ public class EmployeesControllerAiTaglineTests
         var (tenant, _) = AgencyTenantFactory.Seed(db, SubscriptionPlan.Agency);
         var employee = SeedEmployee(db, tenant.Id);
         var controller = BuildController(db, tenant.Id, aiApiKey: "");
+
+        var result = await controller.SuggestTagline(employee.Id);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(503, objectResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task SuggestTagline_AgencyPlanBudgetExhausted_Returns503WithoutCallingOpenAi()
+    {
+        using var db = TestDbContextFactory.Create();
+        var (tenant, _) = AgencyTenantFactory.Seed(db, SubscriptionPlan.Agency);
+        var employee = SeedEmployee(db, tenant.Id);
+        db.TenantAiBudgets.Add(new TenantAiBudget { TenantId = tenant.Id, CurrentPeriodCostUsd = GentleBook.Api.Configuration.OpenAiPricing.PlatformDefaultMonthlyBudgetUsd });
+        db.SaveChanges();
+        var controller = BuildController(db, tenant.Id, aiApiKey: "test-key",
+            _ => throw new InvalidOperationException("OpenAI must not be called once the tenant's AI budget is exhausted."));
 
         var result = await controller.SuggestTagline(employee.Id);
 

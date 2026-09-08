@@ -18,8 +18,9 @@ public static class PublicAiFinderControllerFactory
         var engine = new ServiceFinderEngine(db);
         var knowledge = new KnowledgeRetrievalService(db);
         var usageMeter = new AiUsageMeter(db);
+        var usageGate = new AiUsageGate(db);
         var orchestrator = new AiOrchestrator(
-            new NullAiProviderAdapter(), usageMeter, knowledge, db, NullLogger<AiOrchestrator>.Instance);
+            new NullAiProviderAdapter(), usageMeter, usageGate, knowledge, db, NullLogger<AiOrchestrator>.Instance);
 
         var emailService = TestServiceFactory.CreateEmailService(db);
         var voucherService = TestServiceFactory.CreateVoucherService(db);

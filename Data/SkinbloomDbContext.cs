@@ -64,6 +64,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<AiMessage> AiMessages { get; set; }
     public DbSet<AiAction> AiActions { get; set; }
     public DbSet<AiUsage> AiUsages { get; set; }
+    public DbSet<TenantAiBudget> TenantAiBudgets { get; set; }
     public DbSet<BrandImportJob> BrandImportJobs { get; set; }
     public DbSet<BrandImportResult> BrandImportResults { get; set; }
     public DbSet<BrandThemeProposal> BrandThemeProposals { get; set; }
@@ -875,6 +876,14 @@ public class GentleBookDbContext : DbContext
             entity.Property(e => e.Model).IsRequired().HasMaxLength(120);
             entity.Property(e => e.EstimatedCost).HasPrecision(12, 4);
             entity.HasIndex(e => new { e.TenantId, e.Feature, e.CreatedOn });
+        });
+
+        modelBuilder.Entity<TenantAiBudget>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.MonthlyBudgetUsd).HasPrecision(12, 4);
+            entity.Property(e => e.CurrentPeriodCostUsd).HasPrecision(12, 4);
+            entity.HasIndex(e => e.TenantId).IsUnique();
         });
     }
 }

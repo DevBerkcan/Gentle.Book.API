@@ -53,6 +53,13 @@ public class TenantSettings
     public string LinktreeStyle { get; set; } = "gradient";
     public string? LinktreeConfig { get; set; } // JSON blob for fine-grained design
 
+    // Agency-exclusive chat booking assistant widget, shown bottom-right on the public booking
+    // page alongside (never instead of) the click-through wizard. A dedicated column rather than
+    // folded into LinktreeConfig's JSON blob — that blob is fine-grained visual preferences
+    // (colors, layout), this is a real feature on/off switch, same idiom as
+    // TenantIndustrySettings.IsFinderEnabled for the rule-based Finder.
+    public bool IsChatbotEnabled { get; set; } = false;
+
     // ── AI Brand Import (website → branding draft) ────────────
     // The admin must explicitly confirm they're entitled to use this website's content/branding
     // before any analysis runs (see spec section 15 "Datenschutz und Rechte"). Stored here rather

@@ -1,4 +1,5 @@
 ﻿using GentleBook.Api.Services;
+using GentleBook.Api.Services.AI;
 using Hangfire;
 
 namespace GentleBook.Api.Options
@@ -99,6 +100,20 @@ namespace GentleBook.Api.Options
                 "process-retention-expirations",
                 s => s.ProcessRetentionExpirationsAsync(),
                 Cron.Daily(3, 0));
+
+            // Daily 00:30 UTC — roll TenantAiBudget into a new calendar month. AiUsageMeter also
+            // does this inline on first use of a new month, so a missed run here never blocks AI.
+            _recurringJobManager.AddOrUpdate<AiBudgetService>(
+                "reset-ai-budget-period",
+                s => s.ResetPeriodsAsync(),
+                Cron.Daily(0, 30));
+
+            // Daily 06:00 UTC — warn tenants at 80% of their AI budget, flag+audit at 100%. The
+            // actual cutoff already happens in real time via IAiUsageGate; this is reporting only.
+            _recurringJobManager.AddOrUpdate<AiBudgetService>(
+                "check-ai-budget-thresholds",
+                s => s.CheckThresholdsAsync(),
+                Cron.Daily(6, 0));
 
             _logger.LogInformation("Hangfire jobs scheduled successfully");
 

@@ -62,6 +62,15 @@ public class AiFinderAdminController : ControllerBase
             })
             .FirstOrDefaultAsync(cancellationToken);
 
+        var budgetRow = await _db.TenantAiBudgets.AsNoTracking().FirstOrDefaultAsync(b => b.TenantId == tenantId, cancellationToken);
+        var effectiveBudget = budgetRow?.MonthlyBudgetUsd ?? OpenAiPricing.PlatformDefaultMonthlyBudgetUsd;
+        var currentSpend = budgetRow?.CurrentPeriodCostUsd ?? 0m;
+
+        var pendingRequest = await _db.AiActions.AsNoTracking()
+            .Where(a => a.TenantId == tenantId && a.ActionType == BudgetRequestActionType && a.Status == "Pending")
+            .OrderByDescending(a => a.CreatedOn)
+            .FirstOrDefaultAsync(cancellationToken);
+
         return Ok(new
         {
             finderEnabled = setting?.IsFinderEnabled ?? false,
@@ -69,8 +78,67 @@ public class AiFinderAdminController : ControllerBase
             questionCount = await _db.ServiceFinderQuestions.CountAsync(q => q.TenantId == tenantId && q.IsActive, cancellationToken),
             ruleCount = await _db.ServiceFinderRules.CountAsync(r => r.TenantId == tenantId && r.IsActive, cancellationToken),
             guidanceCount = await _db.ServiceGuidances.CountAsync(g => g.TenantId == tenantId && g.IsActive && g.ApprovalStatus == ApprovalStatus.Approved, cancellationToken),
-            usage = usage ?? new { Requests = 0, InputTokens = 0, OutputTokens = 0, Cost = 0m }
+            usage = usage ?? new { Requests = 0, InputTokens = 0, OutputTokens = 0, Cost = 0m },
+            budget = new
+            {
+                monthlyBudgetUsd = effectiveBudget,
+                currentPeriodCostUsd = currentSpend,
+                percentUsed = effectiveBudget > 0 ? Math.Round(currentSpend / effectiveBudget * 100, 1) : 0,
+                isHardCapped = budgetRow?.IsHardCapped ?? false,
+            },
+            pendingBudgetRequest = pendingRequest == null ? null : new
+            {
+                pendingRequest.Id,
+                pendingRequest.CreatedOn,
+                requestedBudgetUsd = ParseRequestedBudget(pendingRequest.InputJson),
+            },
         });
+    }
+
+    private const string BudgetRequestActionType = "ai_budget_increase_request";
+
+    private static decimal? ParseRequestedBudget(string inputJson)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(inputJson);
+            return doc.RootElement.TryGetProperty("requestedBudgetUsd", out var el) ? el.GetDecimal() : null;
+        }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    /// <summary>Tenant-facing "I need more AI capacity" request — mirrors the Agency-plan
+    /// request/offer flow (SubscriptionRequest) rather than letting a tenant set their own
+    /// budget: this raises OpenAI cost the platform pays for, so a SuperAdmin decides the new
+    /// amount and typically renegotiates NegotiatedMonthlyPrice alongside it. Stored as an
+    /// AiAction (already exactly the "AI-related action awaiting confirmation" shape) rather
+    /// than a new entity.</summary>
+    [HttpPost("budget-increase-request")]
+    public async Task<IActionResult> RequestBudgetIncrease([FromBody] BudgetIncreaseRequestDto dto, CancellationToken cancellationToken)
+    {
+        if (!TryGetTenantId(out var tenantId))
+            return Unauthorized(new { message = "Kein Tenant im Token" });
+        if (dto.RequestedBudgetUsd <= 0)
+            return BadRequest(new { message = "Bitte einen gültigen Betrag angeben." });
+
+        var hasPending = await _db.AiActions.AnyAsync(
+            a => a.TenantId == tenantId && a.ActionType == BudgetRequestActionType && a.Status == "Pending", cancellationToken);
+        if (hasPending)
+            return BadRequest(new { message = "Es liegt bereits eine offene Anfrage für mehr KI-Budget vor. Bitte warte, bis diese bearbeitet wurde." });
+
+        var inputJson = System.Text.Json.JsonSerializer.Serialize(new { requestedBudgetUsd = dto.RequestedBudgetUsd, note = dto.Note });
+        _db.AiActions.Add(new AiAction
+        {
+            TenantId = tenantId,
+            ActionType = BudgetRequestActionType,
+            Status = "Pending",
+            InputJson = inputJson,
+            OutputJson = "{}",
+            CreatedOn = DateTime.UtcNow,
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return Ok(new { message = "Anfrage gesendet. Wir melden uns, sobald sie bearbeitet wurde." });
     }
 
     [HttpGet("industry-profiles")]
@@ -423,3 +491,5 @@ public class AiFinderAdminController : ControllerBase
             response.SuggestedEmployeeIds));
     }
 }
+
+public record BudgetIncreaseRequestDto(decimal RequestedBudgetUsd, string? Note);

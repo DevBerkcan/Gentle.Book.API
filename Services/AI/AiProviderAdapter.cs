@@ -11,4 +11,14 @@ public sealed class NullAiProviderAdapter : IAiProviderAdapter
     {
         return Task.FromResult<AiProviderMessage?>(null);
     }
+
+    public Task<AiProviderMessage?> ChatTurnAsync(
+        Guid tenantId,
+        IReadOnlyList<(string Role, string Content)> history,
+        string latestMessage,
+        ServiceFinderResult result,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult<AiProviderMessage?>(null);
+    }
 }
