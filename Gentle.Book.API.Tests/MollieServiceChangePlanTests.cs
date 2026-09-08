@@ -232,9 +232,11 @@ public class MollieServiceChangePlanTests
             new HttpClient(new FakeHttpMessageHandler(req =>
             {
                 if (req.Method == HttpMethod.Patch)
-                    return new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
+                    // Confirmed live against Mollie: PATCHing a cancelled subscription answers
+                    // 422, not 404/410.
+                    return new HttpResponseMessage(System.Net.HttpStatusCode.UnprocessableEntity)
                     {
-                        Content = new StringContent("{\"status\":404,\"title\":\"Not Found\"}", System.Text.Encoding.UTF8, "application/json")
+                        Content = new StringContent("{\"status\":422,\"title\":\"Unprocessable Entity\",\"detail\":\"The subscription has been cancelled\"}", System.Text.Encoding.UTF8, "application/json")
                     };
                 if (req.Method == HttpMethod.Post && req.RequestUri!.ToString().Contains("/subscriptions"))
                     return new HttpResponseMessage(System.Net.HttpStatusCode.Created)

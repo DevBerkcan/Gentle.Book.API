@@ -670,16 +670,19 @@ public class MollieService
                 $"GentleBook {limits.DisplayName}-Abonnement");
             return true;
         }
-        catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Gone)
+        catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Gone or System.Net.HttpStatusCode.UnprocessableEntity)
         {
             // The Mollie subscription resource is already gone — CancelSubscriptionAsync deletes
             // it at Mollie immediately even though local access (and this Subscription row) stays
             // Active until period end, so a tenant who cancelled and then changes plan/accepts a
-            // new offer within their remaining paid period hits exactly this. The SEPA mandate
-            // itself is untouched by a subscription cancellation, so recreate the subscription
-            // against the existing mandate instead of failing outright — no new mandate/checkout
-            // needed. The first charge is scheduled at the tenant's existing paid-through date
-            // (never earlier) so this never causes a surprise immediate charge.
+            // new offer within their remaining paid period hits exactly this. Confirmed live:
+            // Mollie answers PATCH on a cancelled subscription with 422 "The subscription has
+            // been cancelled" (not 404/410 as the DELETE-then-GET pattern elsewhere in this file
+            // would suggest). The SEPA mandate itself is untouched by a subscription cancellation,
+            // so recreate the subscription against the existing mandate instead of failing
+            // outright — no new mandate/checkout needed. The first charge is scheduled at the
+            // tenant's existing paid-through date (never earlier) so this never causes a surprise
+            // immediate charge.
             if (string.IsNullOrEmpty(sub.MollieMandateId))
             {
                 _logger.LogError("Mollie subscription {SubscriptionId} is gone and no mandate is on file to recreate it.", sub.Id);
