@@ -25,7 +25,18 @@ public class InvoiceService
         _logger = logger;
     }
 
-    public async Task GenerateAndSendInvoiceAsync(Guid subscriptionId, string molliePaymentId, CancellationToken ct)
+    // planName/amount/periodStart/periodEnd are captured by the caller at the moment the payment
+    // was confirmed, not re-read here from the subscription's current state. This job runs via
+    // Hangfire and can be delayed by minutes to hours (SMTP retry, worker backlog); if the tenant
+    // changes plan in that window, re-deriving these values from the live Subscription row would
+    // stamp the invoice with whatever plan/price is active *now* instead of what was actually
+    // charged for molliePaymentId — producing an invoice that doesn't match its own referenced
+    // Mollie transaction. (Found in production: an invoice recorded "Pro / 59,00 EUR" against a
+    // payment that Mollie shows was actually a paid 1,00 EUR Starter charge, because the plan
+    // change landed before this job ran.)
+    public async Task GenerateAndSendInvoiceAsync(
+        Guid subscriptionId, string molliePaymentId, string planName, decimal amount,
+        DateTime periodStart, DateTime periodEnd, CancellationToken ct)
     {
         // A webhook retry could enqueue the same payment twice — never issue two invoices for it.
         // But "already exists" must not mean "already sent": if a prior attempt generated the
@@ -62,9 +73,6 @@ public class InvoiceService
             .FirstOrDefaultAsync(ct);
         var recipientEmail = admin?.Email ?? settings.Email;
 
-        var limits = PlanLimits.Get(sub.Plan);
-        var periodStart = sub.CurrentPeriodStart ?? DateTime.UtcNow;
-        var periodEnd = sub.CurrentPeriodEnd ?? sub.Interval.AddInterval(periodStart);
         var issueDate = DateTime.UtcNow;
 
         var invoice = new Invoice
@@ -75,8 +83,8 @@ public class InvoiceService
             IssueDate = issueDate,
             PeriodStart = periodStart,
             PeriodEnd = periodEnd,
-            PlanName = limits.DisplayName,
-            Amount = sub.Interval.PriceFor(sub, limits),
+            PlanName = planName,
+            Amount = amount,
             Currency = "EUR",
             MolliePaymentId = molliePaymentId,
             RecipientName = settings.LegalCompanyName ?? settings.CompanyName,

@@ -262,8 +262,10 @@ public class MollieService
                 sub.RetentionEndsAt = null;
                 sub.RetentionWarningEmailSent = false;
                 sub.OperationalDataDeletedAt = null;
-                sub.CurrentPeriodStart = DateTime.UtcNow;
-                sub.CurrentPeriodEnd = sub.Interval.AddInterval(DateTime.UtcNow);
+                var periodStart = DateTime.UtcNow;
+                var periodEnd = sub.Interval.AddInterval(periodStart);
+                sub.CurrentPeriodStart = periodStart;
+                sub.CurrentPeriodEnd = periodEnd;
                 sub.UpdatedAt = DateTime.UtcNow;
                 var acceptedRequest = await _db.SubscriptionRequests.FirstOrDefaultAsync(r =>
                     r.TenantId == sub.TenantId && r.RequestedPlan == sub.Plan.ToString() && r.Status == "Accepted");
@@ -280,7 +282,7 @@ public class MollieService
 
                 await _audit.LogAsync("mollie.subscription_activated", "Subscription", sub.Id.ToString(), sub.Plan.ToString(), sub.TenantId);
                 await SendActivationEmailAsync(sub, limits);
-                EnqueueInvoice(sub.Id, payment.Id);
+                EnqueueInvoice(sub.Id, payment.Id, limits.DisplayName, payment.Amount?.AsDecimal ?? intervalEnum.PriceFor(sub, limits), periodStart, periodEnd);
             }
         }
         else if (payment.IsFailedOrExpired)
@@ -311,12 +313,16 @@ public class MollieService
 
         if (payment.IsPaid)
         {
+            var limits = PlanLimits.Get(sub.Plan);
+            var periodStart = DateTime.UtcNow;
+            var periodEnd = sub.Interval.AddInterval(periodStart);
+
             sub.Status = SubscriptionStatus.Active;
             sub.RetentionEndsAt = null;
             sub.RetentionWarningEmailSent = false;
             sub.OperationalDataDeletedAt = null;
-            sub.CurrentPeriodStart = DateTime.UtcNow;
-            sub.CurrentPeriodEnd = sub.Interval.AddInterval(DateTime.UtcNow);
+            sub.CurrentPeriodStart = periodStart;
+            sub.CurrentPeriodEnd = periodEnd;
             // Clears any in-progress dunning episode — a recovered payment cancels the grace-period clock.
             sub.PastDueSince = null;
             sub.FailedPaymentCount = 0;
@@ -330,7 +336,7 @@ public class MollieService
             await _db.SaveChangesAsync();
 
             await _audit.LogAsync("mollie.recurring_payment_paid", "Subscription", sub.Id.ToString(), payment.Id, sub.TenantId);
-            EnqueueInvoice(sub.Id, payment.Id);
+            EnqueueInvoice(sub.Id, payment.Id, limits.DisplayName, payment.Amount?.AsDecimal ?? sub.Interval.PriceFor(sub, limits), periodStart, periodEnd);
         }
         else if (payment.IsFailedOrExpired)
         {
@@ -520,10 +526,20 @@ public class MollieService
         sub.Plan = newPlan;
         sub.Interval = newInterval;
         sub.UpdatedAt = DateTime.UtcNow;
+
+        // A tenant who actively picks a (new, paid) plan clearly wants to keep their account —
+        // otherwise they'd be billed under the new plan yet still scheduled for cancellation at
+        // period end by ProcessPendingCancellationsAsync, which only looks at CancelRequestedAt.
+        // Same reasoning as ApplyAcceptedAgencyOfferAsync below.
+        var hadPendingCancellation = sub.CancelRequestedAt != null;
+        sub.CancelRequestedAt = null;
+        sub.CancelledAt = null;
+        sub.CancelReason = null;
+
         await _db.SaveChangesAsync();
 
         await _audit.LogAsync("subscription.plan_changed_self_service", "Subscription", sub.Id.ToString(),
-            $"{oldPlan} ({oldInterval}) → {newPlan} ({newInterval})", tenantId);
+            $"{oldPlan} ({oldInterval}) → {newPlan} ({newInterval})" + (hadPendingCancellation ? " [cleared pending cancellation]" : ""), tenantId);
 
         return new ChangePlanResult(true, null, sub.Plan.ToString(), sub.Interval.ToString());
     }
@@ -654,6 +670,40 @@ public class MollieService
                 $"GentleBook {limits.DisplayName}-Abonnement");
             return true;
         }
+        catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Gone)
+        {
+            // The Mollie subscription resource is already gone — CancelSubscriptionAsync deletes
+            // it at Mollie immediately even though local access (and this Subscription row) stays
+            // Active until period end, so a tenant who cancelled and then changes plan/accepts a
+            // new offer within their remaining paid period hits exactly this. The SEPA mandate
+            // itself is untouched by a subscription cancellation, so recreate the subscription
+            // against the existing mandate instead of failing outright — no new mandate/checkout
+            // needed. The first charge is scheduled at the tenant's existing paid-through date
+            // (never earlier) so this never causes a surprise immediate charge.
+            if (string.IsNullOrEmpty(sub.MollieMandateId))
+            {
+                _logger.LogError("Mollie subscription {SubscriptionId} is gone and no mandate is on file to recreate it.", sub.Id);
+                return false;
+            }
+            try
+            {
+                var startDate = sub.CurrentPeriodEnd is { } periodEnd && periodEnd > DateTime.UtcNow
+                    ? periodEnd
+                    : interval.AddInterval(DateTime.UtcNow);
+                var recreated = await _mollie.CreateSubscriptionAsync(
+                    sub.MollieCustomerId!, sub.MollieMandateId, interval.PriceFor(sub, limits), "EUR", interval.ToMollieInterval(),
+                    startDate, $"GentleBook {limits.DisplayName}-Abonnement", _options.Value.WebhookUrl,
+                    new Dictionary<string, string> { ["tenantId"] = sub.TenantId.ToString() });
+                sub.MollieSubscriptionId = recreated.Id;
+                _logger.LogInformation("Recreated Mollie subscription {NewSubscriptionId} for Subscription {SubscriptionId} after the previous one was gone.", recreated.Id, sub.Id);
+                return true;
+            }
+            catch (Exception ex2)
+            {
+                _logger.LogError(ex2, "Mollie subscription recreate failed for Subscription {SubscriptionId}", sub.Id);
+                return false;
+            }
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Mollie subscription PATCH failed for Subscription {SubscriptionId}", sub.Id);
@@ -728,6 +778,9 @@ public class MollieService
 
     // GentleBook generates and emails its own invoice — no Gentle.Suite CRM dependency.
     // CrmPushService remains in the codebase for a future CRM re-hook but is no longer called.
-    private void EnqueueInvoice(Guid subscriptionId, string molliePaymentId) =>
-        _backgroundJobClient.Enqueue<InvoiceService>(s => s.GenerateAndSendInvoiceAsync(subscriptionId, molliePaymentId, CancellationToken.None));
+    // planName/amount/period are captured here, at the moment the payment was confirmed, and
+    // carried into the (possibly much later) Hangfire job rather than re-derived from the
+    // Subscription row when the job runs — see the comment on InvoiceService.GenerateAndSendInvoiceAsync.
+    private void EnqueueInvoice(Guid subscriptionId, string molliePaymentId, string planName, decimal amount, DateTime periodStart, DateTime periodEnd) =>
+        _backgroundJobClient.Enqueue<InvoiceService>(s => s.GenerateAndSendInvoiceAsync(subscriptionId, molliePaymentId, planName, amount, periodStart, periodEnd, CancellationToken.None));
 }

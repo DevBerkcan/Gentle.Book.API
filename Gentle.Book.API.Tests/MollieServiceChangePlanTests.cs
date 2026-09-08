@@ -207,4 +207,56 @@ public class MollieServiceChangePlanTests
         var reloaded = await db.Subscriptions.AsNoTracking().FirstAsync(s => s.TenantId == tenant.Id);
         Assert.Equal(SubscriptionPlan.Starter, reloaded.Plan);
     }
+
+    // Regression test for a production bug found during a live pre-launch test: cancelling a
+    // subscription deletes it at Mollie immediately (CancelSubscriptionAsync), even though local
+    // access and this Subscription row stay Active until period end. A tenant who then changes
+    // their mind and picks a new plan within that remaining paid window used to get a hard,
+    // unrecoverable-looking "bitte kontaktieren Sie den Support" error, because the old code only
+    // ever tried to PATCH the (now-gone) Mollie subscription. The fix recreates it against the
+    // still-valid SEPA mandate instead of failing.
+    [Fact]
+    public async Task ChangePlanAsync_AfterPriorCancellationDeletedMollieSubscription_RecreatesItAndClearsCancellation()
+    {
+        using var db = TestDbContextFactory.Create();
+        var (tenant, subscription) = SeedActiveSubscription(db, SubscriptionPlan.Starter);
+        subscription.MollieMandateId = "mdt_test";
+        subscription.CancelRequestedAt = DateTime.UtcNow.AddDays(-1);
+        await db.SaveChangesAsync();
+
+        var httpContextAccessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
+        var auditService = new AuditService(db, httpContextAccessor, NullLogger<AuditService>.Instance);
+        var emailService = TestServiceFactory.CreateEmailService(db);
+        var mollieOptions = Options.Create(new MollieOptions());
+        var mollieClient = new MollieClient(
+            new HttpClient(new FakeHttpMessageHandler(req =>
+            {
+                if (req.Method == HttpMethod.Patch)
+                    return new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
+                    {
+                        Content = new StringContent("{\"status\":404,\"title\":\"Not Found\"}", System.Text.Encoding.UTF8, "application/json")
+                    };
+                if (req.Method == HttpMethod.Post && req.RequestUri!.ToString().Contains("/subscriptions"))
+                    return new HttpResponseMessage(System.Net.HttpStatusCode.Created)
+                    {
+                        Content = new StringContent("{\"id\":\"sub_recreated\",\"status\":\"active\"}", System.Text.Encoding.UTF8, "application/json")
+                    };
+                return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"id\":\"sub_test\",\"status\":\"active\"}", System.Text.Encoding.UTF8, "application/json")
+                };
+            }))
+            { BaseAddress = new Uri("https://api.mollie.com/v2/") },
+            new StaticOptionsMonitor<MollieOptions>(new MollieOptions { ApiKey = "test_x" }));
+        var mollieService = new MollieService(
+            db, mollieClient, mollieOptions, new FakeBackgroundJobClient(), auditService, emailService, NullLogger<MollieService>.Instance);
+
+        var result = await mollieService.ChangePlanAsync(tenant.Id, "Professional", "Monthly");
+
+        Assert.True(result.Success);
+        Assert.Equal("Professional", result.Plan);
+        var reloaded = await db.Subscriptions.AsNoTracking().FirstAsync(s => s.TenantId == tenant.Id);
+        Assert.Equal("sub_recreated", reloaded.MollieSubscriptionId);
+        Assert.Null(reloaded.CancelRequestedAt);
+    }
 }
