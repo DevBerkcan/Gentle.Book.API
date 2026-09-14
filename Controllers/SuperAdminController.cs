@@ -1208,6 +1208,91 @@ public class SuperAdminController : ControllerBase
         });
     }
 
+    /// <summary>Platform-wide Agency AI cost overview — as more tenants land on Agency, the
+    /// per-tenant view (GetTenantAiUsage) alone stops answering "what is this costing US in
+    /// total, and is that growing dangerously." Only Agency tenants ever generate real cost
+    /// (see AgencyFeatureGate — the LLM is never called for anyone else), so this is
+    /// effectively the platform's whole AI spend, not just a subset.</summary>
+    [HttpGet("agency-ai-overview")]
+    public async Task<IActionResult> GetAgencyAiOverview()
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var agencySubs = await _db.Subscriptions
+            .Where(s => s.Plan == SubscriptionPlan.Agency)
+            .Select(s => new { s.TenantId, s.NegotiatedMonthlyPrice })
+            .ToListAsync();
+        var tenantIds = agencySubs.Select(s => s.TenantId).ToList();
+
+        var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+        var monthToDateByTenant = await _db.AiUsages
+            .Where(u => tenantIds.Contains(u.TenantId) && u.CreatedOn >= monthStart)
+            .GroupBy(u => u.TenantId)
+            .Select(g => new { TenantId = g.Key, Cost = g.Sum(u => u.EstimatedCost) })
+            .ToDictionaryAsync(x => x.TenantId, x => x.Cost);
+
+        var budgets = await _db.TenantAiBudgets
+            .Where(b => tenantIds.Contains(b.TenantId))
+            .ToDictionaryAsync(b => b.TenantId);
+
+        // 6-month platform-wide trend — bounded to Agency tenants for the same reason as above,
+        // though in practice this is the entire AiUsages table.
+        var since = DateTime.UtcNow.AddMonths(-6);
+        var historicalUsage = await _db.AiUsages
+            .Where(u => tenantIds.Contains(u.TenantId) && u.CreatedOn >= since)
+            .Select(u => new { u.CreatedOn, u.EstimatedCost })
+            .ToListAsync();
+        var byMonth = historicalUsage
+            .GroupBy(u => new { u.CreatedOn.Year, u.CreatedOn.Month })
+            .Select(g => new { g.Key.Year, g.Key.Month, Cost = g.Sum(u => u.EstimatedCost) })
+            .ToList();
+        var trend = Enumerable.Range(0, 6)
+            .Select(i => DateTime.UtcNow.AddMonths(-5 + i))
+            .Select(d => new
+            {
+                Year = d.Year,
+                Month = d.Month,
+                Label = d.ToString("MMM yyyy"),
+                Cost = byMonth.FirstOrDefault(m => m.Year == d.Year && m.Month == d.Month)?.Cost ?? 0m,
+            })
+            .ToList();
+
+        var tenantNames = await _db.Tenants
+            .Include(t => t.Settings)
+            .Where(t => tenantIds.Contains(t.Id))
+            .ToDictionaryAsync(t => t.Id, t => new { Name = t.Settings != null ? t.Settings.CompanyName : t.Name, t.Slug });
+
+        var tenantRows = agencySubs.Select(s =>
+        {
+            var effectiveBudget = budgets.TryGetValue(s.TenantId, out var b) ? (b.MonthlyBudgetUsd ?? OpenAiPricing.PlatformDefaultMonthlyBudgetUsd) : OpenAiPricing.PlatformDefaultMonthlyBudgetUsd;
+            var cost = monthToDateByTenant.GetValueOrDefault(s.TenantId, 0m);
+            return new
+            {
+                s.TenantId,
+                CompanyName = tenantNames.GetValueOrDefault(s.TenantId)?.Name ?? "Unbekannt",
+                TenantSlug = tenantNames.GetValueOrDefault(s.TenantId)?.Slug ?? "",
+                NegotiatedMonthlyPriceEur = s.NegotiatedMonthlyPrice,
+                CurrentPeriodCostUsd = cost,
+                MonthlyBudgetUsd = effectiveBudget,
+                PercentUsed = effectiveBudget > 0 ? Math.Round(cost / effectiveBudget * 100, 1) : 0,
+            };
+        })
+        .OrderByDescending(x => x.PercentUsed)
+        .ToList();
+
+        var totalSpendThisMonth = tenantRows.Sum(x => x.CurrentPeriodCostUsd);
+        var worstCaseIfAllCapped = tenantRows.Sum(x => x.MonthlyBudgetUsd);
+
+        return Ok(new
+        {
+            agencyTenantCount = tenantIds.Count,
+            totalSpendThisMonth,
+            worstCaseIfAllCapped,
+            trend,
+            tenants = tenantRows,
+        });
+    }
+
     /// <summary>Set (or clear, with null) a custom monthly AI budget for one tenant — overrides
     /// the platform default (OpenAiPricing.PlatformDefaultMonthlyBudgetUsd). Typically set once
     /// real usage data (this endpoint's sibling GetTenantAiUsage, or GetAiUsage) shows a tenant
