@@ -60,6 +60,20 @@ public class TenantSettings
     // TenantIndustrySettings.IsFinderEnabled for the rule-based Finder.
     public bool IsChatbotEnabled { get; set; } = false;
 
+    // Admin-tunable cost/abuse control: max free-text messages (i.e. real LLM calls, see
+    // PublicAiChatbotController) a single conversation may send before the widget declines
+    // further AI turns and points the customer to the studio directly. Counted per AiConversation,
+    // not per customer/IP — there's no customer identity on this anonymous endpoint.
+    public int ChatbotMaxMessagesPerConversation { get; set; } = 20;
+
+    // Second, independent cap: without this, a visitor could trivially reset the per-conversation
+    // counter above by just reloading the widget (a new browser-side conversationId starts at 0
+    // again) and burn through the tenant's whole monthly AI budget alone. Enforced per IP address
+    // (hashed, see AiConversation.VisitorHash) across a rolling UTC calendar day — there's no
+    // login/session token on this anonymous endpoint, so IP+day is the closest available proxy for
+    // "one visitor," same idiom already used for the platform-wide finder-limit rate limiter.
+    public int ChatbotMaxMessagesPerVisitorPerDay { get; set; } = 30;
+
     // ── AI Brand Import (website → branding draft) ────────────
     // The admin must explicitly confirm they're entitled to use this website's content/branding
     // before any analysis runs (see spec section 15 "Datenschutz und Rechte"). Stored here rather

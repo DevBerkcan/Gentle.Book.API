@@ -33,6 +33,7 @@ public class PublicAiChatbotController : ControllerBase
     private const int MaxHistoryTurns = 10;
     private const int MaxSlotOptions = 6;
     private const int MaxDaysToScan = 21;
+    private const int MaxMessageLength = 1000;
 
     private readonly GentleBookDbContext _db;
     private readonly IServiceFinderEngine _engine;
@@ -72,7 +73,7 @@ public class PublicAiChatbotController : ControllerBase
         return (tenant.Id, null);
     }
 
-    private readonly record struct ChatbotAvailability(bool Enabled, bool IsAgencyGate);
+    private readonly record struct ChatbotAvailability(bool Enabled, bool IsAgencyGate, int MaxMessagesPerConversation, int MaxMessagesPerVisitorPerDay);
 
     // Two independent switches must both be on: the tenant's own IsChatbotEnabled toggle (set in
     // Links/Design settings) AND the Agency plan gate — a tenant that downgrades away from Agency
@@ -83,7 +84,7 @@ public class PublicAiChatbotController : ControllerBase
         var settings = await _db.TenantSettings.AsNoTracking()
             .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
         if (settings == null || !settings.IsChatbotEnabled)
-            return new ChatbotAvailability(false, false);
+            return new ChatbotAvailability(false, false, 0, 0);
 
         var tenantPlan = await _db.Subscriptions.AsNoTracking()
             .Where(s => s.TenantId == tenantId)
@@ -91,7 +92,18 @@ public class PublicAiChatbotController : ControllerBase
             .FirstOrDefaultAsync(cancellationToken);
 
         var isAgency = tenantPlan.HasValue && AgencyFeatureGate.IsAgency(tenantPlan.Value);
-        return new ChatbotAvailability(isAgency, !isAgency);
+        return new ChatbotAvailability(isAgency, !isAgency, settings.ChatbotMaxMessagesPerConversation, settings.ChatbotMaxMessagesPerVisitorPerDay);
+    }
+
+    // Same "anonymous, no login" constraint as the finder-limit rate limiter (Program.cs) — IP
+    // address is the only available proxy for "one visitor." Hashed with the tenant ID so the
+    // same visitor across two tenants never produces a correlatable value, and the raw IP is
+    // never persisted (see AiConversation.VisitorHash).
+    private static string ComputeVisitorHash(Guid tenantId, System.Net.IPAddress? ip)
+    {
+        var raw = $"{tenantId}|{ip?.ToString() ?? "unknown"}";
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw));
+        return Convert.ToHexString(bytes);
     }
 
     [HttpGet("bootstrap")]
@@ -124,6 +136,8 @@ public class PublicAiChatbotController : ControllerBase
                 ? StatusCode(402, new { message = "Der Chat-Assistent ist ab dem Tarif \"Agency\" verfügbar.", feature = "aiChatbot", upgrade = true, requiredPlan = "Agency" })
                 : NotFound(new { message = "Der Chat-Assistent ist für diese Buchungsseite nicht aktiviert." });
 
+        var visitorHash = ComputeVisitorHash(tenantId, HttpContext.Connection.RemoteIpAddress);
+
         AiConversation? conversation = null;
         if (request.ConversationId.HasValue)
         {
@@ -134,7 +148,7 @@ public class PublicAiChatbotController : ControllerBase
         }
         if (conversation == null)
         {
-            conversation = new AiConversation { TenantId = tenantId, Channel = "PublicChatbot", Status = AiConversationStatus.Active };
+            conversation = new AiConversation { TenantId = tenantId, Channel = "PublicChatbot", Status = AiConversationStatus.Active, VisitorHash = visitorHash };
             _db.AiConversations.Add(conversation);
         }
 
@@ -264,6 +278,51 @@ public class PublicAiChatbotController : ControllerBase
         // ── 6) Nothing selected yet → free-text service recommendation ─
         if (string.IsNullOrWhiteSpace(request.Message))
             return BadRequest(new { message = "Bitte eine Nachricht angeben." });
+
+        if (request.Message.Length > MaxMessageLength)
+            return BadRequest(new { message = $"Deine Nachricht ist zu lang (max. {MaxMessageLength} Zeichen)." });
+
+        // Admin-tunable cap (TenantSettings.ChatbotMaxMessagesPerVisitorPerDay, Links/Design
+        // settings) on how many free-text turns one visitor (by hashed IP, see ComputeVisitorHash)
+        // may use per UTC calendar day, across *all* their conversations — not just this one. Checked
+        // before the per-conversation cap below because reloading the widget resets that counter
+        // (a fresh conversationId starts at 0 again) but must not reset this one, otherwise a single
+        // person could exhaust the tenant's whole monthly AI budget just by refreshing repeatedly.
+        var dayStart = DateTime.UtcNow.Date;
+        var visitorConversationIdsToday = await _db.AiConversations
+            .Where(c => c.TenantId == tenantId && c.VisitorHash == visitorHash && c.CreatedAt >= dayStart)
+            .Select(c => c.Id)
+            .ToListAsync(cancellationToken);
+        var visitorMessageCountToday = await _db.AiMessages
+            .CountAsync(m => visitorConversationIdsToday.Contains(m.ConversationId) && m.Role == "user", cancellationToken);
+        if (visitorMessageCountToday >= availability.MaxMessagesPerVisitorPerDay)
+        {
+            var visitorLimitReply = "Du hast das heutige Fragen-Limit für den Chat-Assistenten erreicht. Bitte kontaktiere das Studio direkt oder versuche es morgen wieder.";
+            _db.AiMessages.Add(new AiMessage { ConversationId = conversation.Id, Conversation = conversation, Role = "assistant", Content = visitorLimitReply });
+            await _db.SaveChangesAsync(cancellationToken);
+
+            return Ok(new ChatbotMessageResponseDto(
+                conversation.Id, conversation.Status, visitorLimitReply,
+                Array.Empty<ServiceRecommendationDto>(), Array.Empty<ChatbotEmployeeOptionDto>(), Array.Empty<ChatbotSlotOptionDto>(),
+                RequiresCustomerInfo: false, conversation.BookingDraftId, ConfirmedBooking: null, RequiresHumanConsultation: true, UsedAiFallback: false));
+        }
+
+        // Admin-tunable cap (TenantSettings.ChatbotMaxMessagesPerConversation, Links/Design
+        // settings) on how many free-text turns — i.e. real LLM calls — a single conversation may
+        // use. Only this branch ever adds a "user" AiMessage (button-driven steps above don't), so
+        // counting those already-loaded messages is an exact, query-free count of AI turns so far.
+        var userMessageCount = conversation.Messages.Count(m => m.Role == "user");
+        if (userMessageCount >= availability.MaxMessagesPerConversation)
+        {
+            var limitReply = "Du hast die maximale Anzahl an Fragen für dieses Gespräch erreicht. Bitte kontaktiere das Studio direkt oder nutze die normale Buchungsansicht.";
+            _db.AiMessages.Add(new AiMessage { ConversationId = conversation.Id, Conversation = conversation, Role = "assistant", Content = limitReply });
+            await _db.SaveChangesAsync(cancellationToken);
+
+            return Ok(new ChatbotMessageResponseDto(
+                conversation.Id, conversation.Status, limitReply,
+                Array.Empty<ServiceRecommendationDto>(), Array.Empty<ChatbotEmployeeOptionDto>(), Array.Empty<ChatbotSlotOptionDto>(),
+                RequiresCustomerInfo: false, conversation.BookingDraftId, ConfirmedBooking: null, RequiresHumanConsultation: true, UsedAiFallback: false));
+        }
 
         var history = conversation.Messages
             .OrderBy(m => m.CreatedAt)

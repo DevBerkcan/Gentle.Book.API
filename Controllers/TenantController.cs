@@ -521,6 +521,8 @@ public class TenantController : ControllerBase
                 settings.LinktreeStyle,
                 settings.LinktreeConfig,
                 settings.IsChatbotEnabled,
+                settings.ChatbotMaxMessagesPerConversation,
+                settings.ChatbotMaxMessagesPerVisitorPerDay,
                 Slug = tenant?.Slug,
                 IndustryType = tenant?.IndustryType.ToString(),
             }
@@ -663,6 +665,20 @@ public class TenantController : ControllerBase
                     return StatusCode(402, new { message = "Der Chat-Assistent ist ab dem Tarif \"Agency\" verfügbar.", feature = "aiChatbot", upgrade = true, requiredPlan = "Agency" });
             }
             settings.IsChatbotEnabled = dto.IsChatbotEnabled.Value;
+        }
+
+        if (dto.ChatbotMaxMessagesPerConversation.HasValue)
+        {
+            if (dto.ChatbotMaxMessagesPerConversation.Value is < 1 or > 200)
+                return BadRequest(new { message = "Das Nachrichtenlimit muss zwischen 1 und 200 liegen." });
+            settings.ChatbotMaxMessagesPerConversation = dto.ChatbotMaxMessagesPerConversation.Value;
+        }
+
+        if (dto.ChatbotMaxMessagesPerVisitorPerDay.HasValue)
+        {
+            if (dto.ChatbotMaxMessagesPerVisitorPerDay.Value is < 1 or > 500)
+                return BadRequest(new { message = "Das Tageslimit pro Besucher muss zwischen 1 und 500 liegen." });
+            settings.ChatbotMaxMessagesPerVisitorPerDay = dto.ChatbotMaxMessagesPerVisitorPerDay.Value;
         }
 
         settings.UpdatedAt = DateTime.UtcNow;
@@ -1479,5 +1495,7 @@ public record UpdateTenantSettingsRequest(
     string? BillingCity,
     string? BillingCountry,
     string? VatId,
-    bool? IsChatbotEnabled = null
+    bool? IsChatbotEnabled = null,
+    int? ChatbotMaxMessagesPerConversation = null,
+    int? ChatbotMaxMessagesPerVisitorPerDay = null
 );

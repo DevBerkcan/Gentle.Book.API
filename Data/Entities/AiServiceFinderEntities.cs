@@ -274,6 +274,12 @@ public class AiConversation
     public Guid? BookingDraftId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    // SHA-256 hash of "{TenantId}|{RemoteIpAddress}" (PublicAiChatbotController), never the raw IP
+    // — enough to recognize "same visitor" for TenantSettings.ChatbotMaxMessagesPerVisitorPerDay
+    // without storing an address. Null for conversations created before this field existed, and
+    // for the rule-based Finder's "PublicFinder" channel, which doesn't use it.
+    public string? VisitorHash { get; set; }
+
     public ICollection<AiMessage> Messages { get; set; } = new List<AiMessage>();
 }
 

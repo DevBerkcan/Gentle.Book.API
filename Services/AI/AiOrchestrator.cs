@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
@@ -8,6 +9,19 @@ namespace GentleBook.Api.Services.AI;
 
 public sealed class AiOrchestrator : IAiOrchestrator
 {
+    // Per-tenant serialization for the "check budget → call provider → record cost" sequence.
+    // IAiUsageGate.IsWithinBudgetAsync and IAiUsageMeter.TrackAsync are two separate,
+    // non-atomic DB round-trips with a slow provider call in between — without this lock, two
+    // concurrent requests from the same tenant could both read "within budget" before either
+    // writes its cost, letting the tenant's spend run past the cap. Keyed by tenant so different
+    // tenants are never blocked by each other; static because a new lock per request would defeat
+    // the purpose. Single-process deployment (see GO_LIVE_CHECKLISTE.md) — this only needs to
+    // hold within one instance, not across a farm.
+    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> TenantAiLocks = new();
+
+    private static SemaphoreSlim GetTenantLock(Guid tenantId) =>
+        TenantAiLocks.GetOrAdd(tenantId, _ => new SemaphoreSlim(1, 1));
+
     private readonly IAiProviderAdapter _provider;
     private readonly IAiUsageMeter _usageMeter;
     private readonly IAiUsageGate _usageGate;
@@ -59,52 +73,64 @@ public sealed class AiOrchestrator : IAiOrchestrator
         var isAgency = tenantPlan.HasValue && AgencyFeatureGate.IsAgency(tenantPlan.Value);
         // Budget check only needs to run for Agency tenants — no LLM call would happen for
         // anyone else anyway, and skipping it avoids an extra DB round-trip on every other plan.
-        var withinBudget = isAgency && await _usageGate.IsWithinBudgetAsync(tenantId, cancellationToken);
-
+        // The lock serializes check→call→track per tenant (see TenantAiLocks above) so two
+        // concurrent requests from the same tenant can't both slip past the budget check before
+        // either records its cost.
+        var tenantLock = isAgency ? GetTenantLock(tenantId) : null;
+        if (tenantLock != null) await tenantLock.WaitAsync(cancellationToken);
         try
         {
-            var aiMessage = withinBudget
-                ? await _provider.ExplainFinderResultAsync(tenantId, freeText, result, knowledgeResults, cancellationToken)
-                : null;
-            if (aiMessage != null)
+            var withinBudget = isAgency && await _usageGate.IsWithinBudgetAsync(tenantId, cancellationToken);
+
+            try
             {
-                await _usageMeter.TrackAsync(
-                    tenantId,
-                    feature: "ai_service_finder",
-                    model: aiMessage.Model,
-                    inputTokens: aiMessage.InputTokens,
-                    outputTokens: aiMessage.OutputTokens,
-                    estimatedCost: aiMessage.EstimatedCost,
-                    cancellationToken: cancellationToken);
+                var aiMessage = withinBudget
+                    ? await _provider.ExplainFinderResultAsync(tenantId, freeText, result, knowledgeResults, cancellationToken)
+                    : null;
+                if (aiMessage != null)
+                {
+                    await _usageMeter.TrackAsync(
+                        tenantId,
+                        feature: "ai_service_finder",
+                        model: aiMessage.Model,
+                        inputTokens: aiMessage.InputTokens,
+                        outputTokens: aiMessage.OutputTokens,
+                        estimatedCost: aiMessage.EstimatedCost,
+                        cancellationToken: cancellationToken);
 
-                var safeServiceIds = aiMessage.SuggestedServiceIds.Where(allowedServiceIds.Contains).ToList();
-                var safeGuidanceIds = aiMessage.SuggestedGuidanceIds.Where(allowedGuidanceIds.Contains).ToList();
-                var safeEmployeeIds = aiMessage.SuggestedEmployeeIds.Where(allowedEmployeeIds.Contains).ToList();
+                    var safeServiceIds = aiMessage.SuggestedServiceIds.Where(allowedServiceIds.Contains).ToList();
+                    var safeGuidanceIds = aiMessage.SuggestedGuidanceIds.Where(allowedGuidanceIds.Contains).ToList();
+                    var safeEmployeeIds = aiMessage.SuggestedEmployeeIds.Where(allowedEmployeeIds.Contains).ToList();
 
-                if (safeServiceIds.Count == 0)
-                    safeServiceIds = result.Recommendations.Select(r => r.ServiceId).ToList();
+                    if (safeServiceIds.Count == 0)
+                        safeServiceIds = result.Recommendations.Select(r => r.ServiceId).ToList();
 
-                var message = string.IsNullOrWhiteSpace(aiMessage.Message)
-                    ? BuildFallbackMessage(result)
-                    : aiMessage.Message;
+                    var message = string.IsNullOrWhiteSpace(aiMessage.Message)
+                        ? BuildFallbackMessage(result)
+                        : aiMessage.Message;
 
-                await WriteAuditAsync(tenantId, "AiFinderResponse", "Completed", cancellationToken);
+                    await WriteAuditAsync(tenantId, "AiFinderResponse", "Completed", cancellationToken);
 
-                return new OrchestratedFinderResponse(
-                    message,
-                    safeServiceIds,
-                    result.MissingQuestions.Select(q => q.QuestionKey).ToList(),
-                    safeGuidanceIds.Count > 0 ? safeGuidanceIds : result.Guidance.Select(g => g.GuidanceId).ToList(),
-                    safeEmployeeIds.Count > 0 ? safeEmployeeIds : result.SuggestedEmployeeIds,
-                    RequiresConfirmation: true,
-                    RequiresHumanConsultation: aiMessage.RequiresHumanConsultation || result.RequiresHumanConsultation,
-                    UsedAiFallback: false,
-                    Sources: sources);
+                    return new OrchestratedFinderResponse(
+                        message,
+                        safeServiceIds,
+                        result.MissingQuestions.Select(q => q.QuestionKey).ToList(),
+                        safeGuidanceIds.Count > 0 ? safeGuidanceIds : result.Guidance.Select(g => g.GuidanceId).ToList(),
+                        safeEmployeeIds.Count > 0 ? safeEmployeeIds : result.SuggestedEmployeeIds,
+                        RequiresConfirmation: true,
+                        RequiresHumanConsultation: aiMessage.RequiresHumanConsultation || result.RequiresHumanConsultation,
+                        UsedAiFallback: false,
+                        Sources: sources);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AI provider unavailable. Falling back to deterministic explanation.");
             }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogWarning(ex, "AI provider unavailable. Falling back to deterministic explanation.");
+            tenantLock?.Release();
         }
 
         await WriteAuditAsync(tenantId, "AiFinderResponse", "Fallback", cancellationToken);
@@ -142,40 +168,52 @@ public sealed class AiOrchestrator : IAiOrchestrator
             .Select(s => (SubscriptionPlan?)s.Plan)
             .FirstOrDefaultAsync(cancellationToken);
         var isAgency = tenantPlan.HasValue && AgencyFeatureGate.IsAgency(tenantPlan.Value);
-        var withinBudget = isAgency && await _usageGate.IsWithinBudgetAsync(tenantId, cancellationToken);
 
+        // Same per-tenant lock as BuildFinderResponseAsync above — closes the same check→call→track
+        // race for the chatbot's own budget-gated call.
+        var tenantLock = isAgency ? GetTenantLock(tenantId) : null;
+        if (tenantLock != null) await tenantLock.WaitAsync(cancellationToken);
         try
         {
-            var aiMessage = withinBudget
-                ? await _provider.ChatTurnAsync(tenantId, history, latestMessage, result, cancellationToken)
-                : null;
-            if (aiMessage != null)
+            var withinBudget = isAgency && await _usageGate.IsWithinBudgetAsync(tenantId, cancellationToken);
+
+            try
             {
-                await _usageMeter.TrackAsync(
-                    tenantId,
-                    feature: "ai_chatbot",
-                    model: aiMessage.Model,
-                    inputTokens: aiMessage.InputTokens,
-                    outputTokens: aiMessage.OutputTokens,
-                    estimatedCost: aiMessage.EstimatedCost,
-                    cancellationToken: cancellationToken);
+                var aiMessage = withinBudget
+                    ? await _provider.ChatTurnAsync(tenantId, history, latestMessage, result, cancellationToken)
+                    : null;
+                if (aiMessage != null)
+                {
+                    await _usageMeter.TrackAsync(
+                        tenantId,
+                        feature: "ai_chatbot",
+                        model: aiMessage.Model,
+                        inputTokens: aiMessage.InputTokens,
+                        outputTokens: aiMessage.OutputTokens,
+                        estimatedCost: aiMessage.EstimatedCost,
+                        cancellationToken: cancellationToken);
 
-                var safeServiceIds = aiMessage.SuggestedServiceIds.Where(allowedServiceIds.Contains).ToList();
-                var message = string.IsNullOrWhiteSpace(aiMessage.Message) ? BuildFallbackMessage(result) : aiMessage.Message;
+                    var safeServiceIds = aiMessage.SuggestedServiceIds.Where(allowedServiceIds.Contains).ToList();
+                    var message = string.IsNullOrWhiteSpace(aiMessage.Message) ? BuildFallbackMessage(result) : aiMessage.Message;
 
-                await WriteAuditAsync(tenantId, "AiChatbotTurn", "Completed", cancellationToken);
+                    await WriteAuditAsync(tenantId, "AiChatbotTurn", "Completed", cancellationToken);
 
-                return new ChatbotTurnResponse(
-                    conversationId,
-                    message,
-                    safeServiceIds,
-                    RequiresHumanConsultation: aiMessage.RequiresHumanConsultation || result.RequiresHumanConsultation,
-                    UsedAiFallback: false);
+                    return new ChatbotTurnResponse(
+                        conversationId,
+                        message,
+                        safeServiceIds,
+                        RequiresHumanConsultation: aiMessage.RequiresHumanConsultation || result.RequiresHumanConsultation,
+                        UsedAiFallback: false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AI provider unavailable for chatbot turn. Falling back to deterministic message.");
             }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogWarning(ex, "AI provider unavailable for chatbot turn. Falling back to deterministic message.");
+            tenantLock?.Release();
         }
 
         await WriteAuditAsync(tenantId, "AiChatbotTurn", "Fallback", cancellationToken);

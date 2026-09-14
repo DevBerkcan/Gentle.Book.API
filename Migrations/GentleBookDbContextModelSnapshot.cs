@@ -99,6 +99,9 @@ namespace GentleBook.Api.Migrations
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("VisitorHash")
+                        .HasColumnType("nvarchar(max)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId", "CreatedAt");
@@ -2549,6 +2552,12 @@ namespace GentleBook.Api.Migrations
 
                     b.Property<string>("CancellationPolicy")
                         .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("ChatbotMaxMessagesPerConversation")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ChatbotMaxMessagesPerVisitorPerDay")
+                        .HasColumnType("int");
 
                     b.Property<string>("CompanyName")
                         .IsRequired()
