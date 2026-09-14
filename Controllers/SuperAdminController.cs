@@ -1212,14 +1212,18 @@ public class SuperAdminController : ControllerBase
     /// per-tenant view (GetTenantAiUsage) alone stops answering "what is this costing US in
     /// total, and is that growing dangerously." Only Agency tenants ever generate real cost
     /// (see AgencyFeatureGate — the LLM is never called for anyone else), so this is
-    /// effectively the platform's whole AI spend, not just a subset.</summary>
+    /// effectively the platform's whole AI spend, not just a subset. Restricted to
+    /// Status == Active: a cancelled tenant's Subscription.Plan stays "Agency" in the DB (it's
+    /// never reset), so without this filter an ex-customer who's no longer paying would still
+    /// show up here — this is meant to answer "what are our currently paying Agency customers
+    /// costing us," not historical ones.</summary>
     [HttpGet("agency-ai-overview")]
     public async Task<IActionResult> GetAgencyAiOverview()
     {
         if (ForbidIfNotSuperAdmin() is { } err) return err;
 
         var agencySubs = await _db.Subscriptions
-            .Where(s => s.Plan == SubscriptionPlan.Agency)
+            .Where(s => s.Plan == SubscriptionPlan.Agency && s.Status == SubscriptionStatus.Active)
             .Select(s => new { s.TenantId, s.NegotiatedMonthlyPrice })
             .ToListAsync();
         var tenantIds = agencySubs.Select(s => s.TenantId).ToList();

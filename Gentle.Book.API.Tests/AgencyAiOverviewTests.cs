@@ -44,6 +44,29 @@ public class AgencyAiOverviewTests
     }
 
     [Fact]
+    public async Task GetAgencyAiOverview_CancelledAgencyTenant_IsExcluded()
+    {
+        // Subscription.Plan stays "Agency" in the DB even after cancellation (it's never reset),
+        // so this must filter on Status too — otherwise an ex-customer who no longer pays would
+        // still count toward "what are our current Agency customers costing us."
+        using var db = TestDbContextFactory.Create();
+        var active = SeedAgencyTenant(db, "Salon Aktiv", 100m);
+        var cancelled = new Tenant { Name = "Salon Gekuendigt", Slug = "salon-gekuendigt-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(cancelled);
+        db.Subscriptions.Add(new Subscription { TenantId = cancelled.Id, Tenant = cancelled, Plan = SubscriptionPlan.Agency, Status = SubscriptionStatus.Cancelled, NegotiatedMonthlyPrice = 120m });
+        await db.SaveChangesAsync();
+
+        var controller = BuildController(db);
+        var result = await controller.GetAgencyAiOverview();
+
+        var ok = Assert.IsType<OkObjectResult>(result);
+        var json = System.Text.Json.JsonSerializer.Serialize(ok.Value);
+        Assert.Contains("\"agencyTenantCount\":1", json);
+        Assert.Contains("Salon Aktiv", json);
+        Assert.DoesNotContain("Salon Gekuendigt", json);
+    }
+
+    [Fact]
     public async Task GetAgencyAiOverview_NonAgencyTenants_AreExcluded()
     {
         using var db = TestDbContextFactory.Create();
