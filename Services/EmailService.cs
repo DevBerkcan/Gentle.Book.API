@@ -1148,18 +1148,15 @@ Diese Nachricht wurde automatisch generiert.";
             message.ReplyTo.Add(new MailboxAddress(senderName, senderEmail));
             message.Subject = $"[Support] {companyName} ({tenantSlug}): {subject}";
 
-            // GentleBook brand teal (#17A398) darkened via the shared helper — keeps every
-            // platform-owned email on the same palette instead of ad-hoc gradient stops.
-            var brandTealDark = DarkenHex("#17A398");
-
             var html = $@"<!DOCTYPE html>
 <html lang='de'>
-<head><meta charset='UTF-8'></head>
+<head><meta charset='UTF-8'><meta name='color-scheme' content='light'><meta name='supported-color-schemes' content='light'></head>
 <body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
 <div style='max-width:600px;margin:0 auto'>
   <!-- Header -->
-  <div style='background:linear-gradient(135deg,#17A398,{brandTealDark});border-radius:16px 16px 0 0;padding:28px 32px;'>
-    <h1 style='color:#fff;margin:0;font-size:20px;font-weight:700'>📩 Support-Anfrage</h1>
+  <div style='background:linear-gradient(135deg,#14162B 0%,#201F47 100%);border-radius:16px 16px 0 0;padding:28px 32px;text-align:center;'>
+    <img src='data:image/png;base64,{LogoBase64}' alt='gentlebook' width='32' height='32' style='display:block;margin:0 auto 10px;' />
+    <h1 style='color:#fff;margin:0;font-size:18px;font-weight:700'>📩 Support-Anfrage</h1>
     <p style='color:rgba(255,255,255,0.75);margin:6px 0 0;font-size:13px'>Eingegangen über GentleBook Dashboard</p>
   </div>
   <!-- Body -->
@@ -1191,7 +1188,7 @@ Diese Nachricht wurde automatisch generiert.";
     <div style='background:#f8fafc;border-left:4px solid #17A398;border-radius:0 8px 8px 0;padding:16px 20px;font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap'>{messageBody}</div>
     <!-- CTA -->
     <div style='margin-top:28px;padding-top:20px;border-top:1px solid #e5e7eb;text-align:center'>
-      <a href='mailto:{senderEmail}' style='background:linear-gradient(135deg,#17A398,{brandTealDark});color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:600;font-size:14px;display:inline-block'>
+      <a href='mailto:{senderEmail}' style='background:linear-gradient(135deg,#6355E4,#17A398);color:#fff;text-decoration:none;padding:12px 28px;border-radius:10px;font-weight:600;font-size:14px;display:inline-block'>
         Direkt antworten →
       </a>
     </div>
@@ -2052,47 +2049,28 @@ STORNIERUNG:
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = "Passwort zurücksetzen – GentleBook";
 
-            var brandTealDark = DarkenHex("#17A398");
+            var content = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <p style='color: var(--text-secondary); line-height: 1.6; margin-bottom: 24px;'>
+                    Du hast eine Anfrage zum Zurücksetzen deines Passworts gestellt. Klicke auf den Button unten, um ein neues Passwort festzulegen.
+                </p>
+                <div style='text-align: center; margin: 28px 0;'>
+                    <a href='{resetUrl}' class='button'>Passwort zurücksetzen →</a>
+                </div>
+                <div class='info-box' style='background-color: var(--warning-bg); border-left-color: var(--warning-border);'>
+                    <p style='margin: 0; color: var(--warning-text);'>
+                        ⏱️ <strong>Achtung:</strong> Dieser Link ist nur <strong>1 Stunde</strong> gültig. Danach musst du eine neue Anfrage stellen.
+                    </p>
+                </div>
+                <p style='color: var(--text-secondary); font-size: 13px; margin-top: 16px;'>
+                    Falls du diese Anfrage nicht gestellt hast, ignoriere diese E-Mail einfach.
+                </p>";
 
-            var html = $@"<!DOCTYPE html>
-<html lang='de'>
-<head><meta charset='UTF-8'></head>
-<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
-<div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#17A398,{brandTealDark});border-radius:16px 16px 0 0;padding:32px;text-align:center'>
-    <div style='width:56px;height:56px;background:rgba(255,255,255,0.2);border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px'>
-      <span style='font-size:28px'>🔐</span>
-    </div>
-    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Passwort zurücksetzen</h1>
-    <p style='color:rgba(255,255,255,0.7);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
-  </div>
-  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
-    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
-    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 24px'>
-      Du hast eine Anfrage zum Zurücksetzen deines Passworts gestellt. Klicke auf den Button unten, um ein neues Passwort festzulegen.
-    </p>
-    <div style='text-align:center;margin:28px 0'>
-      <a href='{resetUrl}' style='background:linear-gradient(135deg,#17A398,{brandTealDark});color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block;box-shadow:0 4px 14px rgba(23,163,152,0.3)'>
-        Passwort zurücksetzen →
-      </a>
-    </div>
-    <div style='background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;margin:24px 0'>
-      <p style='font-size:13px;color:#92400e;margin:0'>
-        ⏱️ <strong>Achtung:</strong> Dieser Link ist nur <strong>1 Stunde</strong> gültig. Danach musst du eine neue Anfrage stellen.
-      </p>
-    </div>
-    <p style='font-size:13px;color:#9ca3af;margin:0 0 4px'>Falls du diese Anfrage nicht gestellt hast, ignoriere diese E-Mail einfach.</p>
-    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
-      GentleBook · support@gentlegroup.de
-    </p>
-  </div>
-</div>
-</body>
-</html>";
+            var html = GetBaseEmailTemplate("Passwort zurücksetzen", content, "GentleBook", null, "#6355E4");
 
             var text = $@"Passwort zurücksetzen – GentleBook
 =====================================
@@ -2134,41 +2112,22 @@ GentleBook · support@gentlegroup.de";
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = $"Ihr {planName}-Plan ist aktiv – GentleBook";
 
-            var html = $@"<!DOCTYPE html>
-<html lang='de'>
-<head><meta charset='UTF-8'></head>
-<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
-<div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#14162B,#201F47);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
-    <div style='width:56px;height:56px;background:rgba(255,255,255,0.2);border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px'>
-      <span style='font-size:28px'>🎉</span>
-    </div>
-    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Ihr Plan ist aktiv!</h1>
-    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
-  </div>
-  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
-    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
-    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
-      Ihr <strong>{planName}</strong>-Plan ({price:0.00}&nbsp;€/{(interval == SubscriptionInterval.Yearly ? "Jahr" : "Monat")}) wurde soeben aktiviert.
-      Alle Funktionen Ihres Plans stehen ab sofort zur Verfügung.
-      {(nextBillingDate.HasValue ? $"Die nächste reguläre Abbuchung über {price:0.00}&nbsp;€ ist am {nextBillingDate:dd.MM.yyyy} vorgesehen." : "")}
-    </p>
-    <div style='text-align:center;margin:24px 0'>
-      <a href='{FrontendUrl}/admin/subscription' style='background:linear-gradient(135deg,#6355E4,#17A398);color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block'>
-        Abo-Details ansehen →
-      </a>
-    </div>
-    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
-      GentleBook · support@gentlegroup.de
-    </p>
-  </div>
-</div>
-</body>
-</html>";
+            var content = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <p style='color: var(--text-secondary); line-height: 1.6; margin-bottom: 24px;'>
+                    Ihr <strong>{planName}</strong>-Plan ({price:0.00}&nbsp;€/{(interval == SubscriptionInterval.Yearly ? "Jahr" : "Monat")}) wurde soeben aktiviert.
+                    Alle Funktionen Ihres Plans stehen ab sofort zur Verfügung.
+                    {(nextBillingDate.HasValue ? $"Die nächste reguläre Abbuchung über {price:0.00}&nbsp;€ ist am {nextBillingDate:dd.MM.yyyy} vorgesehen." : "")}
+                </p>
+                <div style='text-align: center; margin: 24px 0;'>
+                    <a href='{FrontendUrl}/admin/subscription' class='button'>Abo-Details ansehen →</a>
+                </div>";
+
+            var html = GetBaseEmailTemplate("Ihr Plan ist aktiv!", content, "GentleBook", null, "#6355E4");
 
             var text = $@"Ihr Plan ist aktiv – GentleBook
 
@@ -2207,7 +2166,7 @@ GentleBook · support@gentlegroup.de";
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = periodEnd != null ? "Ihre Kündigung wurde bestätigt" : "Ihr Zugang wurde beendet";
 
@@ -2215,28 +2174,14 @@ GentleBook · support@gentlegroup.de";
                 ? $"Ihr Zugang zu GentleBook ({planName}-Plan) bleibt bis zum <strong>{periodEnd:dd.MM.yyyy}</strong> bestehen. Danach werden keine weiteren Zahlungen eingezogen."
                 : $"Ihr Zugang zu GentleBook ({planName}-Plan) wurde soeben beendet. Es werden keine weiteren Zahlungen eingezogen.";
 
-            var html = $@"<!DOCTYPE html>
-<html lang='de'>
-<head><meta charset='UTF-8'></head>
-<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
-<div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#14162B,#201F47);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
-    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>{(periodEnd != null ? "Kündigung bestätigt" : "Zugang beendet")}</h1>
-    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
-  </div>
-  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
-    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
-    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>{periodText}</p>
-    <p style='font-size:13px;color:#9ca3af;line-height:1.6;margin:0'>
-      Möchten Sie GentleBook doch weiter nutzen? Melden Sie sich einfach bei uns.
-    </p>
-    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
-      GentleBook · support@gentlegroup.de
-    </p>
-  </div>
-</div>
-</body>
-</html>";
+            var content = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <p style='color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;'>{periodText}</p>
+                <p style='color: var(--text-secondary); font-size: 13px; line-height: 1.6;'>
+                    Möchten Sie GentleBook doch weiter nutzen? Melden Sie sich einfach bei uns.
+                </p>";
+
+            var html = GetBaseEmailTemplate(periodEnd != null ? "Kündigung bestätigt" : "Zugang beendet", content, "GentleBook", null, "#6355E4");
 
             var text = $@"{(periodEnd != null ? "Kündigung bestätigt" : "Zugang beendet")} – GentleBook
 
@@ -2270,36 +2215,24 @@ GentleBook · support@gentlegroup.de";
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = "Zahlung fehlgeschlagen – bitte prüfen Sie Ihre Zahlungsdaten";
 
-            var html = $@"<!DOCTYPE html>
-<html lang='de'>
-<head><meta charset='UTF-8'></head>
-<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
-<div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#d97706,#f59e0b);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
-    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Zahlung fehlgeschlagen</h1>
-    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
-  </div>
-  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
-    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
-    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
-      Die letzte SEPA-Abbuchung für Ihren <strong>{planName}</strong>-Plan ist fehlgeschlagen. Ihr Zugang ist vorübergehend eingeschränkt.
-      Bitte kontaktieren Sie uns, damit wir das gemeinsam klären können. Sollte die Zahlung nicht innerhalb von
-      <strong>{gracePeriodDays} Tagen</strong> erfolgreich sein, wird Ihr Abonnement automatisch gekündigt.
-    </p>
-    <p style='font-size:13px;color:#9ca3af;line-height:1.6;margin:0'>
-      Kontaktieren Sie uns per E-Mail oder WhatsApp, wir helfen gerne weiter.
-    </p>
-    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
-      GentleBook · support@gentlegroup.de
-    </p>
-  </div>
-</div>
-</body>
-</html>";
+            var content = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <div class='info-box' style='background-color: var(--warning-bg); border-left-color: var(--warning-border);'>
+                    <p style='margin: 0; color: var(--warning-text);'>
+                        Die letzte SEPA-Abbuchung für Ihren <strong>{planName}</strong>-Plan ist fehlgeschlagen. Ihr Zugang ist vorübergehend eingeschränkt.
+                        Bitte kontaktieren Sie uns, damit wir das gemeinsam klären können. Sollte die Zahlung nicht innerhalb von
+                        <strong>{gracePeriodDays} Tagen</strong> erfolgreich sein, wird Ihr Abonnement automatisch gekündigt.
+                    </p>
+                </div>
+                <p style='color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin-top: 16px;'>
+                    Kontaktieren Sie uns per E-Mail oder WhatsApp, wir helfen gerne weiter.
+                </p>";
+
+            var html = GetBaseEmailTemplate("Zahlung fehlgeschlagen", content, "GentleBook", null, "#6355E4");
 
             var text = $@"Zahlung fehlgeschlagen – GentleBook
 
@@ -2339,37 +2272,25 @@ GentleBook · support@gentlegroup.de";
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = "Dein KI-Budget nähert sich dem monatlichen Limit";
 
-            var html = $@"<!DOCTYPE html>
-<html lang='de'>
-<head><meta charset='UTF-8'></head>
-<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
-<div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#d97706,#f59e0b);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
-    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>KI-Budget fast erreicht</h1>
-    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
-  </div>
-  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
-    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
-    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
-      Deine KI-gestützten Features (Service-Finder, Chat-Assistent) haben diesen Monat bereits <strong>{currentSpendUsd:0.00} $</strong>
-      von deinem Budget von <strong>{budgetUsd:0.00} $</strong> verbraucht. Sollte das Budget vollständig aufgebraucht sein,
-      arbeiten diese Features automatisch ohne KI weiter — es kommt zu keiner Unterbrechung, nur zu weniger personalisierten Antworten,
-      bis dein Budget sich zu Beginn des nächsten Monats zurücksetzt.
-    </p>
-    <p style='font-size:13px;color:#9ca3af;line-height:1.6;margin:0'>
-      Falls du ein höheres Budget benötigst, kontaktiere uns gerne per E-Mail oder WhatsApp.
-    </p>
-    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
-      GentleBook · support@gentlegroup.de
-    </p>
-  </div>
-</div>
-</body>
-</html>";
+            var content = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <div class='info-box' style='background-color: var(--warning-bg); border-left-color: var(--warning-border);'>
+                    <p style='margin: 0; color: var(--warning-text);'>
+                        Deine KI-gestützten Features (Service-Finder, Chat-Assistent) haben diesen Monat bereits <strong>{currentSpendUsd:0.00} $</strong>
+                        von deinem Budget von <strong>{budgetUsd:0.00} $</strong> verbraucht. Sollte das Budget vollständig aufgebraucht sein,
+                        arbeiten diese Features automatisch ohne KI weiter — es kommt zu keiner Unterbrechung, nur zu weniger personalisierten Antworten,
+                        bis dein Budget sich zu Beginn des nächsten Monats zurücksetzt.
+                    </p>
+                </div>
+                <p style='color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin-top: 16px;'>
+                    Falls du ein höheres Budget benötigst, kontaktiere uns gerne per E-Mail oder WhatsApp.
+                </p>";
+
+            var html = GetBaseEmailTemplate("KI-Budget fast erreicht", content, "GentleBook", null, "#6355E4");
 
             var text = $@"KI-Budget fast erreicht – GentleBook
 
@@ -2406,35 +2327,21 @@ GentleBook · support@gentlegroup.de";
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = "Ihr GentleBook-Abonnement wurde gekündigt";
 
-            var html = $@"<!DOCTYPE html>
-<html lang='de'>
-<head><meta charset='UTF-8'></head>
-<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
-<div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#14162B,#201F47);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
-    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Abonnement gekündigt</h1>
-    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
-  </div>
-  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
-    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
-    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
-      Da die ausstehende Zahlung für Ihren <strong>{planName}</strong>-Plan innerhalb der Frist nicht beglichen wurde,
-      haben wir Ihr Abonnement gekündigt. Es werden keine weiteren Zahlungen eingezogen.
-    </p>
-    <p style='font-size:13px;color:#9ca3af;line-height:1.6;margin:0'>
-      Möchten Sie GentleBook wieder nutzen? Melden Sie sich einfach bei uns – wir richten Ihr Abo gerne neu ein.
-    </p>
-    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
-      GentleBook · support@gentlegroup.de
-    </p>
-  </div>
-</div>
-</body>
-</html>";
+            var content = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <p style='color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;'>
+                    Da die ausstehende Zahlung für Ihren <strong>{planName}</strong>-Plan innerhalb der Frist nicht beglichen wurde,
+                    haben wir Ihr Abonnement gekündigt. Es werden keine weiteren Zahlungen eingezogen.
+                </p>
+                <p style='color: var(--text-secondary); font-size: 13px; line-height: 1.6;'>
+                    Möchten Sie GentleBook wieder nutzen? Melden Sie sich einfach bei uns – wir richten Ihr Abo gerne neu ein.
+                </p>";
+
+            var html = GetBaseEmailTemplate("Abonnement gekündigt", content, "GentleBook", null, "#6355E4");
 
             var text = $@"Abonnement gekündigt – GentleBook
 
@@ -2469,7 +2376,7 @@ GentleBook · support@gentlegroup.de";
     public async Task SendRetentionDeletionWarningAsync(string recipientEmail, string firstName, DateTime deletionDate)
     {
         var message = new MimeMessage();
-        message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+        message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
         message.To.Add(new MailboxAddress(firstName, recipientEmail));
         message.Subject = "Ihre GentleBook-Daten werden in Kürze gelöscht";
 
@@ -2484,14 +2391,18 @@ Rechnungen und gesetzlich aufzubewahrende Zahlungsnachweise bleiben getrennt erh
 
 GentleBook · support@gentlegroup.de";
 
-        var html = $@"<!DOCTYPE html><html lang='de'><head><meta charset='UTF-8'></head>
-<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
-<div style='max-width:520px;margin:0 auto;background:#fff;border-radius:16px;padding:32px;border:1px solid #e5e7eb'>
-<h1 style='color:#14162B;font-size:22px;margin:0 0 20px'>Bevorstehende Datenlöschung</h1>
-<p style='color:#374151'>Hallo {firstName},</p>
-<p style='color:#6b7280;line-height:1.6'>Die 30-tägige Aufbewahrungsfrist endet am <strong>{formattedDate}</strong>. Danach werden Ihre operativen GentleBook-Daten dauerhaft gelöscht oder anonymisiert.</p>
-<p style='color:#6b7280;line-height:1.6'>Benötigen Sie einen Export, schreiben Sie bitte vor diesem Datum an <a href='mailto:support@gentlegroup.de'>support@gentlegroup.de</a>. Rechnungen und gesetzlich aufzubewahrende Zahlungsnachweise bleiben getrennt erhalten.</p>
-</div></body></html>";
+        var deletionContent = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <div class='info-box' style='background-color: var(--warning-bg); border-left-color: var(--warning-border);'>
+                    <p style='margin: 0; color: var(--warning-text);'>
+                        Die 30-tägige Aufbewahrungsfrist endet am <strong>{formattedDate}</strong>. Danach werden Ihre operativen GentleBook-Daten dauerhaft gelöscht oder anonymisiert.
+                    </p>
+                </div>
+                <p style='color: var(--text-secondary); line-height: 1.6; margin-top: 16px;'>
+                    Benötigen Sie einen Export, schreiben Sie bitte vor diesem Datum an <a href='mailto:support@gentlegroup.de' style='color: var(--accent-primary);'>support@gentlegroup.de</a>. Rechnungen und gesetzlich aufzubewahrende Zahlungsnachweise bleiben getrennt erhalten.
+                </p>";
+
+        var html = GetBaseEmailTemplate("Bevorstehende Datenlöschung", deletionContent, "GentleBook", null, "#6355E4");
 
         message.Body = new BodyBuilder { HtmlBody = html, TextBody = text }.ToMessageBody();
         using var smtp = new SmtpClient();
@@ -2524,9 +2435,33 @@ GentleBook · support@gentlegroup.de";
         var expires = invitationExpiresAt.ToString("dd.MM.yyyy");
 
         var message = new MimeMessage();
-        message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+        message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
         message.To.Add(new MailboxAddress(firstName, recipientEmail));
         message.Subject = "Bitte bestätigen: Ihr GentleBook-Testzugang";
+
+        var activationContent = $@"
+                <div class='greeting'>Hallo {safeFirstName},</div>
+                <p style='color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;'>
+                    Wie besprochen haben wir GentleBook für <strong>{safeTenantName}</strong> vorbereitet. Ihre Bestätigung startet die Testphase noch nicht. GentleBook prüft anschließend die Einrichtung und gibt den Zugang gesondert frei. Eine Zahlungsmethode ist nicht erforderlich und es erfolgt keine automatische kostenpflichtige Verlängerung.
+                </p>
+                <div class='booking-card'>
+                    <div class='booking-title'>Ihre Systeminformationen</div>
+                    <p style='color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin-bottom: 14px;'>
+                        Diese Angaben benötigen Sie nach der Freischaltung für den Admin-Login. Die Buchungssystem-ID ist der Kurzname Ihres Systems, keine Nummer und nicht Ihre E-Mail-Adresse.
+                    </p>
+                    <div class='detail-row'><span class='detail-label'>Buchungsseite</span><span class='detail-value'><a href='{safeBookingUrl}' style='color: var(--accent-primary);'>{safeBookingUrl}</a></span></div>
+                    <div class='detail-row'><span class='detail-label'>Admin-Login</span><span class='detail-value'><a href='{safeLoginUrl}' style='color: var(--accent-primary);'>{safeLoginUrl}</a></span></div>
+                    <div class='detail-row'><span class='detail-label'>System-ID</span><span class='detail-value' style='font-family: monospace;'>{safeTenantSlug}</span></div>
+                    <div class='detail-row'><span class='detail-label'>E-Mail</span><span class='detail-value' style='font-family: monospace;'>{safeRecipientEmail}</span></div>
+                    <p style='color: var(--text-secondary); font-size: 12px; margin-top: 12px;'>Das Passwort legen Sie erst mit der separaten Freischaltungsbestätigung fest. Vorher ist noch kein Login möglich.</p>
+                </div>
+                <div style='text-align: center; margin: 28px 0;'>
+                    <a href='{safeActivationUrl}' class='button'>Testbedingungen und AVV bestätigen</a>
+                </div>
+                <p style='color: var(--text-secondary); font-size: 13px; line-height: 1.6;'>
+                    Der Link ist bis {expires} gültig. Beginn und Ende der 14-tägigen Testphase sowie Ihre Zugangsdaten werden erst mit der separaten Freischaltungsbestätigung mitgeteilt.
+                </p>";
+
         message.Body = new BodyBuilder
         {
             TextBody = $@"Hallo {firstName},
@@ -2549,26 +2484,7 @@ Der Bestätigungslink ist bis {expires} gültig. Ihre Bestätigung startet die T
 Für Ihre spätere Anmeldung kopieren Sie die Buchungssystem-ID „{tenantSlug}“ in das gleichnamige Login-Feld. Das Passwort legen Sie erst über die Freischaltungsbestätigung fest; vorher ist noch kein Login möglich.
 
 GentleBook · support@gentlegroup.de",
-            HtmlBody = $@"<!DOCTYPE html><html lang='de'><head><meta charset='UTF-8'></head>
-<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
-<div style='max-width:560px;margin:0 auto;background:#fff;border-radius:16px;padding:32px;border:1px solid #e5e7eb'>
-<h1 style='color:#14162B;font-size:22px;margin:0 0 20px'>Ihr GentleBook-Testzugang ist vorbereitet</h1>
-<p style='color:#374151'>Hallo {safeFirstName},</p>
-<p style='color:#6b7280;line-height:1.6'>Wie besprochen haben wir GentleBook für <strong>{safeTenantName}</strong> vorbereitet. Ihre Bestätigung startet die Testphase noch nicht. GentleBook prüft anschließend die Einrichtung und gibt den Zugang gesondert frei. Eine Zahlungsmethode ist nicht erforderlich und es erfolgt keine automatische kostenpflichtige Verlängerung.</p>
-<div style='margin:20px 0;background:#F8FAFF;border:1px solid #C7D2FE;border-radius:12px;padding:18px 20px'>
-  <p style='margin:0 0 8px;color:#1f2937;font-size:14px;font-weight:700'>Ihre Systeminformationen</p>
-  <p style='margin:0 0 8px;color:#6b7280;font-size:13px;line-height:1.5'>Diese Angaben benötigen Sie nach der Freischaltung für den Admin-Login. Die Buchungssystem-ID ist der Kurzname Ihres Systems, keine Nummer und nicht Ihre E-Mail-Adresse.</p>
-  <p style='margin:0;color:#374151;font-size:13px;line-height:1.8'>
-    Buchungsseite: <a href='{safeBookingUrl}' style='color:#4F46E5'>{safeBookingUrl}</a><br>
-    Admin-Login: <a href='{safeLoginUrl}' style='color:#4F46E5'>{safeLoginUrl}</a><br>
-    Buchungssystem-ID: <strong style='font-family:monospace;user-select:all'>{safeTenantSlug}</strong><br>
-    E-Mail-Adresse: <span style='font-family:monospace;user-select:all'>{safeRecipientEmail}</span>
-  </p>
-  <p style='margin:8px 0 0;color:#6b7280;font-size:12px'>Das Passwort legen Sie erst mit der separaten Freischaltungsbestätigung fest. Vorher ist noch kein Login möglich.</p>
-</div>
-<p style='margin:28px 0'><a href='{safeActivationUrl}' style='display:inline-block;background:#6355E4;color:#fff;text-decoration:none;padding:13px 20px;border-radius:10px;font-weight:700'>Testbedingungen und AVV bestätigen</a></p>
-<p style='color:#6b7280;font-size:13px;line-height:1.6'>Der Link ist bis {expires} gültig. Beginn und Ende der 14-tägigen Testphase sowie Ihre Zugangsdaten werden erst mit der separaten Freischaltungsbestätigung mitgeteilt.</p>
-</div></body></html>"
+            HtmlBody = GetBaseEmailTemplate("Ihr GentleBook-Testzugang ist vorbereitet", activationContent, "GentleBook", null, "#6355E4")
         }.ToMessageBody();
 
         using var smtp = new SmtpClient();
@@ -2587,37 +2503,21 @@ GentleBook · support@gentlegroup.de",
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = "Ihre Plan-Anfrage – GentleBook";
 
-            var html = $@"<!DOCTYPE html>
-<html lang='de'>
-<head><meta charset='UTF-8'></head>
-<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
-<div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#14162B,#201F47);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
-    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Zu Ihrer Plan-Anfrage</h1>
-    <p style='color:rgba(255,255,255,0.75);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
-  </div>
-  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
-    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo {firstName},</p>
-    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 20px'>
-      Ihre Anfrage für den <strong>{planName}</strong>-Plan konnte leider nicht aktiviert werden.
-      Bitte melden Sie sich bei unserem Support, damit wir gemeinsam eine Lösung finden.
-    </p>
-    <div style='text-align:center;margin:24px 0'>
-      <a href='mailto:support@gentlegroup.de' style='background:#14162B;color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block'>
-        Support kontaktieren
-      </a>
-    </div>
-    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
-      GentleBook · support@gentlegroup.de
-    </p>
-  </div>
-</div>
-</body>
-</html>";
+            var content = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <p style='color: var(--text-secondary); line-height: 1.6; margin-bottom: 24px;'>
+                    Ihre Anfrage für den <strong>{planName}</strong>-Plan konnte leider nicht aktiviert werden.
+                    Bitte melden Sie sich bei unserem Support, damit wir gemeinsam eine Lösung finden.
+                </p>
+                <div style='text-align: center; margin: 24px 0;'>
+                    <a href='mailto:support@gentlegroup.de' class='button'>Support kontaktieren</a>
+                </div>";
+
+            var html = GetBaseEmailTemplate("Zu Ihrer Plan-Anfrage", content, "GentleBook", null, "#6355E4");
 
             var text = $@"Zu Ihrer Plan-Anfrage – GentleBook
 
@@ -2654,45 +2554,28 @@ GentleBook";
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = "Ihre Buchungsübersicht – GentleBook";
 
-            var html = $@"<!DOCTYPE html>
-<html lang='de'>
-<head><meta charset='UTF-8'></head>
-<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
-<div style='max-width:520px;margin:0 auto'>
-  <div style='background:linear-gradient(135deg,#6355E4,#17A398);border-radius:16px 16px 0 0;padding:32px;text-align:center'>
-    <div style='width:56px;height:56px;background:rgba(255,255,255,0.2);border-radius:14px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px'>
-      <span style='font-size:28px'>📅</span>
-    </div>
-    <h1 style='color:#fff;margin:0;font-size:22px;font-weight:700'>Ihre Buchungsübersicht</h1>
-    <p style='color:rgba(255,255,255,0.7);margin:8px 0 0;font-size:14px'>GentleBook Buchungssystem</p>
-  </div>
-  <div style='background:#fff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
-    <p style='font-size:15px;color:#374151;margin:0 0 12px'>Hallo{(string.IsNullOrWhiteSpace(firstName) ? "" : $" {firstName}")},</p>
-    <p style='font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 24px'>
-      Sie haben einen Zugriffslink für Ihre Buchungsübersicht angefordert. Klicken Sie auf den Button, um Ihre Termine zu sehen oder zu stornieren.
-    </p>
-    <div style='text-align:center;margin:28px 0'>
-      <a href='{portalUrl}' style='background:linear-gradient(135deg,#6355E4,#17A398);color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-weight:700;font-size:15px;display:inline-block;box-shadow:0 4px 14px rgba(99,85,228,0.3)'>
-        Meine Buchungen ansehen →
-      </a>
-    </div>
-    <div style='background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:14px 16px;margin:24px 0'>
-      <p style='font-size:13px;color:#92400e;margin:0'>
-        ⏱️ <strong>Hinweis:</strong> Dieser Link ist nur <strong>1 Stunde</strong> gültig. Danach können Sie jederzeit einen neuen anfordern.
-      </p>
-    </div>
-    <p style='font-size:13px;color:#9ca3af;margin:0 0 4px'>Falls Sie diese Anfrage nicht gestellt haben, ignorieren Sie diese E-Mail einfach.</p>
-    <p style='font-size:11px;color:#d1d5db;margin:20px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;text-align:center'>
-      GentleBook · support@gentlegroup.de
-    </p>
-  </div>
-</div>
-</body>
-</html>";
+            var content = $@"
+                <div class='greeting'>Hallo{(string.IsNullOrWhiteSpace(firstName) ? "" : $" {firstName}")},</div>
+                <p style='color: var(--text-secondary); line-height: 1.6; margin-bottom: 24px;'>
+                    Sie haben einen Zugriffslink für Ihre Buchungsübersicht angefordert. Klicken Sie auf den Button, um Ihre Termine zu sehen oder zu stornieren.
+                </p>
+                <div style='text-align: center; margin: 28px 0;'>
+                    <a href='{portalUrl}' class='button'>Meine Buchungen ansehen →</a>
+                </div>
+                <div class='info-box' style='background-color: var(--warning-bg); border-left-color: var(--warning-border);'>
+                    <p style='margin: 0; color: var(--warning-text);'>
+                        ⏱️ <strong>Hinweis:</strong> Dieser Link ist nur <strong>1 Stunde</strong> gültig. Danach können Sie jederzeit einen neuen anfordern.
+                    </p>
+                </div>
+                <p style='color: var(--text-secondary); font-size: 13px; margin-top: 16px;'>
+                    Falls Sie diese Anfrage nicht gestellt haben, ignorieren Sie diese E-Mail einfach.
+                </p>";
+
+            var html = GetBaseEmailTemplate("Ihre Buchungsübersicht", content, "GentleBook", null, "#6355E4");
 
             var text = $@"Ihre Buchungsübersicht – GentleBook
 =====================================
@@ -2890,7 +2773,7 @@ GentleBook · support@gentlegroup.de";
 
 
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.ReplyTo.Add(new MailboxAddress("GentleBook Support", "support@gentlegroup.de"));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = $"Willkommen bei GentleBook — Ihr Buchungssystem ist bereit, {firstName}!";
@@ -2905,6 +2788,8 @@ GentleBook · support@gentlegroup.de";
                 <head>
                   <meta charset="utf-8">
                   <meta name="viewport" content="width=device-width,initial-scale=1">
+                  <meta name="color-scheme" content="light">
+                  <meta name="supported-color-schemes" content="light">
                   <title>Willkommen bei GentleBook</title>
                 </head>
                 <body style="margin:0;padding:0;background:#F0F2F5;font-family:'Helvetica Neue',Arial,sans-serif;">
@@ -2915,7 +2800,8 @@ GentleBook · support@gentlegroup.de";
                         <!-- HEADER -->
                         <tr>
                           <td style="background:linear-gradient(135deg,#14162B 0%,#201F47 60%,#14162B 100%);border-radius:20px 20px 0 0;padding:44px 32px 40px;text-align:center;">
-                            <div style="display:inline-block;width:72px;height:72px;background:rgba(255,255,255,0.12);border-radius:50%;line-height:72px;font-size:36px;margin-bottom:18px;">{industryEmoji}</div>
+                            <img src="data:image/png;base64,{LogoBase64}" alt="gentlebook" width="40" height="40" style="display:block;margin:0 auto 14px;" />
+                            <p style="margin:0 0 18px;color:#6355E4;font-size:13px;letter-spacing:1px;text-transform:uppercase;opacity:0.9;">{industryEmoji} {industryLabel}</p>
                             <h1 style="margin:0;color:#ffffff;font-size:27px;font-weight:700;letter-spacing:-0.5px;">Herzlich willkommen!</h1>
                             <p style="margin:10px 0 0;color:rgba(255,255,255,0.7);font-size:15px;">Ihr {industryLabel} ist einsatzbereit</p>
                           </td>
@@ -3212,14 +3098,14 @@ GentleBook · support@gentlegroup.de";
             var brandTealDark = DarkenHex("#17A398");
 
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = $"Noch {daysLeft} Tag{(daysLeft == 1 ? "" : "e")} – Ihr GentleBook Testzeitraum läuft ab";
 
             var html = $"""
                 <!DOCTYPE html>
                 <html lang="de">
-                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"></head>
                 <body style="margin:0;padding:0;background:#f4f4f5;font-family:Inter,Arial,sans-serif">
                   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 20px">
                     <tr><td align="center">
@@ -3227,10 +3113,8 @@ GentleBook · support@gentlegroup.de";
 
                         <!-- Header -->
                         <tr><td style="background:linear-gradient(135deg,#14162B 0%,#201F47 100%);border-radius:16px 16px 0 0;padding:36px 32px;text-align:center">
-                          <div style="width:64px;height:64px;background:rgba(255,255,255,0.1);border-radius:16px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px">
-                            <span style="font-size:32px">⏰</span>
-                          </div>
-                          <h1 style="color:#fff;margin:0;font-size:24px;font-weight:700">Ihr Testzeitraum läuft ab</h1>
+                          <img src="data:image/png;base64,{LogoBase64}" alt="gentlebook" width="36" height="36" style="display:block;margin:0 auto 14px;" />
+                          <h1 style="color:#fff;margin:0;font-size:24px;font-weight:700">⏰ Ihr Testzeitraum läuft ab</h1>
                           <p style="color:rgba(255,255,255,0.6);margin:8px 0 0;font-size:14px">GentleBook Buchungssystem</p>
                         </td></tr>
 
@@ -3378,14 +3262,14 @@ GentleBook · support@gentlegroup.de";
             var brandTealDark = DarkenHex("#17A398");
 
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", "noreply@gentlegroup.de"));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, recipientEmail));
             message.Subject = "Ihr GentleBook Testzeitraum ist abgelaufen";
 
             var html = $"""
                 <!DOCTYPE html>
                 <html lang="de">
-                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"></head>
                 <body style="margin:0;padding:0;background:#f4f4f5;font-family:Inter,Arial,sans-serif">
                   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 20px">
                     <tr><td align="center">
@@ -3393,10 +3277,8 @@ GentleBook · support@gentlegroup.de";
 
                         <!-- Header -->
                         <tr><td style="background:linear-gradient(135deg,#14162B 0%,#201F47 100%);border-radius:16px 16px 0 0;padding:36px 32px;text-align:center">
-                          <div style="width:64px;height:64px;background:rgba(239,68,68,0.2);border-radius:16px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px">
-                            <span style="font-size:32px">🔒</span>
-                          </div>
-                          <h1 style="color:#fff;margin:0;font-size:24px;font-weight:700">Testzeitraum abgelaufen</h1>
+                          <img src="data:image/png;base64,{LogoBase64}" alt="gentlebook" width="36" height="36" style="display:block;margin:0 auto 14px;" />
+                          <h1 style="color:#fff;margin:0;font-size:24px;font-weight:700">🔒 Testzeitraum abgelaufen</h1>
                           <p style="color:rgba(255,255,255,0.6);margin:8px 0 0;font-size:14px">GentleBook Buchungssystem</p>
                         </td></tr>
 
@@ -3544,30 +3426,27 @@ GentleBook · support@gentlegroup.de";
             var monthly = monthlyPrice.ToString("0.00", System.Globalization.CultureInfo.GetCultureInfo("de-DE"));
             var annual = annualPrice.ToString("0.00", System.Globalization.CultureInfo.GetCultureInfo("de-DE"));
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(firstName, toEmail));
             message.Subject = $"Ihr Agency-Angebot für {tenantName}";
 
-            var html = $"""
-                <!doctype html><html lang="de"><head><meta charset="utf-8"></head>
-                <body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif;color:#1f2937">
-                  <table width="100%" cellpadding="0" cellspacing="0"><tr><td style="padding:32px 16px">
-                    <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;margin:auto;background:#fff;border:1px solid #e5e7eb">
-                      <tr><td style="padding:28px 32px;background:#171827;color:#fff"><strong style="font-size:22px">GentleBook Agency</strong></td></tr>
-                      <tr><td style="padding:32px">
-                        <p style="font-size:16px;font-weight:700">Hallo {firstName},</p>
-                        <p style="font-size:14px;line-height:1.6;color:#4b5563">für {tenantName} liegt Ihr individuelles Agency-Angebot vor. Sie wählen selbst die gewünschte Abrechnung:</p>
-                        <table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;border:1px solid #e5e7eb">
-                          <tr><td style="padding:16px;border-bottom:1px solid #e5e7eb">Monatlich</td><td align="right" style="padding:16px;border-bottom:1px solid #e5e7eb;font-weight:700">{monthly} € pro Monat</td></tr>
-                          <tr><td style="padding:16px">Jährlich</td><td align="right" style="padding:16px;font-weight:700">{annual} € pro Jahr</td></tr>
-                        </table>
-                        <p style="font-size:13px;color:#6b7280">Das Angebot ist bis einschließlich {validUntil:dd.MM.yyyy} gültig. Es entsteht noch kein kostenpflichtiges Abonnement. Erst Ihre ausdrückliche Auswahl und Zustimmung auf der Abonnement-Seite startet die Mollie-Zahlung beziehungsweise aktualisiert ein bereits erteiltes Mollie-Mandat.</p>
-                        <a href="{offerUrl}" style="display:block;margin-top:24px;padding:14px;background:#6355E4;color:#fff;text-decoration:none;text-align:center;font-weight:700">Angebot prüfen und auswählen</a>
-                      </td></tr>
-                    </table>
-                  </td></tr></table>
-                </body></html>
-                """;
+            var offerContent = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <p style='color: var(--text-secondary); line-height: 1.6; margin-bottom: 24px;'>
+                    für {tenantName} liegt Ihr individuelles Agency-Angebot vor. Sie wählen selbst die gewünschte Abrechnung:
+                </p>
+                <div class='booking-card'>
+                    <div class='detail-row'><span class='detail-label'>Monatlich</span><span class='detail-value'>{monthly} € / Monat</span></div>
+                    <div class='detail-row'><span class='detail-label'>Jährlich</span><span class='detail-value'>{annual} € / Jahr</span></div>
+                </div>
+                <p style='color: var(--text-secondary); font-size: 13px; line-height: 1.6;'>
+                    Das Angebot ist bis einschließlich {validUntil:dd.MM.yyyy} gültig. Es entsteht noch kein kostenpflichtiges Abonnement. Erst Ihre ausdrückliche Auswahl und Zustimmung auf der Abonnement-Seite startet die Mollie-Zahlung beziehungsweise aktualisiert ein bereits erteiltes Mollie-Mandat.
+                </p>
+                <div style='text-align: center; margin: 28px 0 0;'>
+                    <a href='{offerUrl}' class='button'>Angebot prüfen und auswählen</a>
+                </div>";
+
+            var html = GetBaseEmailTemplate("Ihr Agency-Angebot", offerContent, "GentleBook", null, "#6355E4");
             var text = $"""
                 Ihr GentleBook Agency-Angebot für {tenantName}
 
@@ -3598,7 +3477,7 @@ GentleBook · support@gentlegroup.de";
         try
         {
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook", _emailOptions.SenderEmail));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(MailboxAddress.Parse(toEmail));
             message.Subject = $"Plan-Anfrage erhalten – {planName}";
 
@@ -3607,59 +3486,25 @@ GentleBook · support@gentlegroup.de";
             var nextStep = planName == "Agency"
                 ? "Wir erstellen jetzt Ihr individuelles Angebot. Sie erhalten Monats- und Jahrespreis per E-Mail und entscheiden erst danach verbindlich."
                 : "Wir bearbeiten Ihre Anfrage und benachrichtigen Sie per E-Mail.";
-            var brandTealDark = DarkenHex("#17A398");
 
-            var html = $"""
-                <!DOCTYPE html>
-                <html lang="de">
-                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-                <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
-                  <table cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:32px auto">
-                    <tr><td>
-                      <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+            var requestContent = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <p style='color: var(--text-secondary); line-height: 1.6; margin-bottom: 24px;'>
+                    wir haben Ihre Anfrage für den <strong>{planName}-Plan</strong> für <strong>{tenantName}</strong> erhalten.
+                    {nextStep}
+                </p>
+                <div class='booking-card' style='text-align: center;'>
+                    <div style='color: var(--text-secondary); font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;'>Angefragter Plan</div>
+                    <div class='price'>{planName}</div>
+                    <div style='color: var(--text-secondary); font-size: 16px; margin-top: 4px;'>{planPrice}{(planPriceSuffix == "" ? "" : " / Monat")}</div>
+                </div>
+                <p style='color: var(--text-secondary); font-size: 13px; line-height: 1.6;'>
+                    Bei Fragen schreiben Sie uns auf
+                    <a href='https://wa.me/491754701892' style='color: var(--accent-primary); font-weight: 600;'>WhatsApp</a> oder
+                    <a href='mailto:support@gentlegroup.de' style='color: var(--accent-primary); font-weight: 600;'>support@gentlegroup.de</a>.
+                </p>";
 
-                        <!-- Header -->
-                        <tr><td style="background:linear-gradient(135deg,#17A398 0%,{brandTealDark} 100%);padding:28px 32px;text-align:center">
-                          <p style="font-size:22px;font-weight:800;color:#fff;margin:0;letter-spacing:-0.5px">✨ GentleBook</p>
-                          <p style="font-size:12px;color:rgba(255,255,255,0.7);margin:4px 0 0">Buchungssystem</p>
-                        </td></tr>
-
-                        <!-- Body -->
-                        <tr><td style="background:#fff;padding:36px 32px;border:1px solid #e5e7eb;border-top:none">
-                          <p style="font-size:16px;color:#1e1e1e;margin:0 0 8px;font-weight:600">Hallo {firstName},</p>
-                          <p style="font-size:14px;color:#6b7280;line-height:1.7;margin:0 0 24px">
-                            wir haben Ihre Anfrage für den <strong style="color:#17A398">{planName}-Plan</strong> für <strong>{tenantName}</strong> erhalten.
-                            {nextStep}
-                          </p>
-
-                          <!-- Requested plan box -->
-                          <div style="background:#f0fdfc;border:1px solid #99f6e4;border-radius:12px;padding:20px 24px;margin:0 0 24px;text-align:center">
-                            <p style="font-size:12px;font-weight:700;color:{brandTealDark};margin:0 0 4px;text-transform:uppercase">Angefragter Plan</p>
-                            <p style="font-size:32px;font-weight:900;color:#17A398;margin:0;line-height:1">{planName}</p>
-                            <p style="font-size:18px;color:{brandTealDark};margin:4px 0 0;font-weight:600">{planPrice}{(planPriceSuffix == "" ? "" : " / Monat")}</p>
-                          </div>
-
-                          <p style="font-size:13px;color:#9ca3af;line-height:1.6;margin:0">
-                            Bei Fragen schreiben Sie uns auf
-                            <a href="https://wa.me/491754701892" style="color:#17A398;font-weight:600;text-decoration:none">WhatsApp</a> oder
-                            <a href="mailto:support@gentlegroup.de" style="color:#17A398;font-weight:600;text-decoration:none">support@gentlegroup.de</a>.
-                          </p>
-                        </td></tr>
-
-                        <!-- Footer -->
-                        <tr><td style="background:#f9fafb;border-radius:0 0 16px 16px;padding:16px 32px;text-align:center;border:1px solid #e5e7eb;border-top:none">
-                          <p style="margin:0;color:#9ca3af;font-size:12px">
-                            &copy; {DateTime.UtcNow.Year} GentleGroup &middot;
-                            <a href="mailto:support@gentlegroup.de" style="color:#17A398;text-decoration:none">support@gentlegroup.de</a>
-                          </p>
-                        </td></tr>
-
-                      </table>
-                    </td></tr>
-                  </table>
-                </body>
-                </html>
-                """;
+            var html = GetBaseEmailTemplate($"Plan-Anfrage erhalten", requestContent, "GentleBook", null, "#6355E4");
 
             var text = $"""
                 Plan-Anfrage erhalten – {planName}
@@ -3699,34 +3544,34 @@ GentleBook · support@gentlegroup.de";
             var superadminEmail = "berkcan@gentle-webdesign.com";
 
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook System", _emailOptions.SenderEmail));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(MailboxAddress.Parse(superadminEmail));
             message.Subject = $"🔔 Neue Abo-Anfrage: {tenantName} → {planName}";
 
             var adminUrl = $"{FrontendUrl}/superadmin/requests";
             var planPrice = planName switch { "Starter" => "€29", "Professional" => "€59", "Agency" => "Preis auf Anfrage", _ => "" };
             var planPriceSuffix = planName == "Agency" ? "" : "/Monat";
-            var brandTealDark = DarkenHex("#17A398");
 
             var html = $"""
                 <!DOCTYPE html>
                 <html lang="de">
-                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"></head>
                 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
                   <table cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:32px auto">
                     <tr><td>
                       <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
 
                         <!-- Header -->
-                        <tr><td style="background:linear-gradient(135deg,#17A398 0%,{brandTealDark} 100%);padding:28px 32px;text-align:center">
-                          <p style="font-size:22px;font-weight:800;color:#fff;margin:0">🔔 Neue Abo-Anfrage</p>
+                        <tr><td style="background:linear-gradient(135deg,#14162B 0%,#201F47 100%);padding:28px 32px;text-align:center">
+                          <img src="data:image/png;base64,{LogoBase64}" alt="gentlebook" width="32" height="32" style="display:block;margin:0 auto 10px;" />
+                          <p style="font-size:20px;font-weight:800;color:#fff;margin:0">🔔 Neue Abo-Anfrage</p>
                           <p style="font-size:12px;color:rgba(255,255,255,0.7);margin:4px 0 0">GentleBook Superadmin</p>
                         </td></tr>
 
                         <!-- Body -->
                         <tr><td style="background:#fff;padding:36px 32px;border:1px solid #e5e7eb;border-top:none">
                           <p style="font-size:15px;color:#1e1e1e;margin:0 0 20px">
-                            <strong>{tenantName}</strong> hat eine Anfrage für den <strong style="color:#17A398">{planName}-Plan</strong> gesendet.
+                            <strong>{tenantName}</strong> hat eine Anfrage für den <strong style="color:#6355E4">{planName}-Plan</strong> gesendet.
                           </p>
 
                           <table cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 24px">
@@ -3736,7 +3581,7 @@ GentleBook · support@gentlegroup.de";
                             </tr>
                             <tr>
                               <td style="padding:8px 0;font-size:13px;color:#6b7280">Plan:</td>
-                              <td style="padding:8px 0;font-size:13px;color:#17A398;font-weight:700">{planName} — {planPrice}{planPriceSuffix}</td>
+                              <td style="padding:8px 0;font-size:13px;color:#6355E4;font-weight:700">{planName} — {planPrice}{planPriceSuffix}</td>
                             </tr>
                             <tr>
                               <td style="padding:8px 0;font-size:13px;color:#6b7280">Kontakt:</td>
@@ -3745,12 +3590,12 @@ GentleBook · support@gentlegroup.de";
                           </table>
 
                           <a href="{adminUrl}"
-                             style="display:block;background:#17A398;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;margin:0 0 16px">
+                             style="display:block;background:#6355E4;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;margin:0 0 16px">
                             Anfrage im Superadmin verwalten →
                           </a>
 
                           <p style="font-size:12px;color:#9ca3af;text-align:center;margin:0">
-                            Direkt zum Dashboard: <a href="{adminUrl}" style="color:#17A398;text-decoration:none">{adminUrl}</a>
+                            Direkt zum Dashboard: <a href="{adminUrl}" style="color:#6355E4;text-decoration:none">{adminUrl}</a>
                           </p>
                         </td></tr>
 
@@ -3808,14 +3653,14 @@ GentleBook · support@gentlegroup.de";
             var superadminEmail = "berkcan@gentle-webdesign.com";
 
             var message = new MimeMessage();
-            message.From.Add(new MailboxAddress("GentleBook System", _emailOptions.SenderEmail));
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
             message.To.Add(MailboxAddress.Parse(superadminEmail));
             message.Subject = $"⚠️ Hangfire-Job fehlgeschlagen: {jobName}";
 
             var html = $"""
                 <!DOCTYPE html>
                 <html lang="de">
-                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"></head>
                 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
                   <table cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:32px auto">
                     <tr><td>
@@ -3823,7 +3668,8 @@ GentleBook · support@gentlegroup.de";
 
                         <!-- Header -->
                         <tr><td style="background:linear-gradient(135deg,#14162B 0%,#201F47 100%);padding:28px 32px;text-align:center">
-                          <p style="font-size:22px;font-weight:800;color:#fff;margin:0">⚠️ Job fehlgeschlagen</p>
+                          <img src="data:image/png;base64,{LogoBase64}" alt="gentlebook" width="32" height="32" style="display:block;margin:0 auto 10px;" />
+                          <p style="font-size:20px;font-weight:800;color:#fff;margin:0">⚠️ Job fehlgeschlagen</p>
                           <p style="font-size:12px;color:rgba(255,255,255,0.7);margin:4px 0 0">GentleBook Hintergrundprozess</p>
                         </td></tr>
 
