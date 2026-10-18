@@ -15,6 +15,7 @@ public class LinkPageTemplatesTests
     [InlineData("classic", SubscriptionPlan.Trial)]
     [InlineData("classic", SubscriptionPlan.Starter)]
     [InlineData("beauty", SubscriptionPlan.Starter)]
+    [InlineData("hairsalon", SubscriptionPlan.Starter)]
     [InlineData("neon", SubscriptionPlan.Professional)]
     [InlineData("corporate", SubscriptionPlan.Agency)]
     [InlineData("portfolio", SubscriptionPlan.Agency)]

@@ -66,6 +66,13 @@ public interface IAiOrchestrator
         ServiceFinderResult result,
         string latestMessage,
         CancellationToken cancellationToken);
+
+    Task<DesignAssistantTurnResponse> BuildDesignAssistantTurnAsync(
+        Guid tenantId,
+        IReadOnlyList<(string Role, string Content)> history,
+        string latestMessage,
+        string industryType,
+        CancellationToken cancellationToken);
 }
 
 // The chatbot's per-turn reply. Deliberately separate from OrchestratedFinderResponse (used by
@@ -105,6 +112,13 @@ public interface IAiProviderAdapter
         IReadOnlyList<(string Role, string Content)> history,
         string latestMessage,
         ServiceFinderResult result,
+        CancellationToken cancellationToken);
+
+    Task<DesignAssistantProviderMessage?> SuggestDesignAsync(
+        Guid tenantId,
+        IReadOnlyList<(string Role, string Content)> history,
+        string latestMessage,
+        string industryType,
         CancellationToken cancellationToken);
 }
 

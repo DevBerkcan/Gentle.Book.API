@@ -19,6 +19,7 @@ public static class LinkPageTemplates
         ["barbershop"] = SubscriptionPlan.Starter,
         ["beauty"] = SubscriptionPlan.Starter,
         ["clinic"] = SubscriptionPlan.Starter,
+        ["hairsalon"] = SubscriptionPlan.Starter,
         ["neon"] = SubscriptionPlan.Professional,
         ["magazine"] = SubscriptionPlan.Professional,
         ["split"] = SubscriptionPlan.Professional,

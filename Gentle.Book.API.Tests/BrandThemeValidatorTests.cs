@@ -24,6 +24,7 @@ public class BrandThemeValidatorTests
     [Theory]
     [InlineData("classic", "classic")]
     [InlineData("beauty", "beauty")]
+    [InlineData("hairsalon", "hairsalon")]
     [InlineData("some-invented-template-id", "classic")]
     [InlineData(null, "classic")]
     public void SanitizeTemplateId_UnknownIdsFallBackToClassic(string? candidate, string expected)

@@ -176,3 +176,26 @@ public sealed record ChatbotMessageResponseDto(
     BookingResponseDto? ConfirmedBooking,
     bool RequiresHumanConsultation,
     bool UsedAiFallback);
+
+// ── Design assistant (tenant/design-assistant) ──────────────────────────
+// Agency-exclusive chat in the "Meine Links" editor that suggests a page template, color
+// palette and CTA text from a free-text business description. Stateless on the server — like
+// the public chatbot's client, the admin UI holds the conversation history itself and resends
+// it each turn — there's no AiConversation/AiMessage row for this (nothing here needs to survive
+// a page reload the way a customer's in-progress booking chat does).
+public sealed record DesignAssistantHistoryTurnDto(string Role, string Content);
+
+public sealed record DesignAssistantMessageRequestDto(
+    string Message,
+    IReadOnlyList<DesignAssistantHistoryTurnDto>? History);
+
+public sealed record DesignSuggestionDto(
+    string? PageTemplate,
+    string? ColorPaletteKey,
+    string? CtaText,
+    string? CtaBadge);
+
+public sealed record DesignAssistantMessageResponseDto(
+    string Reply,
+    DesignSuggestionDto? Suggestion,
+    bool UsedAiFallback);

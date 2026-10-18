@@ -130,5 +130,10 @@ public class AiOrchestratorChatbotTests
                 SuggestedEmployeeIds: new List<Guid>(),
                 RequiresHumanConsultation: false));
         }
+
+        public Task<DesignAssistantProviderMessage?> SuggestDesignAsync(
+            Guid tenantId, IReadOnlyList<(string Role, string Content)> history, string latestMessage,
+            string industryType, CancellationToken cancellationToken)
+            => Task.FromResult<DesignAssistantProviderMessage?>(null);
     }
 }

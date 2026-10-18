@@ -226,6 +226,73 @@ public sealed class AiOrchestrator : IAiOrchestrator
             UsedAiFallback: true);
     }
 
+    // Same budget-gated, per-tenant-locked, sanitize-then-fallback shape as BuildChatbotTurnAsync
+    // above, for the "Meine Links" design editor's AI assistant instead of the booking chatbot.
+    // No deterministic engine to fall back to here (there's no non-AI way to "suggest a design"),
+    // so on any failure/over-budget the fallback is simply a plain message asking the admin to
+    // pick a template manually — the editor's existing pickers are always still right there.
+    public async Task<DesignAssistantTurnResponse> BuildDesignAssistantTurnAsync(
+        Guid tenantId,
+        IReadOnlyList<(string Role, string Content)> history,
+        string latestMessage,
+        string industryType,
+        CancellationToken cancellationToken)
+    {
+        var tenantPlan = await _db.Subscriptions
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => (SubscriptionPlan?)s.Plan)
+            .FirstOrDefaultAsync(cancellationToken);
+        var isAgency = tenantPlan.HasValue && AgencyFeatureGate.IsAgency(tenantPlan.Value);
+
+        var tenantLock = isAgency ? GetTenantLock(tenantId) : null;
+        if (tenantLock != null) await tenantLock.WaitAsync(cancellationToken);
+        try
+        {
+            var withinBudget = isAgency && await _usageGate.IsWithinBudgetAsync(tenantId, cancellationToken);
+
+            try
+            {
+                var aiMessage = withinBudget
+                    ? await _provider.SuggestDesignAsync(tenantId, history, latestMessage, industryType, cancellationToken)
+                    : null;
+                if (aiMessage != null)
+                {
+                    await _usageMeter.TrackAsync(
+                        tenantId,
+                        feature: "ai_design_assistant",
+                        model: aiMessage.Model,
+                        inputTokens: aiMessage.InputTokens,
+                        outputTokens: aiMessage.OutputTokens,
+                        estimatedCost: aiMessage.EstimatedCost,
+                        cancellationToken: cancellationToken);
+
+                    var message = string.IsNullOrWhiteSpace(aiMessage.Message)
+                        ? "Erzähl mir etwas mehr über dein Business, damit ich eine passende Vorlage vorschlagen kann."
+                        : aiMessage.Message;
+
+                    await WriteAuditAsync(tenantId, "AiDesignAssistantTurn", "Completed", cancellationToken);
+
+                    return new DesignAssistantTurnResponse(message, aiMessage.Suggestion, UsedAiFallback: false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AI provider unavailable for design assistant turn. Falling back.");
+            }
+        }
+        finally
+        {
+            tenantLock?.Release();
+        }
+
+        await WriteAuditAsync(tenantId, "AiDesignAssistantTurn", "Fallback", cancellationToken);
+
+        return new DesignAssistantTurnResponse(
+            "Gerade nicht verfügbar — wähle unten direkt eine Vorlage oder ein Branchen-Paket aus, das geht genauso schnell.",
+            Suggestion: null,
+            UsedAiFallback: true);
+    }
+
     private static string BuildFallbackMessage(ServiceFinderResult result)
     {
         if (result.Recommendations.Count == 0)

@@ -21,4 +21,14 @@ public sealed class NullAiProviderAdapter : IAiProviderAdapter
     {
         return Task.FromResult<AiProviderMessage?>(null);
     }
+
+    public Task<DesignAssistantProviderMessage?> SuggestDesignAsync(
+        Guid tenantId,
+        IReadOnlyList<(string Role, string Content)> history,
+        string latestMessage,
+        string industryType,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult<DesignAssistantProviderMessage?>(null);
+    }
 }

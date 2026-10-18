@@ -13,6 +13,7 @@ public class SpyAiProviderAdapter : IAiProviderAdapter
 {
     public int CallCount { get; private set; }
     public int ChatTurnCallCount { get; private set; }
+    public int SuggestDesignCallCount { get; private set; }
 
     public Task<AiProviderMessage?> ExplainFinderResultAsync(
         Guid tenantId, string? freeText, ServiceFinderResult result,
@@ -46,6 +47,20 @@ public class SpyAiProviderAdapter : IAiProviderAdapter
             SuggestedGuidanceIds: new List<Guid>(),
             SuggestedEmployeeIds: new List<Guid>(),
             RequiresHumanConsultation: false));
+    }
+
+    public Task<DesignAssistantProviderMessage?> SuggestDesignAsync(
+        Guid tenantId, IReadOnlyList<(string Role, string Content)> history, string latestMessage,
+        string industryType, CancellationToken cancellationToken)
+    {
+        SuggestDesignCallCount++;
+        return Task.FromResult<DesignAssistantProviderMessage?>(new DesignAssistantProviderMessage(
+            Message: "Spy design response",
+            Suggestion: null,
+            InputTokens: 10,
+            OutputTokens: 5,
+            EstimatedCost: 0.001m,
+            Model: "spy-model"));
     }
 }
 
