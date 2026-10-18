@@ -1285,8 +1285,8 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 <head>
     <meta charset='UTF-8'>
     <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-    <meta name='color-scheme' content='light dark'>
-    <meta name='supported-color-schemes' content='light dark'>
+    <meta name='color-scheme' content='light'>
+    <meta name='supported-color-schemes' content='light'>
     <title>{title}</title>
     <style>
         * {{
@@ -1304,7 +1304,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
         }}
         
         :root {{
-            color-scheme: light dark;
+            color-scheme: light;
             --bg-primary: #ffffff;
             --bg-secondary: #f8f9fa;
             --text-primary: #1e293b;
@@ -1326,30 +1326,13 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
             --info-border: #3b82f6;
         }}
 
-        @media (prefers-color-scheme: dark) {{
-            :root {{
-                --bg-primary: #1a1a1a;
-                --bg-secondary: #2d2d2d;
-                --text-primary: #e5e5e5;
-                --text-secondary: #a3a3a3;
-                --border-color: #404040;
-                --accent-light: #2d2d2d;
-                --accent-primary: {primaryColor};
-                --accent-dark: {darkenedColor};
-                --button-gradient-start: {primaryColor};
-                --button-gradient-end: {darkenedColor};
-                --success-bg: #1e3a2a;
-                --success-text: #a3e9a3;
-                --success-border: #2d5a2d;
-                --warning-bg: #3a3a1e;
-                --warning-text: #ffd700;
-                --warning-border: #5a5a2d;
-                --info-bg: #1e3a4a;
-                --info-text: #93c5fd;
-                --info-border: #60a5fa;
-            }}
-        }}
-        
+        /* Deliberately no @media (prefers-color-scheme: dark) override here: several mail
+           clients (notably Outlook and Gmail's dark-mode heuristics) only partially apply an
+           author dark palette — e.g. swapping text to a light color while leaving the
+           background untouched — producing unreadable light-on-light text. Declaring this
+           template light-only (see the color-scheme/supported-color-schemes meta tags above)
+           opts out of that auto-remapping in the clients that respect it. */
+
         .container {{
             max-width: 600px;
             margin: 0 auto;
