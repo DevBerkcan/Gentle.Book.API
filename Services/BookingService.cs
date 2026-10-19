@@ -244,6 +244,20 @@ public class BookingService
         return booking == null ? null : ToDto(booking);
     }
 
+    /// <summary>
+    /// Tenant owning a given booking, for callers that already have an authenticated
+    /// tenant context and need to verify they're not viewing another tenant's booking
+    /// via a guessed/leaked id (GetBooking is AllowAnonymous for the public confirmation
+    /// page, so the global tenant query filter is bypassed there by design).
+    /// </summary>
+    public async Task<Guid?> GetBookingTenantIdAsync(Guid id)
+    {
+        return await _context.Bookings
+            .Where(b => b.Id == id)
+            .Select(b => (Guid?)b.TenantId)
+            .FirstOrDefaultAsync();
+    }
+
     public async Task<List<BookingResponseDto>> GetBookingsByEmailAsync(string email)
     {
         var bookings = await _context.Bookings

@@ -103,6 +103,7 @@ public class BookingsController : ControllerBase
     /// </summary>
     [HttpGet("{id}")]
     [AllowAnonymous]
+    [EnableRateLimiting("booking-limit")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -112,12 +113,27 @@ public class BookingsController : ControllerBase
         if (booking == null)
             return NotFound(new { message = "Buchung nicht gefunden" });
 
-        // Authenticated employees can only view their own bookings
+        // Authenticated employees can only view their own bookings. GetEmployeeScope (not
+        // GetCurrentEmployeeId) is required here: it nulls out for TenantAdmin, whereas
+        // GetCurrentEmployeeId returns the caller's own user id regardless of role — using it
+        // directly previously meant every TenantAdmin got wrongly 403'd on every booking.
         if (User.Identity?.IsAuthenticated == true)
         {
-            var empId = GetCurrentEmployeeId();
+            var empId = GetEmployeeScope();
             if (empId != null && booking.Employee?.Id != empId)
                 return Forbid();
+
+            // Defense-in-depth: a tenant-scoped caller (TenantAdmin/LocationAdmin/Employee)
+            // must not be able to view another tenant's booking by guessing/leaking a GUID.
+            // The anonymous public-confirmation-page path below is unaffected — there's no
+            // tenant signal to check there, so it still relies on the id being unguessable.
+            var callerTenantId = JwtService.GetTenantId(User);
+            if (callerTenantId != null)
+            {
+                var bookingTenantId = await _bookingService.GetBookingTenantIdAsync(id);
+                if (bookingTenantId != null && bookingTenantId != callerTenantId)
+                    return Forbid();
+            }
         }
 
         return Ok(booking);
