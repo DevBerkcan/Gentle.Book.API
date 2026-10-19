@@ -153,7 +153,7 @@ public class MollieService
 
             return new MollieFlowResult(true, null, payment.CheckoutUrl());
         }
-        catch
+        catch (Exception ex)
         {
             // Release the claim so a transient Mollie failure doesn't permanently lock the
             // tenant out of ever starting the mandate flow again.
@@ -163,6 +163,13 @@ public class MollieService
                 await _db.SaveChangesAsync();
             }
             catch { /* best effort — a stuck claim row just needs manual cleanup later */ }
+
+            // A rejection *from Mollie itself* (e.g. an invalid webhook URL, a declined
+            // customer) is an expected, user-facing outcome, not a server bug — surface
+            // Mollie's own detail instead of a generic 500. Anything else (DB down, bug in
+            // our own code) is unexpected and should still bubble up as a 500.
+            if (ex is MollieApiException mollieEx)
+                return new MollieFlowResult(false, mollieEx.MollieDetail ?? "Die Zahlungsanfrage bei Mollie ist fehlgeschlagen.", null);
             throw;
         }
     }
@@ -670,7 +677,7 @@ public class MollieService
                 $"GentleBook {limits.DisplayName}-Abonnement");
             return true;
         }
-        catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Gone or System.Net.HttpStatusCode.UnprocessableEntity)
+        catch (MollieApiException ex) when (ex.StatusCode is 404 or 410 or 422)
         {
             // The Mollie subscription resource is already gone — CancelSubscriptionAsync deletes
             // it at Mollie immediately even though local access (and this Subscription row) stays
@@ -724,7 +731,7 @@ public class MollieService
         {
             await _mollie.CancelSubscriptionAsync(sub.MollieCustomerId, sub.MollieSubscriptionId, ct);
         }
-        catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.Gone)
+        catch (MollieApiException ex) when (ex.StatusCode is 404 or 410)
         {
             // Already cancelled/gone on Mollie's side — treat as success.
         }

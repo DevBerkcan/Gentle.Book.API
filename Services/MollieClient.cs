@@ -6,6 +6,28 @@ using Microsoft.Extensions.Options;
 
 namespace GentleBook.Api.Services;
 
+/// <summary>
+/// A Mollie API call returned a non-success status. Carries Mollie's own `detail` field (e.g.
+/// "The webhook URL is invalid") so callers can surface something more useful than a bare 500 —
+/// previously every MollieClient method used HttpResponseMessage.EnsureSuccessStatusCode(),
+/// which discards the response body entirely, so even the server logs only ever showed
+/// "Response status code does not indicate success: 422 (unknown)" with no indication why.
+/// </summary>
+public class MollieApiException : Exception
+{
+    public int StatusCode { get; }
+    public string? MollieDetail { get; }
+    public string? MollieField { get; }
+
+    public MollieApiException(int statusCode, string? detail, string? field)
+        : base($"Mollie API error {statusCode}: {detail ?? "(no detail)"}" + (field != null ? $" [field={field}]" : ""))
+    {
+        StatusCode = statusCode;
+        MollieDetail = detail;
+        MollieField = field;
+    }
+}
+
 // Thin typed wrapper around the subset of the Mollie REST v2 API GentleBook needs.
 // No third-party SDK — System.Net.Http.Json (shared framework) is enough for this scope.
 public class MollieClient
@@ -22,6 +44,28 @@ public class MollieClient
     private void Authorize(HttpRequestMessage request) =>
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.CurrentValue.ApiKey);
 
+    /// <summary>
+    /// Replaces res.EnsureSuccessStatusCode() everywhere in this class: on failure, reads
+    /// Mollie's JSON error body (RFC 9110-style { status, title, detail, field }) and throws
+    /// MollieApiException with that detail instead of discarding it.
+    /// </summary>
+    private static async Task EnsureMollieSuccessAsync(HttpResponseMessage res, CancellationToken ct)
+    {
+        if (res.IsSuccessStatusCode) return;
+
+        string? detail = null;
+        string? field = null;
+        try
+        {
+            var error = await res.Content.ReadFromJsonAsync<MollieErrorResponse>(cancellationToken: ct);
+            detail = error?.Detail;
+            field = error?.Field;
+        }
+        catch { /* body wasn't the expected shape (or wasn't JSON) — fall back to status-only */ }
+
+        throw new MollieApiException((int)res.StatusCode, detail, field);
+    }
+
     public async Task<MollieCustomer> CreateCustomerAsync(string name, string email, string locale, CancellationToken ct = default)
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "customers")
@@ -30,7 +74,7 @@ public class MollieClient
         };
         Authorize(req);
         var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureMollieSuccessAsync(res, ct);
         return (await res.Content.ReadFromJsonAsync<MollieCustomer>(cancellationToken: ct))!;
     }
 
@@ -47,7 +91,7 @@ public class MollieClient
             // first-time mandate collection to work.
             Content = JsonContent.Create(new
             {
-                amount = new { currency, value = amount.ToString("F2") },
+                amount = new { currency, value = amount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) },
                 customerId,
                 sequenceType = "first",
                 description,
@@ -58,7 +102,7 @@ public class MollieClient
         };
         Authorize(req);
         var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureMollieSuccessAsync(res, ct);
         return (await res.Content.ReadFromJsonAsync<MolliePayment>(cancellationToken: ct))!;
     }
 
@@ -67,7 +111,7 @@ public class MollieClient
         var req = new HttpRequestMessage(HttpMethod.Get, $"payments/{paymentId}");
         Authorize(req);
         var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureMollieSuccessAsync(res, ct);
         return (await res.Content.ReadFromJsonAsync<MolliePayment>(cancellationToken: ct))!;
     }
 
@@ -79,7 +123,7 @@ public class MollieClient
         {
             Content = JsonContent.Create(new
             {
-                amount = new { currency, value = amount.ToString("F2") },
+                amount = new { currency, value = amount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) },
                 mandateId,
                 interval,
                 startDate = startDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
@@ -90,7 +134,7 @@ public class MollieClient
         };
         Authorize(req);
         var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureMollieSuccessAsync(res, ct);
         return (await res.Content.ReadFromJsonAsync<MollieSubscription>(cancellationToken: ct))!;
     }
 
@@ -99,7 +143,7 @@ public class MollieClient
         var req = new HttpRequestMessage(HttpMethod.Get, $"customers/{customerId}/subscriptions/{subscriptionId}");
         Authorize(req);
         var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureMollieSuccessAsync(res, ct);
         return (await res.Content.ReadFromJsonAsync<MollieSubscription>(cancellationToken: ct))!;
     }
 
@@ -108,7 +152,7 @@ public class MollieClient
         var req = new HttpRequestMessage(HttpMethod.Get, $"customers/{customerId}/subscriptions/{subscriptionId}/payments");
         Authorize(req);
         var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureMollieSuccessAsync(res, ct);
         var wrapper = await res.Content.ReadFromJsonAsync<MollieEmbeddedPayments>(cancellationToken: ct);
         return wrapper?.Embedded?.Payments ?? new List<MolliePayment>();
     }
@@ -122,7 +166,7 @@ public class MollieClient
         var req = new HttpRequestMessage(HttpMethod.Get, $"customers/{customerId}/payments?limit=50");
         Authorize(req);
         var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureMollieSuccessAsync(res, ct);
         var wrapper = await res.Content.ReadFromJsonAsync<MollieEmbeddedPayments>(cancellationToken: ct);
         return wrapper?.Embedded?.Payments ?? new List<MolliePayment>();
     }
@@ -141,7 +185,7 @@ public class MollieClient
         var req = new HttpRequestMessage(HttpMethod.Delete, $"customers/{customerId}/subscriptions/{subscriptionId}");
         Authorize(req);
         var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureMollieSuccessAsync(res, ct);
     }
 
     // Changes amount/interval/description on an EXISTING subscription — no new SEPA mandate,
@@ -154,14 +198,14 @@ public class MollieClient
         {
             Content = JsonContent.Create(new
             {
-                amount = new { currency, value = amount.ToString("F2") },
+                amount = new { currency, value = amount.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) },
                 interval,
                 description
             })
         };
         Authorize(req);
         var res = await _http.SendAsync(req, ct);
-        res.EnsureSuccessStatusCode();
+        await EnsureMollieSuccessAsync(res, ct);
         return (await res.Content.ReadFromJsonAsync<MollieSubscription>(cancellationToken: ct))!;
     }
 }
@@ -180,6 +224,15 @@ public class MollieCustomer
     public string Id { get; set; } = "";
     public string? Name { get; set; }
     public string? Email { get; set; }
+}
+
+/// <summary>Mollie's documented error response shape (https://docs.mollie.com/reference/handling-errors).</summary>
+public class MollieErrorResponse
+{
+    public int? Status { get; set; }
+    public string? Title { get; set; }
+    public string? Detail { get; set; }
+    public string? Field { get; set; }
 }
 
 public class MolliePayment
