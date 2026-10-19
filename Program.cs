@@ -510,6 +510,36 @@ using (var scope = app.Services.CreateScope())
                 {
                     "staff", "referenceImages", "consultation", "deposits", "aftercareGuidance", "multipleSessions", "consentForms"
                 }
+            },
+            new
+            {
+                Key = "massage",
+                Name = "Massage und Wellness",
+                Description = "Playbook fur Massage-, Wellness- und Spa-Studios.",
+                Capabilities = new[]
+                {
+                    "staff", "consultation", "healthInformation", "serviceSeries", "rebooking", "rooms", "preparationGuidance", "aftercareGuidance"
+                }
+            },
+            new
+            {
+                Key = "physio",
+                Name = "Physiotherapie",
+                Description = "Playbook fur Physiotherapie- und Reha-Praxen.",
+                Capabilities = new[]
+                {
+                    "staff", "consultation", "healthInformation", "consentForms", "multipleSessions", "serviceSeries", "rebooking", "rooms", "equipment", "preparationGuidance"
+                }
+            },
+            new
+            {
+                Key = "other",
+                Name = "Sonstige Branche",
+                Description = "Allgemeines Playbook fur Betriebe ohne spezifisches Branchenprofil.",
+                Capabilities = new[]
+                {
+                    "staff", "consultation", "rebooking", "preparationGuidance"
+                }
             }
         };
 
