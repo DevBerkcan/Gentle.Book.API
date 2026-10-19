@@ -45,8 +45,12 @@ public class AuthController : ControllerBase
             .Include(t => t.Subscription)
             .FirstOrDefaultAsync(t => t.Slug == dto.TenantSlug.ToLowerInvariant());
 
+        // No `message` on either branch below: the two cases (unknown tenant slug vs. wrong
+        // email/password) must be indistinguishable to the caller, both to avoid leaking which
+        // tenant slugs exist and so the frontend's own localized (DE/EN) fallback text renders
+        // instead of a hardcoded English string that ignored the UI's selected language.
         if (tenant == null || (!tenant.IsActive && tenant.Subscription?.Status != SubscriptionStatus.Expired))
-            return Unauthorized(new { message = "Tenant not found or inactive." });
+            return Unauthorized();
 
         if (tenant.Subscription == null ||
             (!tenant.Subscription.IsAccessAllowed && tenant.Subscription.Status != SubscriptionStatus.Expired))
@@ -58,7 +62,7 @@ public class AuthController : ControllerBase
                                    && u.IsActive);
 
         if (user == null || !BCrypt.Net.BCrypt.Verify(dto.Password, user.PasswordHash))
-            return Unauthorized(new { message = "Invalid credentials." });
+            return Unauthorized();
 
         user.LastLoginAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();

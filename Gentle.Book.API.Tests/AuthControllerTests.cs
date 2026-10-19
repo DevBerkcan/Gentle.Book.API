@@ -88,7 +88,9 @@ public class AuthControllerTests
 
         var result = await controller.Login(new TenantAdminLoginDto(tenant.Slug, "admin@barber-wagner.test", "CorrectHorse123"));
 
-        Assert.IsType<UnauthorizedObjectResult>(result);
+        // Bodyless 401 by design: no hardcoded English message to leak which branch failed or to
+        // bypass the frontend's own localized (DE/EN) fallback text — see AuthController.Login.
+        Assert.IsType<UnauthorizedResult>(result);
     }
 
     [Fact]
@@ -99,7 +101,7 @@ public class AuthControllerTests
 
         var result = await controller.Login(new TenantAdminLoginDto("does-not-exist", "nobody@nowhere.test", "whatever"));
 
-        Assert.IsType<UnauthorizedObjectResult>(result);
+        Assert.IsType<UnauthorizedResult>(result);
     }
 
     [Fact]
