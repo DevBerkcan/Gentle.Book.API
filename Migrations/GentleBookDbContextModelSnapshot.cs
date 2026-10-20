@@ -841,6 +841,64 @@ namespace GentleBook.Api.Migrations
                     b.ToTable("BusinessLocations");
                 });
 
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.ContractAcceptance", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("AcceptedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<bool>("BusinessConfirmed")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("CurrencySnapshot")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("DpaDocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Interval")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Plan")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("PriceSnapshot")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<Guid>("PrivacyDocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("SubscriptionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("TermsDocumentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DpaDocumentId");
+
+                    b.HasIndex("PrivacyDocumentId");
+
+                    b.HasIndex("SubscriptionId");
+
+                    b.HasIndex("TermsDocumentId");
+
+                    b.ToTable("ContractAcceptances");
+                });
+
             modelBuilder.Entity("GentleBook.Api.Data.Entities.Customer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1412,6 +1470,45 @@ namespace GentleBook.Api.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("Invoices");
+                });
+
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.LegalDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("FullText")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<DateTime>("ReleasedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("ReleasedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Sha256Hash")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Type", "Version", "Language")
+                        .IsUnique();
+
+                    b.ToTable("LegalDocuments");
                 });
 
             modelBuilder.Entity("GentleBook.Api.Data.Entities.LinkClick", b =>
@@ -3050,6 +3147,33 @@ namespace GentleBook.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.ContractAcceptance", b =>
+                {
+                    b.HasOne("GentleBook.Api.Data.Entities.LegalDocument", "DpaDocument")
+                        .WithMany()
+                        .HasForeignKey("DpaDocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GentleBook.Api.Data.Entities.LegalDocument", "PrivacyDocument")
+                        .WithMany()
+                        .HasForeignKey("PrivacyDocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GentleBook.Api.Data.Entities.LegalDocument", "TermsDocument")
+                        .WithMany()
+                        .HasForeignKey("TermsDocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DpaDocument");
+
+                    b.Navigation("PrivacyDocument");
+
+                    b.Navigation("TermsDocument");
                 });
 
             modelBuilder.Entity("GentleBook.Api.Data.Entities.Customer", b =>

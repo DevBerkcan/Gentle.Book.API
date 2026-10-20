@@ -53,8 +53,26 @@ public class MollieServiceStartMandateFlowIdempotencyTests
         tenant.Subscription = subscription;
         tenant.Settings = settings;
         db.AddRange(tenant, settings, subscription);
+        SeedReleasedLegalDocuments(db);
         db.SaveChanges();
         return (tenant, subscription);
+    }
+
+    // StartMandateFlowAsync now fails closed without a released LegalDocument for all three
+    // types (LEGAL_AUDIT_2026-09-06.md) — every test that exercises the full flow needs these.
+    private static void SeedReleasedLegalDocuments(GentleBook.Api.Data.GentleBookDbContext db)
+    {
+        foreach (var type in new[] { LegalDocumentType.Terms, LegalDocumentType.Privacy, LegalDocumentType.Dpa })
+        {
+            db.LegalDocuments.Add(new LegalDocument
+            {
+                Type = type,
+                Version = "test-1",
+                Language = "de",
+                FullText = $"Test {type} text.",
+                Sha256Hash = "test",
+            });
+        }
     }
 
     private static HttpResponseMessage Json(string body) => new(System.Net.HttpStatusCode.OK)

@@ -47,6 +47,8 @@ public class GentleBookDbContext : DbContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<MollieWebhookEvent> MollieWebhookEvents { get; set; }
     public DbSet<MandateFlowClaim> MandateFlowClaims { get; set; }
+    public DbSet<LegalDocument> LegalDocuments { get; set; }
+    public DbSet<ContractAcceptance> ContractAcceptances { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
     public DbSet<PlanPrice> PlanPrices { get; set; }
     public DbSet<IndustryProfile> IndustryProfiles { get; set; }
@@ -339,6 +341,24 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<MandateFlowClaim>(entity =>
         {
             entity.HasKey(e => e.SubscriptionId);
+        });
+
+        // ── LegalDocument ─────────────────────────────────────
+        // Immutable: no Update/Delete endpoint exists anywhere in the API for this entity.
+        modelBuilder.Entity<LegalDocument>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.Type, e.Version, e.Language }).IsUnique();
+        });
+
+        // ── ContractAcceptance ────────────────────────────────
+        modelBuilder.Entity<ContractAcceptance>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.TermsDocument).WithMany().HasForeignKey(e => e.TermsDocumentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.PrivacyDocument).WithMany().HasForeignKey(e => e.PrivacyDocumentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.DpaDocument).WithMany().HasForeignKey(e => e.DpaDocumentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => e.SubscriptionId);
         });
 
         // ── Invoice ───────────────────────────────────────────

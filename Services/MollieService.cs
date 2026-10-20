@@ -43,7 +43,8 @@ public class MollieService
         _logger = logger;
     }
 
-    public async Task<MollieFlowResult> StartMandateFlowAsync(Guid tenantId, string plan, string? interval = null)
+    public async Task<MollieFlowResult> StartMandateFlowAsync(
+        Guid tenantId, string plan, string? interval = null, Guid actorUserId = default, bool businessConfirmed = false)
     {
         var intervalEnum = Enum.TryParse<SubscriptionInterval>(interval, out var parsedInterval)
             ? parsedInterval
@@ -74,6 +75,23 @@ public class MollieService
         }
         if (sub == null)
             return new MollieFlowResult(false, "Kein Abonnement gefunden.", null);
+
+        // Fail closed (LEGAL_AUDIT_2026-09-06.md BLOCKER): no real paid checkout may proceed
+        // until an actual, reviewed legal-text version has been registered for all three
+        // documents — not a version-constant string, an actual immutable LegalDocument row. See
+        // SuperAdminController's legal-documents endpoints for how these get registered. This is
+        // deliberately not auto-seeded from any draft text (gentlebook-website's
+        // src/content/legal/documents.ts is explicitly marked "Editorial drafts only... never use
+        // this mutable module as historical acceptance evidence" and is still full of unfilled
+        // [PLATZHALTER] — registering it as-is would be worse than the gap this closes).
+        var termsDoc = await GetLatestLegalDocumentAsync(LegalDocumentType.Terms);
+        var privacyDoc = await GetLatestLegalDocumentAsync(LegalDocumentType.Privacy);
+        var dpaDoc = await GetLatestLegalDocumentAsync(LegalDocumentType.Dpa);
+        if (termsDoc == null || privacyDoc == null || dpaDoc == null)
+        {
+            _logger.LogError("Mollie checkout blocked for Tenant {TenantId}: no released legal documents registered yet.", tenantId);
+            return new MollieFlowResult(false, "Der Vertragsabschluss ist derzeit nicht möglich. Bitte kontaktieren Sie den Support.", null);
+        }
 
         if (!string.IsNullOrEmpty(sub.MollieSubscriptionId) && sub.Status != SubscriptionStatus.Cancelled)
             return new MollieFlowResult(false, "Es besteht bereits ein aktives Mollie-Abonnement.", null);
@@ -128,6 +146,25 @@ public class MollieService
 
         try
         {
+            // Immutable evidence of exactly what was accepted and under what commercial terms —
+            // written before the Mollie call, not after, so it reflects the actual snapshot the
+            // tenant agreed to even if the Mollie call itself then fails.
+            _db.ContractAcceptances.Add(new ContractAcceptance
+            {
+                TenantId = tenantId,
+                SubscriptionId = sub.Id,
+                ActorUserId = actorUserId,
+                TermsDocumentId = termsDoc.Id,
+                PrivacyDocumentId = privacyDoc.Id,
+                DpaDocumentId = dpaDoc.Id,
+                Plan = planEnum.ToString(),
+                Interval = intervalEnum.ToString(),
+                PriceSnapshot = intervalEnum.PriceFor(sub, limits),
+                CurrencySnapshot = "EUR",
+                BusinessConfirmed = businessConfirmed,
+            });
+            await _db.SaveChangesAsync();
+
             var email = tenant.Settings.Email ?? "";
             if (string.IsNullOrEmpty(sub.MollieCustomerId))
             {
@@ -823,6 +860,15 @@ public class MollieService
             _logger.LogError(ex, "Failed to send cancellation confirmation email for Subscription {SubscriptionId}", sub.Id);
         }
     }
+
+    // Only German ("de") legal text is operative — the B2B-AGB/Datenschutz/AVV are drafted for
+    // German business customers (see LEGAL_AUDIT_2026-09-06.md); an English translation, if one
+    // is ever added, doesn't change which version was actually agreed to.
+    private async Task<LegalDocument?> GetLatestLegalDocumentAsync(LegalDocumentType type) =>
+        await _db.LegalDocuments
+            .Where(d => d.Type == type && d.Language == "de")
+            .OrderByDescending(d => d.ReleasedAt)
+            .FirstOrDefaultAsync();
 
     private static SubscriptionPlan ParsePlanFromMetadata(MolliePayment payment) =>
         payment.Metadata != null && payment.Metadata.TryGetValue("plan", out var p) && Enum.TryParse<SubscriptionPlan>(p, out var parsed)

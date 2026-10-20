@@ -2226,9 +2226,86 @@ public class SuperAdminController : ControllerBase
 
         return Ok(new { items, totalCount = total, page, pageSize });
     }
+
+    // ── Legal documents (LEGAL_AUDIT_2026-09-06.md BLOCKER) ─────────────────
+    // Immutable, releasable versions of GentleBook's own AGB/Datenschutz/AVV. Deliberately no
+    // Update/Delete endpoint — a corrected text is a new version, registered via Create below,
+    // never an edit of an existing row. MollieService.StartMandateFlowAsync fails closed (refuses
+    // real checkout) until all three types have at least one released "de" document here.
+
+    /// <summary>History of every released legal document version, most recent first.</summary>
+    [HttpGet("legal-documents")]
+    public async Task<IActionResult> GetLegalDocuments()
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var documents = await _db.LegalDocuments
+            .OrderByDescending(d => d.ReleasedAt)
+            .Select(d => new
+            {
+                d.Id,
+                Type = d.Type.ToString(),
+                d.Version,
+                d.Language,
+                d.Sha256Hash,
+                d.ReleasedAt,
+                d.ReleasedByUserId,
+                TextLength = d.FullText.Length,
+            })
+            .ToListAsync();
+
+        return Ok(documents);
+    }
+
+    /// <summary>
+    /// Registers a new immutable legal-document version. There is no update endpoint by design —
+    /// a correction is a new Version string, never an edit of an existing row.
+    /// </summary>
+    [HttpPost("legal-documents")]
+    public async Task<IActionResult> CreateLegalDocument([FromBody] CreateLegalDocumentDto dto)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        if (!Enum.TryParse<LegalDocumentType>(dto.Type, out var type))
+            return BadRequest(new { message = "Ungültiger Dokumenttyp." });
+        if (string.IsNullOrWhiteSpace(dto.Version))
+            return BadRequest(new { message = "Eine Version ist erforderlich." });
+        if (string.IsNullOrWhiteSpace(dto.FullText))
+            return BadRequest(new { message = "Der Volltext darf nicht leer sein." });
+
+        var language = string.IsNullOrWhiteSpace(dto.Language) ? "de" : dto.Language.Trim().ToLowerInvariant();
+
+        var exists = await _db.LegalDocuments.AnyAsync(d =>
+            d.Type == type && d.Version == dto.Version.Trim() && d.Language == language);
+        if (exists)
+            return Conflict(new { message = "Diese Version existiert für diesen Dokumenttyp und diese Sprache bereits." });
+
+        var fullText = dto.FullText.Trim();
+        var hash = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(fullText))).ToLowerInvariant();
+
+        var document = new LegalDocument
+        {
+            Type = type,
+            Version = dto.Version.Trim(),
+            Language = language,
+            FullText = fullText,
+            Sha256Hash = hash,
+            ReleasedAt = DateTime.UtcNow,
+            ReleasedByUserId = JwtService.GetUserId(User) ?? Guid.Empty,
+        };
+        _db.LegalDocuments.Add(document);
+        await _db.SaveChangesAsync();
+
+        await _audit.LogAsync("legal_document.released", "LegalDocument", document.Id.ToString(),
+            $"{type} {document.Version} ({language}), sha256={hash}");
+
+        return Ok(new { document.Id, Type = type.ToString(), document.Version, document.Language, document.Sha256Hash, document.ReleasedAt });
+    }
 }
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
+
+public record CreateLegalDocumentDto(string Type, string Version, string? Language, string FullText);
 
 public record CreateTenantDto(
     string Name,

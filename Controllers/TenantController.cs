@@ -1115,12 +1115,13 @@ public class TenantController : ControllerBase
         if (!dto.BusinessConfirmed || !dto.TermsAccepted || !dto.BillingTermsAccepted)
             return BadRequest(new { message = "Alle Vertragsbestätigungen sind erforderlich." });
 
-        var result = await _mollieService.StartMandateFlowAsync(_tenantContext.TenantId!.Value, dto.Plan, dto.Interval);
+        var actorUserId = JwtService.GetUserId(User) ?? Guid.Empty;
+        var result = await _mollieService.StartMandateFlowAsync(_tenantContext.TenantId!.Value, dto.Plan, dto.Interval, actorUserId, dto.BusinessConfirmed);
         if (!result.Success)
             return BadRequest(new { message = result.Error });
 
         await _audit.LogAsync("subscription.contract_confirmed", "Subscription", _tenantContext.TenantId!.Value.ToString(),
-            $"Tarif {dto.Plan}, Intervall {dto.Interval ?? "Monthly"}, AGB {LegalDocumentVersions.Terms}, Unternehmer/Abrechnung bestätigt",
+            $"Tarif {dto.Plan}, Intervall {dto.Interval ?? "Monthly"}, Unternehmer/Abrechnung bestätigt",
             _tenantContext.TenantId.Value);
 
         return Ok(new { checkoutUrl = result.CheckoutUrl });
