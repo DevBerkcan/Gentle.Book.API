@@ -93,6 +93,44 @@ public class AuthControllerTests
         Assert.IsType<UnauthorizedResult>(result);
     }
 
+    // LEGAL_AUDIT_2026-09-06.md: a Cancelled tenant (IsActive=false the moment cancellation
+    // takes effect) got a bodyless 401 from Login itself — indistinguishable from a wrong
+    // password — which made the GDPR Art. 15/17 self-service endpoints unreachable for the
+    // entire 30-day retention window, exactly "bei gesperrtem Konto". Cancelled must log in
+    // exactly like the pre-existing Expired carve-out already did.
+    [Fact]
+    public async Task Login_CancelledTenant_StillLogsIn()
+    {
+        using var db = TestDbContextFactory.Create();
+        var tenant = new Tenant { Name = "Salon Gekuendigt", Slug = "salon-gekuendigt", IsActive = false };
+        var subscription = new Subscription
+        {
+            TenantId = tenant.Id,
+            Tenant = tenant,
+            Status = SubscriptionStatus.Cancelled,
+            CancelledAt = DateTime.UtcNow.AddDays(-1),
+            RetentionEndsAt = DateTime.UtcNow.AddDays(29),
+        };
+        tenant.Subscription = subscription;
+        var admin = new PlatformUser
+        {
+            TenantId = tenant.Id,
+            Email = "admin@salon-gekuendigt.test",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("CorrectHorse123"),
+            FirstName = "Ada",
+            LastName = "Admin",
+            Role = PlatformRole.TenantAdmin,
+            IsActive = true,
+        };
+        db.AddRange(tenant, subscription, admin);
+        db.SaveChanges();
+        var controller = CreateController(db);
+
+        var result = await controller.Login(new TenantAdminLoginDto(tenant.Slug, admin.Email, "CorrectHorse123"));
+
+        Assert.IsType<OkObjectResult>(result);
+    }
+
     [Fact]
     public async Task Login_UnknownTenantSlug_ReturnsUnauthorized()
     {

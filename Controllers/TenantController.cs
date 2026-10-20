@@ -28,8 +28,9 @@ public class TenantController : ControllerBase
     private readonly MollieService _mollieService;
     private readonly IOptions<MollieOptions> _mollieOptions;
     private readonly ApiKeyService _apiKeyService;
+    private readonly DataSubjectRequestService _dataSubjectRequests;
 
-    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env, AuditService audit, MollieService mollieService, IOptions<MollieOptions> mollieOptions, ApiKeyService apiKeyService)
+    public TenantController(GentleBookDbContext db, ITenantContext tenantContext, EmailService emailService, ILogger<TenantController> logger, IWebHostEnvironment env, AuditService audit, MollieService mollieService, IOptions<MollieOptions> mollieOptions, ApiKeyService apiKeyService, DataSubjectRequestService dataSubjectRequests)
     {
         _db = db;
         _tenantContext = tenantContext;
@@ -40,6 +41,7 @@ public class TenantController : ControllerBase
         _mollieService = mollieService;
         _mollieOptions = mollieOptions;
         _apiKeyService = apiKeyService;
+        _dataSubjectRequests = dataSubjectRequests;
     }
 
     // featureLabel/featureKey default to the original api-keys wording so every existing call
@@ -1104,6 +1106,64 @@ public class TenantController : ControllerBase
             return BadRequest(new { message = result.Error });
 
         return Ok(new { cancelRequestedAt = result.CancelRequestedAt, currentPeriodEnd = result.CurrentPeriodEnd, message = result.Message });
+    }
+
+    // ── GDPR Art. 15/17 self-service ────────────────────────────────
+    // Deliberately exempt from the lockout gate in TenantMiddleware (same reasoning as the
+    // billing endpoints above) — "Ein Supportlink ist kein umgesetzter Datenexport"
+    // (LEGAL_AUDIT_2026-09-06.md) specifically calls out that this must stay reachable even
+    // on a cancelled/locked account.
+
+    // GET /api/tenant/data-requests
+    [HttpGet("data-requests")]
+    public async Task<IActionResult> GetDataRequests()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var requests = await _dataSubjectRequests.GetRequestsForTenantAsync(_tenantContext.TenantId!.Value);
+        return Ok(requests.Select(r => new
+        {
+            r.Id,
+            Type = r.Type.ToString(),
+            Status = r.Status.ToString(),
+            r.RequestedAt,
+            r.ProcessedAt,
+            r.Notes,
+        }));
+    }
+
+    // POST /api/tenant/data-requests/export — Art. 15: a full, portable copy of the tenant's own data, right now.
+    [HttpPost("data-requests/export")]
+    public async Task<IActionResult> ExportTenantData()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var actorUserId = JwtService.GetUserId(User) ?? Guid.Empty;
+        var export = await _dataSubjectRequests.BuildTenantDataExportAsync(tenantId);
+        await _dataSubjectRequests.RecordExportAsync(tenantId, actorUserId);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(export, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+        return File(bytes, "application/json", $"gentlebook-export-{tenantId:N}.json");
+    }
+
+    // POST /api/tenant/data-requests/deletion — Art. 17: requests erasure. Requires an already-cancelled
+    // subscription and SuperAdmin review before the actual (irreversible) purge runs.
+    [HttpPost("data-requests/deletion")]
+    public async Task<IActionResult> RequestDataDeletion()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var actorUserId = JwtService.GetUserId(User) ?? Guid.Empty;
+        var (success, error, request) = await _dataSubjectRequests.RequestDeletionAsync(tenantId, actorUserId);
+        if (!success) return Conflict(new { message = error });
+
+        return Ok(new { request!.Id, Status = request.Status.ToString(), request.RequestedAt });
     }
 
     // POST /api/tenant/subscription/mollie/start

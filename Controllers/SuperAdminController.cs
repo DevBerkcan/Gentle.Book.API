@@ -26,8 +26,9 @@ public class SuperAdminController : ControllerBase
     private readonly AuditService _audit;
     private readonly MollieService _mollieService;
     private readonly IBackgroundJobClient _backgroundJobClient;
+    private readonly DataSubjectRequestService _dataSubjectRequests;
 
-    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt, IWebHostEnvironment env, AuditService audit, MollieService mollieService, IBackgroundJobClient backgroundJobClient)
+    public SuperAdminController(GentleBookDbContext db, IConfiguration config, EmailService emailService, ILogger<SuperAdminController> logger, JwtService jwt, IWebHostEnvironment env, AuditService audit, MollieService mollieService, IBackgroundJobClient backgroundJobClient, DataSubjectRequestService dataSubjectRequests)
     {
         _db = db;
         _config = config;
@@ -38,6 +39,7 @@ public class SuperAdminController : ControllerBase
         _audit = audit;
         _mollieService = mollieService;
         _backgroundJobClient = backgroundJobClient;
+        _dataSubjectRequests = dataSubjectRequests;
     }
 
     private IActionResult ForbidIfNotSuperAdmin()
@@ -2301,11 +2303,71 @@ public class SuperAdminController : ControllerBase
 
         return Ok(new { document.Id, Type = type.ToString(), document.Version, document.Language, document.Sha256Hash, document.ReleasedAt });
     }
+
+    // ── GDPR data-subject requests (Art. 15/17) ─────────────────────────────
+
+    /// <summary>Pending-by-default queue of on-demand GDPR deletion requests needing SuperAdmin review.</summary>
+    [HttpGet("data-requests")]
+    public async Task<IActionResult> GetDataRequests([FromQuery] string? status = "Pending")
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        DataSubjectRequestStatus? statusFilter = string.IsNullOrWhiteSpace(status) || status == "All"
+            ? null
+            : Enum.Parse<DataSubjectRequestStatus>(status);
+
+        var requests = await _dataSubjectRequests.GetAllRequestsAsync(statusFilter);
+        var tenantNames = await _db.Tenants
+            .Where(t => requests.Select(r => r.TenantId).Contains(t.Id))
+            .ToDictionaryAsync(t => t.Id, t => new { t.Name, t.Slug });
+
+        return Ok(requests.Select(r => new
+        {
+            r.Id,
+            r.TenantId,
+            TenantName = tenantNames.TryGetValue(r.TenantId, out var t) ? t.Name : null,
+            TenantSlug = tenantNames.TryGetValue(r.TenantId, out var t2) ? t2.Slug : null,
+            Type = r.Type.ToString(),
+            Status = r.Status.ToString(),
+            r.RequestedAt,
+            r.ProcessedAt,
+            r.Notes,
+        }));
+    }
+
+    /// <summary>Approves a pending deletion request — runs the irreversible purge immediately. Cannot be undone.</summary>
+    [HttpPost("data-requests/{id:guid}/approve")]
+    public async Task<IActionResult> ApproveDataRequest(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var approverUserId = JwtService.GetUserId(User) ?? Guid.Empty;
+        var (success, error) = await _dataSubjectRequests.ApproveDeletionRequestAsync(id, approverUserId);
+        if (!success) return BadRequest(new { message = error });
+
+        return Ok(new { message = "Löschanfrage umgesetzt." });
+    }
+
+    /// <summary>Rejects a pending deletion request (e.g. a legitimate legal hold) with a reason the tenant will see.</summary>
+    [HttpPost("data-requests/{id:guid}/reject")]
+    public async Task<IActionResult> RejectDataRequest(Guid id, [FromBody] RejectDataRequestDto dto)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+        if (string.IsNullOrWhiteSpace(dto.Reason))
+            return BadRequest(new { message = "Eine Begründung ist erforderlich." });
+
+        var approverUserId = JwtService.GetUserId(User) ?? Guid.Empty;
+        var (success, error) = await _dataSubjectRequests.RejectDeletionRequestAsync(id, approverUserId, dto.Reason.Trim());
+        if (!success) return BadRequest(new { message = error });
+
+        return Ok(new { message = "Löschanfrage abgelehnt." });
+    }
 }
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
 public record CreateLegalDocumentDto(string Type, string Version, string? Language, string FullText);
+public record RejectDataRequestDto(string Reason);
 
 public record CreateTenantDto(
     string Name,

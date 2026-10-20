@@ -251,6 +251,7 @@ builder.Services.AddScoped<GentleBook.Api.Services.BrandImport.IBrandImportApply
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddSingleton<SubscriptionService>();
+builder.Services.AddScoped<DataSubjectRequestService>();
 builder.Services.AddSingleton<GentleBook.Api.Services.AI.AiBudgetService>();
 
 // ── Hangfire ──────────────────────────────────────────────────────────────────

@@ -972,6 +972,43 @@ namespace GentleBook.Api.Migrations
                     b.ToTable("Customers");
                 });
 
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.DataSubjectRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("ProcessedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("RequestedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("DataSubjectRequests");
+                });
+
             modelBuilder.Entity("GentleBook.Api.Data.Entities.EmailLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3189,6 +3226,17 @@ namespace GentleBook.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Employee");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.DataSubjectRequest", b =>
+                {
+                    b.HasOne("GentleBook.Api.Data.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.Navigation("Tenant");
                 });

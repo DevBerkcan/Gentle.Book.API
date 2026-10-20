@@ -31,10 +31,11 @@ public static class TenantControllerFactory
             db, mollieClient, mollieOptions, new FakeBackgroundJobClient(), auditService, emailService, NullLogger<MollieService>.Instance);
 
         var apiKeyService = new ApiKeyService(db);
+        var dataSubjectRequestService = TestServiceFactory.CreateDataSubjectRequestService(db);
 
         var controller = new TenantController(
             db, tenantContext, emailService, NullLogger<TenantController>.Instance,
-            new FakeWebHostEnvironment(), auditService, mollieService, mollieOptions, apiKeyService);
+            new FakeWebHostEnvironment(), auditService, mollieService, mollieOptions, apiKeyService, dataSubjectRequestService);
 
         controller.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
         {

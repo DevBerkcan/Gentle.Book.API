@@ -30,7 +30,8 @@ public class AiBudgetIncreaseRequestTests
             db, mollieClient, mollieOptions, new FakeBackgroundJobClient(), audit, emailService, NullLogger<MollieService>.Instance);
         return new SuperAdminController(
             db, TestConfiguration.Build(), emailService, NullLogger<SuperAdminController>.Instance,
-            new JwtService(TestConfiguration.Build()), new FakeWebHostEnvironment(), audit, mollieService, new FakeBackgroundJobClient())
+            new JwtService(TestConfiguration.Build()), new FakeWebHostEnvironment(), audit, mollieService, new FakeBackgroundJobClient(),
+            TestServiceFactory.CreateDataSubjectRequestService(db))
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext },
         };

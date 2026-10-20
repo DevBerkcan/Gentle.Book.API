@@ -78,7 +78,8 @@ public class ManualTrialActivationTests
             new FakeWebHostEnvironment(),
             audit,
             mollieService,
-            new FakeBackgroundJobClient())
+            new FakeBackgroundJobClient(),
+            TestServiceFactory.CreateDataSubjectRequestService(db))
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext },
         };

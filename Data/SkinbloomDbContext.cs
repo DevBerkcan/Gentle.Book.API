@@ -49,6 +49,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<MandateFlowClaim> MandateFlowClaims { get; set; }
     public DbSet<LegalDocument> LegalDocuments { get; set; }
     public DbSet<ContractAcceptance> ContractAcceptances { get; set; }
+    public DbSet<DataSubjectRequest> DataSubjectRequests { get; set; }
     public DbSet<Invoice> Invoices { get; set; }
     public DbSet<PlanPrice> PlanPrices { get; set; }
     public DbSet<IndustryProfile> IndustryProfiles { get; set; }
@@ -359,6 +360,14 @@ public class GentleBookDbContext : DbContext
             entity.HasOne(e => e.PrivacyDocument).WithMany().HasForeignKey(e => e.PrivacyDocumentId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.DpaDocument).WithMany().HasForeignKey(e => e.DpaDocumentId).OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(e => e.SubscriptionId);
+        });
+
+        // ── DataSubjectRequest (GDPR Art. 15/17 self-service) ──
+        modelBuilder.Entity<DataSubjectRequest>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(e => e.Tenant).WithMany().HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => e.TenantId);
         });
 
         // ── Invoice ───────────────────────────────────────────

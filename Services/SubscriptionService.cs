@@ -345,6 +345,27 @@ public class SubscriptionService
         }
     }
 
+    /// <summary>
+    /// Runs the same irreversible purge as the automated 30-day retention job, but immediately —
+    /// used when a GDPR Art. 17 deletion request has been reviewed and approved by a SuperAdmin
+    /// (see DataSubjectRequestService) instead of waiting out the normal retention window.
+    /// Returns false if the tenant has no subscription or its data was already purged.
+    /// </summary>
+    public async Task<bool> PurgeTenantDataOnDemandAsync(Guid tenantId)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
+        var environment = scope.ServiceProvider.GetRequiredService<IWebHostEnvironment>();
+
+        var sub = await db.Subscriptions
+            .Include(s => s.Tenant).ThenInclude(t => t.Settings)
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.OperationalDataDeletedAt == null);
+        if (sub == null) return false;
+
+        await PurgeOperationalTenantDataAsync(db, environment, sub, DateTime.UtcNow);
+        return true;
+    }
+
     private async Task PurgeOperationalTenantDataAsync(
         GentleBookDbContext db,
         IWebHostEnvironment environment,
@@ -354,56 +375,56 @@ public class SubscriptionService
         var tenantId = sub.TenantId;
         var logoUrl = sub.Tenant.Settings?.LogoUrl;
 
-        await using var transaction = await db.Database.BeginTransactionAsync();
         try
         {
-            // AI and brand-import data, children before parents.
-            await db.AiMessages.Where(m => db.AiConversations
-                .Where(c => c.TenantId == tenantId).Select(c => c.Id).Contains(m.ConversationId))
-                .ExecuteDeleteAsync();
-            await db.AiActions.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.AiUsages.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.AiKnowledgeChunks.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.AiKnowledgeDocuments.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.AiKnowledgeSources.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.AiConversations.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.ServiceFinderBookingDrafts.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.ServiceGuidances.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.ServiceFinderRules.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.ServiceFinderQuestions.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.TenantIndustryCapabilities.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.TenantIndustrySettings.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            // AI and brand-import data, children before parents. Fetch-then-remove (not
+            // ExecuteDeleteAsync) so this method is exercisable against EF Core's InMemory test
+            // provider, which can't translate ExecuteDelete/ExecuteUpdate — same reasoning as
+            // HandleFirstPaymentResultAsync's ExecuteUpdateAsync fix above. This code only ever
+            // purges one tenant's data once, so the extra round-trip per table is immaterial.
+            var conversationIds = await db.AiConversations.Where(c => c.TenantId == tenantId).Select(c => c.Id).ToListAsync();
+            db.AiMessages.RemoveRange(await db.AiMessages.Where(m => conversationIds.Contains(m.ConversationId)).ToListAsync());
+            db.AiActions.RemoveRange(await db.AiActions.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.AiUsages.RemoveRange(await db.AiUsages.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.AiKnowledgeChunks.RemoveRange(await db.AiKnowledgeChunks.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.AiKnowledgeDocuments.RemoveRange(await db.AiKnowledgeDocuments.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.AiKnowledgeSources.RemoveRange(await db.AiKnowledgeSources.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.AiConversations.RemoveRange(await db.AiConversations.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.ServiceFinderBookingDrafts.RemoveRange(await db.ServiceFinderBookingDrafts.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.ServiceGuidances.RemoveRange(await db.ServiceGuidances.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.ServiceFinderRules.RemoveRange(await db.ServiceFinderRules.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.ServiceFinderQuestions.RemoveRange(await db.ServiceFinderQuestions.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.TenantIndustryCapabilities.RemoveRange(await db.TenantIndustryCapabilities.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.TenantIndustrySettings.RemoveRange(await db.TenantIndustrySettings.Where(x => x.TenantId == tenantId).ToListAsync());
 
-            await db.BrandAssetCandidates.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.BrandThemeProposals.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.BrandImportResults.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.BrandImportJobs.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            db.BrandAssetCandidates.RemoveRange(await db.BrandAssetCandidates.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.BrandThemeProposals.RemoveRange(await db.BrandThemeProposals.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.BrandImportResults.RemoveRange(await db.BrandImportResults.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.BrandImportJobs.RemoveRange(await db.BrandImportJobs.Where(x => x.TenantId == tenantId).ToListAsync());
 
             // Booking and business data, restrictive dependants first.
-            await db.EmailLogs.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.WaitlistEntries.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.EmployeeNotes.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.Bookings.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.BlockedTimeSlots.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.EmployeeVacations.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.EmployeeSchedules.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.ServiceEmployees.IgnoreQueryFilters()
+            db.EmailLogs.RemoveRange(await db.EmailLogs.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.WaitlistEntries.RemoveRange(await db.WaitlistEntries.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.EmployeeNotes.RemoveRange(await db.EmployeeNotes.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.Bookings.RemoveRange(await db.Bookings.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.BlockedTimeSlots.RemoveRange(await db.BlockedTimeSlots.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.EmployeeVacations.RemoveRange(await db.EmployeeVacations.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.EmployeeSchedules.RemoveRange(await db.EmployeeSchedules.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.ServiceEmployees.RemoveRange(await db.ServiceEmployees.IgnoreQueryFilters()
                 .Where(x => x.Service.TenantId == tenantId || x.Employee.TenantId == tenantId)
-                .ExecuteDeleteAsync();
-            await db.Services.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.BusinessLocations.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.ServiceCategories.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.Customers.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.BusinessHours.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.TenantLinks.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+                .ToListAsync());
+            db.Services.RemoveRange(await db.Services.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.BusinessLocations.RemoveRange(await db.BusinessLocations.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.ServiceCategories.RemoveRange(await db.ServiceCategories.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.Customers.RemoveRange(await db.Customers.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.BusinessHours.RemoveRange(await db.BusinessHours.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.TenantLinks.RemoveRange(await db.TenantLinks.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
 
-            await db.PasswordResetTokens
-                .Where(x => x.User.TenantId == tenantId)
-                .ExecuteDeleteAsync();
-            await db.PlatformUsers.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.SubscriptionRequests.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.TenantSettings.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
-            await db.AuditLogs.Where(x => x.TenantId == tenantId).ExecuteDeleteAsync();
+            db.PasswordResetTokens.RemoveRange(await db.PasswordResetTokens.Where(x => x.User.TenantId == tenantId).ToListAsync());
+            db.PlatformUsers.RemoveRange(await db.PlatformUsers.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.SubscriptionRequests.RemoveRange(await db.SubscriptionRequests.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.TenantSettings.RemoveRange(await db.TenantSettings.Where(x => x.TenantId == tenantId).ToListAsync());
+            db.AuditLogs.RemoveRange(await db.AuditLogs.Where(x => x.TenantId == tenantId).ToListAsync());
 
             sub.Tenant.Name = $"Gelöschter Mandant {tenantId:N}";
             sub.Tenant.Slug = $"deleted-{tenantId:N}";
@@ -425,14 +446,15 @@ public class SubscriptionService
                 CreatedAt = now
             });
 
+            // One SaveChangesAsync call persisting every RemoveRange above plus the tenant
+            // anonymization and audit log entry — EF Core wraps this in its own transaction
+            // automatically, so nothing here is partially applied on failure.
             await db.SaveChangesAsync();
-            await transaction.CommitAsync();
             DeleteUploadedLogo(environment.WebRootPath, logoUrl);
             _logger.LogInformation("Retention purge completed for TenantId={TenantId}", tenantId);
         }
         catch (Exception ex)
         {
-            await transaction.RollbackAsync();
             _logger.LogError(ex, "Retention purge failed for TenantId={TenantId}", tenantId);
             throw;
         }

@@ -45,15 +45,22 @@ public class AuthController : ControllerBase
             .Include(t => t.Subscription)
             .FirstOrDefaultAsync(t => t.Slug == dto.TenantSlug.ToLowerInvariant());
 
+        // Expired and Cancelled subscriptions must still be able to log in — Cancelled tenants
+        // get IsActive=false the moment cancellation takes effect (MollieService), but for the
+        // whole 30-day retention window after that they still need to reach the billing and GDPR
+        // Art. 15/17 self-service endpoints (LEGAL_AUDIT_2026-09-06.md: "insbesondere bei
+        // gesperrtem Konto"), which TenantMiddleware already allows through once authenticated —
+        // login itself must not block it first.
+        var canLoginWhileLocked = tenant?.Subscription?.Status is SubscriptionStatus.Expired or SubscriptionStatus.Cancelled;
+
         // No `message` on either branch below: the two cases (unknown tenant slug vs. wrong
         // email/password) must be indistinguishable to the caller, both to avoid leaking which
         // tenant slugs exist and so the frontend's own localized (DE/EN) fallback text renders
         // instead of a hardcoded English string that ignored the UI's selected language.
-        if (tenant == null || (!tenant.IsActive && tenant.Subscription?.Status != SubscriptionStatus.Expired))
+        if (tenant == null || (!tenant.IsActive && !canLoginWhileLocked))
             return Unauthorized();
 
-        if (tenant.Subscription == null ||
-            (!tenant.Subscription.IsAccessAllowed && tenant.Subscription.Status != SubscriptionStatus.Expired))
+        if (tenant.Subscription == null || (!tenant.Subscription.IsAccessAllowed && !canLoginWhileLocked))
             return StatusCode(402, new { message = "Trial expired or subscription inactive." });
 
         var user = await _db.PlatformUsers

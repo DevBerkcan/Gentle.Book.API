@@ -32,6 +32,25 @@ public class TenantMiddlewarePastDueTests
         return (tenant, subscription);
     }
 
+    private static (Tenant tenant, Subscription subscription) SeedCancelledSubscription(GentleBook.Api.Data.GentleBookDbContext db)
+    {
+        var tenant = new Tenant { Name = "Salon Gekuendigt", Slug = "salon-cancelled-" + Guid.NewGuid(), IsActive = true };
+        var subscription = new Subscription
+        {
+            TenantId = tenant.Id,
+            Tenant = tenant,
+            Plan = SubscriptionPlan.Starter,
+            Interval = SubscriptionInterval.Monthly,
+            Status = SubscriptionStatus.Cancelled,
+            CancelledAt = DateTime.UtcNow.AddDays(-1),
+            RetentionEndsAt = DateTime.UtcNow.AddDays(29),
+        };
+        tenant.Subscription = subscription;
+        db.AddRange(tenant, subscription);
+        db.SaveChanges();
+        return (tenant, subscription);
+    }
+
     private static HttpContext BuildContext(Guid tenantId, string path)
     {
         var context = new DefaultHttpContext();
@@ -61,6 +80,40 @@ public class TenantMiddlewarePastDueTests
     {
         using var db = TestDbContextFactory.Create();
         var (tenant, _) = SeedPastDueSubscription(db);
+
+        var nextCalled = false;
+        var middleware = new TenantMiddleware(_ => { nextCalled = true; return Task.CompletedTask; });
+        var context = BuildContext(tenant.Id, "/api/bookings");
+
+        await middleware.InvokeAsync(context, new TenantContext(), db);
+
+        Assert.False(nextCalled);
+        Assert.Equal(402, context.Response.StatusCode);
+    }
+
+    // LEGAL_AUDIT_2026-09-06.md: a cancelled (locked) tenant must still be able to reach the
+    // GDPR Art. 15/17 data-request endpoints, exactly like it can still reach billing.
+    [Fact]
+    public async Task InvokeAsync_CancelledTenant_DataRequestEndpoint_IsReachable()
+    {
+        using var db = TestDbContextFactory.Create();
+        var (tenant, _) = SeedCancelledSubscription(db);
+
+        var nextCalled = false;
+        var middleware = new TenantMiddleware(_ => { nextCalled = true; return Task.CompletedTask; });
+        var context = BuildContext(tenant.Id, "/api/tenant/data-requests/export");
+
+        await middleware.InvokeAsync(context, new TenantContext(), db);
+
+        Assert.True(nextCalled);
+        Assert.NotEqual(402, context.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_CancelledTenant_NonExemptEndpoint_Is402()
+    {
+        using var db = TestDbContextFactory.Create();
+        var (tenant, _) = SeedCancelledSubscription(db);
 
         var nextCalled = false;
         var middleware = new TenantMiddleware(_ => { nextCalled = true; return Task.CompletedTask; });

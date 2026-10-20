@@ -64,12 +64,13 @@ public class TenantMiddleware
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.TenantId == tenantId);
 
-        // A PastDue tenant must still be able to reach the billing endpoints to self-cancel —
-        // otherwise a customer with a failed payment is locked out of cancelling at all until
-        // the dunning job gives up on them days later.
-        var billingAccessDuringLockout = subscription?.Status is SubscriptionStatus.Expired or SubscriptionStatus.PastDue
-            && IsBillingPath(path);
-        if (subscription == null || (!subscription.IsAccessAllowed && !billingAccessDuringLockout))
+        // A PastDue/Cancelled/Expired tenant must still be able to reach the billing endpoints
+        // (to self-cancel) and the GDPR data-request endpoints (Art. 15/17) — otherwise a locked
+        // account could never actually get a data export or a deletion reviewed, which is
+        // exactly what LEGAL_AUDIT_2026-09-06.md flagged ("insbesondere bei gesperrtem Konto").
+        var lockoutExemptAccess = subscription?.Status is SubscriptionStatus.Expired or SubscriptionStatus.PastDue or SubscriptionStatus.Cancelled
+            && IsLockoutExemptPath(path);
+        if (subscription == null || (!subscription.IsAccessAllowed && !lockoutExemptAccess))
         {
             context.Response.StatusCode = 402; // Payment Required
             await context.Response.WriteAsJsonAsync(new
@@ -93,7 +94,8 @@ public class TenantMiddleware
             || path == "/health";
     }
 
-    private static bool IsBillingPath(string path) =>
+    private static bool IsLockoutExemptPath(string path) =>
         path.StartsWith("/api/tenant/subscription", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWith("/api/tenant/plan-pricing", StringComparison.OrdinalIgnoreCase);
+        || path.StartsWith("/api/tenant/plan-pricing", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("/api/tenant/data-requests", StringComparison.OrdinalIgnoreCase);
 }

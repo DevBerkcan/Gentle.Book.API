@@ -3640,6 +3640,84 @@ GentleBook · support@gentlegroup.de";
         }
     }
 
+    /// <summary>GDPR Art. 17 self-service: alerts the SuperAdmin that a tenant requested deletion of their operational data and needs review.</summary>
+    public async Task SendDataDeletionRequestNotificationAsync(string tenantName, string tenantSlug, string requestedByEmail)
+    {
+        try
+        {
+            var superadminEmail = "berkcan@gentle-webdesign.com";
+            var adminUrl = $"{FrontendUrl}/superadmin/data-requests";
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
+            message.To.Add(MailboxAddress.Parse(superadminEmail));
+            message.Subject = $"⚠️ Löschanfrage (Art. 17 DSGVO): {tenantName}";
+
+            var content = $@"
+                <div class='greeting'>Neue Löschanfrage</div>
+                <p style='color: var(--text-secondary); line-height: 1.6;'>
+                    <strong>{System.Net.WebUtility.HtmlEncode(tenantName)}</strong> ({System.Net.WebUtility.HtmlEncode(tenantSlug)}) hat über das Mandanten-Dashboard die Löschung seiner operativen Daten beantragt (Art. 17 DSGVO).
+                    Angefragt von: {System.Net.WebUtility.HtmlEncode(requestedByEmail)}.
+                </p>
+                <p style='color: var(--text-secondary); line-height: 1.6;'>
+                    Bitte prüfen und im Superadmin-Bereich freigeben oder ablehnen. Die Löschung ist nach Freigabe unwiderruflich.
+                </p>
+                <a href='{adminUrl}' style='display:block;background:#DC2626;color:#fff;text-decoration:none;padding:14px;border-radius:12px;font-weight:700;font-size:14px;text-align:center;margin:16px 0 0'>
+                    Anfrage im Superadmin prüfen →
+                </a>";
+            var html = GetBaseEmailTemplate("Löschanfrage benötigt Prüfung", content, "GentleBook", null, "#DC2626");
+            var text = $"Löschanfrage: {tenantName} ({tenantSlug}), angefragt von {requestedByEmail}.\nPrüfen: {adminUrl}";
+
+            message.Body = new BodyBuilder { HtmlBody = html, TextBody = text }.ToMessageBody();
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+            _logger.LogInformation("Deletion request notification sent to superadmin for tenant {TenantSlug}", tenantSlug);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send deletion request notification for tenant {TenantSlug}", tenantSlug);
+        }
+    }
+
+    /// <summary>GDPR Art. 17 self-service: tells the requesting TenantAdmin whether their deletion request was approved (data already gone) or rejected.</summary>
+    public async Task SendDataDeletionRequestResolvedAsync(string recipientEmail, string firstName, bool approved, string? reason)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = approved ? "Ihre Löschanfrage wurde umgesetzt" : "Ihre Löschanfrage wurde abgelehnt";
+
+            var content = approved
+                ? $@"<div class='greeting'>Hallo {System.Net.WebUtility.HtmlEncode(firstName)},</div>
+                     <p style='color: var(--text-secondary); line-height: 1.6;'>Ihre Anfrage zur Löschung Ihrer GentleBook-Daten (Art. 17 DSGVO) wurde geprüft und umgesetzt. Ihre operativen Account-, Kunden-, Mitarbeiter- und Buchungsdaten wurden gelöscht oder anonymisiert. Rechnungen und gesetzlich aufzubewahrende Zahlungsnachweise bleiben getrennt erhalten.</p>"
+                : $@"<div class='greeting'>Hallo {System.Net.WebUtility.HtmlEncode(firstName)},</div>
+                     <p style='color: var(--text-secondary); line-height: 1.6;'>Ihre Anfrage zur Löschung Ihrer GentleBook-Daten wurde geprüft und zunächst abgelehnt.</p>
+                     <p style='color: var(--text-secondary); line-height: 1.6;'><strong>Grund:</strong> {System.Net.WebUtility.HtmlEncode(reason ?? "–")}</p>
+                     <p style='color: var(--text-secondary); line-height: 1.6;'>Bei Rückfragen wenden Sie sich bitte an support@gentlegroup.de.</p>";
+            var html = GetBaseEmailTemplate(approved ? "Löschung umgesetzt" : "Löschanfrage abgelehnt", content, "GentleBook", null, approved ? "#6355E4" : "#DC2626");
+            var text = approved
+                ? $"Hallo {firstName}, Ihre Löschanfrage wurde umgesetzt. Rechnungen bleiben getrennt erhalten."
+                : $"Hallo {firstName}, Ihre Löschanfrage wurde abgelehnt. Grund: {reason}";
+
+            message.Body = new BodyBuilder { HtmlBody = html, TextBody = text }.ToMessageBody();
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+            _logger.LogInformation("Deletion request resolution ({Approved}) sent to {Email}", approved, recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send deletion request resolution to {Email}", recipientEmail);
+        }
+    }
+
     /// <summary>
     /// Alerts the owner when a Hangfire background job exhausts all its retries and lands in
     /// the Failed state — without this, a failing recurring job (dunning, invoice retry,
