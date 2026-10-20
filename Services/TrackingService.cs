@@ -247,7 +247,7 @@ public class TrackingService
                 UtmTerm = dto.UtmTerm,
                 SessionId = dto.SessionId,
                 UserAgent = userAgent,
-                IpAddress = ipAddress,
+                IpAddress = AnonymizeIp(ipAddress),
                 ViewedAt = DateTime.UtcNow
             };
 
@@ -262,5 +262,27 @@ public class TrackingService
             _logger.LogError(ex, "Error tracking page view");
             return (false, ex.Message);
         }
+    }
+
+    // Privacy-preserving redaction for page-view analytics (LEGAL_AUDIT_2026-09-06.md: an
+    // identifying client address was stored unredacted) — zeroes the last segment of the
+    // address before persisting, keeping rough geo-usefulness for analytics without retaining
+    // an individually-identifying value. The field is never read back anywhere in this service,
+    // so this has no functional impact elsewhere.
+    private static string? AnonymizeIp(string? clientAddress)
+    {
+        if (string.IsNullOrWhiteSpace(clientAddress)) return null;
+        if (!System.Net.IPAddress.TryParse(clientAddress, out var parsed)) return null;
+
+        var segments = parsed.GetAddressBytes();
+        if (segments.Length == 4)
+        {
+            segments[3] = 0;
+        }
+        else if (segments.Length == 16)
+        {
+            for (var i = 6; i < segments.Length; i++) segments[i] = 0;
+        }
+        return new System.Net.IPAddress(segments).ToString();
     }
 }

@@ -149,6 +149,27 @@ public class CustomersController : ControllerBase
     }
 
     /// <summary>
+    /// GDPR Art. 15 self-service: a full, portable copy of this customer's own profile and
+    /// complete booking history (not just the 10-most-recent subset GetCustomer returns).
+    /// </summary>
+    [HttpGet("{id}/export")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ExportCustomer(Guid id)
+    {
+        var employeeId = GetCurrentEmployeeId();
+        var isAdmin = IsAdminRequest();
+
+        var export = await _customerService.ExportCustomerDataAsync(id, employeeId, isAdmin);
+
+        if (export == null)
+            return NotFound(new { message = "Kunde nicht gefunden" });
+
+        return Ok(export);
+    }
+
+    /// <summary>
     /// Create a new customer
     /// </summary>
     [HttpPost]
@@ -232,7 +253,8 @@ public class CustomersController : ControllerBase
     }
 
     /// <summary>
-    /// Delete a customer (only if they have no bookings)
+    /// GDPR Art. 17 erasure: anonymizes the customer's identifying data (name, email, phone,
+    /// notes). Bookings and revenue/statistics are kept intact — only the PII is cleared.
     /// </summary>
     [HttpDelete("{id}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]

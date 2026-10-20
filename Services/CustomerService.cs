@@ -243,12 +243,16 @@ public class CustomerService
         return ToDto(customer);
     }
 
-    // ── DELETE ───────────────────────────────────────────────────────────────
+    // ── DELETE (GDPR Art. 17: anonymize, don't hard-delete) ─────────────────
+    // Previously hard-deleted the Customer row AND every Booking — correct for the PII, wrong
+    // for the business: booking history/revenue statistics are the salon's own legitimate
+    // business records and must survive a customer's erasure request (LEGAL_AUDIT_2026-09-06.md:
+    // "Kundenlöschung löscht statt zu anonymisieren"). Now only the identifying fields are
+    // cleared; the Customer row and all Bookings (needed for revenue/stats FKs) stay.
     public async Task DeleteCustomerAsync(Guid id, Guid? employeeId, bool isAdmin = false)
     {
         var query = _context.Customers
-            .Include(c => c.Bookings)  // Include bookings
-                .ThenInclude(b => b.EmailLogs)  // Include email logs for cascade
+            .Include(c => c.Bookings)
             .AsQueryable();
 
         // Check ownership if not admin
@@ -260,47 +264,84 @@ public class CustomerService
         if (customer == null)
             throw new ArgumentException("Kunde nicht gefunden");
 
-        // Start a transaction to ensure all deletes succeed or fail together
-        using var transaction = await _context.Database.BeginTransactionAsync();
+        customer.FirstName = "Gelöschter";
+        customer.LastName = "Kunde";
+        customer.Email = null;
+        customer.Phone = null;
+        customer.Notes = null;
+        customer.EmailVerificationToken = null;
+        customer.EmailVerificationTokenExpiry = null;
+        customer.IsEmailVerified = false;
+        customer.UpdatedAt = DateTime.UtcNow;
 
-        try
+        foreach (var booking in customer.Bookings)
+            booking.CustomerNotes = null;
+
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Customer anonymized (GDPR Art. 17 erasure): {CustomerId}", customer.Id);
+    }
+
+    // ── EXPORT (GDPR Art. 15) ────────────────────────────────────────────────
+    // A full, portable copy of everything stored about this customer — their own profile plus
+    // their complete booking history (GetCustomerByIdAsync only returns the 10 most recent
+    // bookings for the admin-UI detail view, which is not a complete Art. 15 export).
+    public async Task<object?> ExportCustomerDataAsync(Guid id, Guid? employeeId, bool isAdmin = false)
+    {
+        var query = _context.Customers
+            .Include(c => c.Bookings).ThenInclude(b => b.Service)
+            .Include(c => c.Bookings).ThenInclude(b => b.Employee)
+            .Include(c => c.Bookings).ThenInclude(b => b.Location)
+            .AsQueryable();
+
+        if (!isAdmin && employeeId.HasValue)
+            query = query.Where(c => c.EmployeeId == employeeId.Value);
+
+        var customer = await query.FirstOrDefaultAsync(c => c.Id == id);
+        if (customer == null)
+            return null;
+
+        return new
         {
-            // Delete all bookings for this customer
-            if (customer.Bookings != null && customer.Bookings.Any())
+            ExportedAt = DateTime.UtcNow,
+            Profile = new
             {
-                _logger.LogInformation("Deleting {Count} bookings for customer {CustomerId}",
-                    customer.Bookings.Count, customer.Id);
-
-                // Delete all email logs for these bookings
-                foreach (var booking in customer.Bookings)
-                {
-                    if (booking.EmailLogs != null && booking.EmailLogs.Any())
-                    {
-                        _context.EmailLogs.RemoveRange(booking.EmailLogs);
-                    }
-                }
-
-                // Delete all bookings
-                _context.Bookings.RemoveRange(customer.Bookings);
-            }
-
-            // Delete the customer
-            _context.Customers.Remove(customer);
-
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-
-            _logger.LogInformation(
-                "Customer deleted: {CustomerId} with {BookingCount} bookings",
                 customer.Id,
-                customer.Bookings?.Count ?? 0);
-        }
-        catch (Exception ex)
-        {
-            await transaction.RollbackAsync();
-            _logger.LogError(ex, "Error deleting customer {CustomerId}", customer.Id);
-            throw new InvalidOperationException("Fehler beim Löschen des Kunden und seiner Buchungen", ex);
-        }
+                customer.FirstName,
+                customer.LastName,
+                customer.Email,
+                customer.Phone,
+                customer.Notes,
+                customer.CreatedAt,
+                customer.UpdatedAt,
+                customer.LastVisit,
+                customer.TotalBookings,
+                customer.NoShowCount,
+                customer.ConsentGivenAt,
+                customer.LoyaltyPoints,
+            },
+            Bookings = customer.Bookings
+                .OrderByDescending(b => b.BookingDate)
+                .ThenByDescending(b => b.StartTime)
+                .Select(b => new
+                {
+                    b.Id,
+                    BookingNumber = Booking.GenerateBookingNumber(b.BookingDate, b.Id),
+                    Service = b.Service?.Name,
+                    Employee = b.Employee?.Name,
+                    Location = b.Location?.Name,
+                    b.BookingDate,
+                    b.StartTime,
+                    b.EndTime,
+                    Status = b.Status.ToString(),
+                    b.CustomerNotes,
+                    b.AdminNotes,
+                    b.CreatedAt,
+                    b.CancelledAt,
+                    b.CancellationReason,
+                })
+                .ToList(),
+        };
     }
 
     // ── SEARCH (for dropdown/autocomplete) ──────────────────────────────────
