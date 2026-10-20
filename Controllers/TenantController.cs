@@ -509,6 +509,8 @@ public class TenantController : ControllerBase
                 settings.BillingCity,
                 settings.BillingCountry,
                 settings.VatId,
+                settings.PrivacyUrl,
+                settings.ImprintUrl,
                 settings.HasCompleteBillingProfile,
                 settings.BookingIntervalMinutes,
                 settings.MaxAdvanceBookingDays,
@@ -595,6 +597,25 @@ public class TenantController : ControllerBase
         settings.BillingCity = dto.BillingCity?.Trim() ?? settings.BillingCity;
         settings.BillingCountry = dto.BillingCountry?.Trim().ToUpper() ?? settings.BillingCountry;
         settings.VatId = dto.VatId?.Trim() ?? settings.VatId;
+
+        // HTTPS-only — these render as a clickable link on every public booking page, so a
+        // javascript:/data: URL stored here would be a stored-XSS vector for that studio's
+        // entire customer base, not just the admin who saved it.
+        if (dto.PrivacyUrl != null)
+        {
+            var trimmed = dto.PrivacyUrl.Trim();
+            if (trimmed.Length > 0 && !trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return BadRequest(new { message = "Der Datenschutz-Link muss mit https:// beginnen." });
+            settings.PrivacyUrl = trimmed.Length == 0 ? null : trimmed;
+        }
+        if (dto.ImprintUrl != null)
+        {
+            var trimmed = dto.ImprintUrl.Trim();
+            if (trimmed.Length > 0 && !trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return BadRequest(new { message = "Der Impressum-Link muss mit https:// beginnen." });
+            settings.ImprintUrl = trimmed.Length == 0 ? null : trimmed;
+        }
+
         settings.WelcomeMessage = dto.WelcomeMessage?.Trim() ?? settings.WelcomeMessage;
         settings.CancellationPolicy = dto.CancellationPolicy?.Trim() ?? settings.CancellationPolicy;
 
@@ -1495,6 +1516,8 @@ public record UpdateTenantSettingsRequest(
     string? BillingCity,
     string? BillingCountry,
     string? VatId,
+    string? PrivacyUrl = null,
+    string? ImprintUrl = null,
     bool? IsChatbotEnabled = null,
     int? ChatbotMaxMessagesPerConversation = null,
     int? ChatbotMaxMessagesPerVisitorPerDay = null

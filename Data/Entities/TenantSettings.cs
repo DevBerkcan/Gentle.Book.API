@@ -20,6 +20,16 @@ public class TenantSettings
     public string? Website { get; set; }
     public string? Address { get; set; }
 
+    // ── Legal (per-studio, see LEGAL_AUDIT_2026-09-06.md BLOCKER "Studiospezifischer
+    // Datenschutzlink/-text fehlt") ────────────────────────────
+    // The studio (data controller for its own customers' booking data) gets its own privacy
+    // policy / imprint link shown on its booking page, instead of only GentleBook's own generic
+    // ones. HTTPS-only is enforced at write time (TenantController.UpdateSettings) — never
+    // trust a stored scheme, a javascript:/data: URL here would render as a clickable link on
+    // every public booking page.
+    public string? PrivacyUrl { get; set; }
+    public string? ImprintUrl { get; set; }
+
     // ── Billing Address (structured, for Mollie + CRM invoicing) ──
     public string? LegalCompanyName { get; set; }
     public string? BillingStreet { get; set; }

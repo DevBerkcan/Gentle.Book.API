@@ -2591,6 +2591,9 @@ namespace GentleBook.Api.Migrations
                     b.Property<string>("Email")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("ImprintUrl")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsChatbotEnabled")
                         .HasColumnType("bit");
 
@@ -2640,6 +2643,9 @@ namespace GentleBook.Api.Migrations
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("PrivacyUrl")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("SecondaryColor")
                         .IsRequired()

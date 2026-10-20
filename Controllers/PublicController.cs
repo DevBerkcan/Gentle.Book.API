@@ -82,6 +82,10 @@ public class PublicController : ControllerBase
                 LinktreeStyle = tenant.Settings?.LinktreeStyle ?? "gradient",
                 LinktreeConfig = tenant.Settings?.LinktreeConfig,
                 Address = tenant.Settings?.Address,
+                // Studio-specific legal links (LEGAL_AUDIT_2026-09-06.md) — null when the studio
+                // hasn't set its own, so the frontend falls back to GentleBook's generic pages.
+                PrivacyUrl = tenant.Settings?.PrivacyUrl,
+                ImprintUrl = tenant.Settings?.ImprintUrl,
             });
         }
         catch (Exception ex)
