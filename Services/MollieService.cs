@@ -252,44 +252,92 @@ public class MollieService
         {
             if (string.IsNullOrEmpty(sub.MollieSubscriptionId) && !string.IsNullOrEmpty(payment.MandateId))
             {
-                var targetPlan = ParsePlanFromMetadata(payment);
-                var limits = PlanLimits.Get(targetPlan);
-                var intervalEnum = ParseIntervalFromMetadata(payment);
-                var mollieSub = await _mollie.CreateSubscriptionAsync(
-                    sub.MollieCustomerId!, payment.MandateId!, intervalEnum.PriceFor(sub, limits), "EUR", intervalEnum.ToMollieInterval(),
-                    intervalEnum.AddInterval(DateTime.UtcNow), $"GentleBook {limits.DisplayName}-Abonnement", _options.Value.WebhookUrl,
-                    new Dictionary<string, string> { ["tenantId"] = sub.TenantId.ToString() });
-
-                sub.Plan = targetPlan;
-                sub.Interval = intervalEnum;
-                sub.MollieMandateId = payment.MandateId;
-                sub.MollieSubscriptionId = mollieSub.Id;
-                sub.MollieMandateSignedAt = DateTime.UtcNow;
-                sub.Status = SubscriptionStatus.Active;
-                sub.RetentionEndsAt = null;
-                sub.RetentionWarningEmailSent = false;
-                sub.OperationalDataDeletedAt = null;
-                var periodStart = DateTime.UtcNow;
-                var periodEnd = sub.Interval.AddInterval(periodStart);
-                sub.CurrentPeriodStart = periodStart;
-                sub.CurrentPeriodEnd = periodEnd;
-                sub.UpdatedAt = DateTime.UtcNow;
-                var acceptedRequest = await _db.SubscriptionRequests.FirstOrDefaultAsync(r =>
-                    r.TenantId == sub.TenantId && r.RequestedPlan == sub.Plan.ToString() && r.Status == "Accepted");
-                if (acceptedRequest != null)
+                // Same double-Mollie-subscription race StartMandateFlowAsync's claim row guards
+                // against, but on the *processing* side: this method is reachable from two
+                // independent pathways on the same payment — a real-time webhook delivery
+                // (MollieWebhookController) and the hourly MollieReconciliationJob, which calls
+                // ProcessPaymentEventAsync directly and never goes through the webhook's own
+                // (id, status) dedup table. Two overlapping calls would both read
+                // MollieSubscriptionId as still-null and both call Mollie's CreateSubscriptionAsync,
+                // creating two live recurring subscriptions for the same tenant — reuse
+                // MandateFlowClaim (its SubscriptionId PK) as a DB-level lock here too.
+                var claimRow = new MandateFlowClaim { SubscriptionId = sub.Id };
+                _db.MandateFlowClaims.Add(claimRow);
+                try
                 {
-                    acceptedRequest.Status = "Activated";
-                    acceptedRequest.ProcessedAt = DateTime.UtcNow;
+                    await _db.SaveChangesAsync();
                 }
-                await _db.Tenants.Where(t => t.Id == sub.TenantId)
-                    .ExecuteUpdateAsync(update => update
-                        .SetProperty(t => t.IsActive, true)
-                        .SetProperty(t => t.UpdatedAt, DateTime.UtcNow));
-                await _db.SaveChangesAsync();
+                catch (DbUpdateException)
+                {
+                    // Another concurrent call (webhook vs. reconciliation, or two overlapping
+                    // reconciliation runs) is already creating the subscription for this payment —
+                    // step aside. Whichever one wins persists MollieSubscriptionId, so the next
+                    // delivery/run of this same payment will see it set and skip this branch.
+                    _logger.LogInformation("Mollie first-payment processing for Subscription {SubscriptionId} already in flight elsewhere — skipping.", sub.Id);
+                    return;
+                }
 
-                await _audit.LogAsync("mollie.subscription_activated", "Subscription", sub.Id.ToString(), sub.Plan.ToString(), sub.TenantId);
-                await SendActivationEmailAsync(sub, limits);
-                EnqueueInvoice(sub.Id, payment.Id, limits.DisplayName, payment.Amount?.AsDecimal ?? intervalEnum.PriceFor(sub, limits), periodStart, periodEnd);
+                try
+                {
+                    var targetPlan = ParsePlanFromMetadata(payment);
+                    var limits = PlanLimits.Get(targetPlan);
+                    var intervalEnum = ParseIntervalFromMetadata(payment);
+                    var mollieSub = await _mollie.CreateSubscriptionAsync(
+                        sub.MollieCustomerId!, payment.MandateId!, intervalEnum.PriceFor(sub, limits), "EUR", intervalEnum.ToMollieInterval(),
+                        intervalEnum.AddInterval(DateTime.UtcNow), $"GentleBook {limits.DisplayName}-Abonnement", _options.Value.WebhookUrl,
+                        new Dictionary<string, string> { ["tenantId"] = sub.TenantId.ToString() });
+
+                    sub.Plan = targetPlan;
+                    sub.Interval = intervalEnum;
+                    sub.MollieMandateId = payment.MandateId;
+                    sub.MollieSubscriptionId = mollieSub.Id;
+                    sub.MollieMandateSignedAt = DateTime.UtcNow;
+                    sub.Status = SubscriptionStatus.Active;
+                    sub.RetentionEndsAt = null;
+                    sub.RetentionWarningEmailSent = false;
+                    sub.OperationalDataDeletedAt = null;
+                    var periodStart = DateTime.UtcNow;
+                    var periodEnd = sub.Interval.AddInterval(periodStart);
+                    sub.CurrentPeriodStart = periodStart;
+                    sub.CurrentPeriodEnd = periodEnd;
+                    sub.UpdatedAt = DateTime.UtcNow;
+                    var acceptedRequest = await _db.SubscriptionRequests.FirstOrDefaultAsync(r =>
+                        r.TenantId == sub.TenantId && r.RequestedPlan == sub.Plan.ToString() && r.Status == "Accepted");
+                    if (acceptedRequest != null)
+                    {
+                        acceptedRequest.Status = "Activated";
+                        acceptedRequest.ProcessedAt = DateTime.UtcNow;
+                    }
+                    // Fetch+mutate rather than ExecuteUpdateAsync: a single-row update by PK has no
+                    // performance reason to bypass change tracking here, and ExecuteUpdateAsync
+                    // isn't supported against EF Core's InMemory provider (test-only), which left
+                    // this entire activation path untestable.
+                    var tenantToActivate = await _db.Tenants.FirstOrDefaultAsync(t => t.Id == sub.TenantId);
+                    if (tenantToActivate != null)
+                    {
+                        tenantToActivate.IsActive = true;
+                        tenantToActivate.UpdatedAt = DateTime.UtcNow;
+                    }
+                    _db.MandateFlowClaims.Remove(claimRow);
+                    await _db.SaveChangesAsync();
+
+                    await _audit.LogAsync("mollie.subscription_activated", "Subscription", sub.Id.ToString(), sub.Plan.ToString(), sub.TenantId);
+                    await SendActivationEmailAsync(sub, limits);
+                    EnqueueInvoice(sub.Id, payment.Id, limits.DisplayName, payment.Amount?.AsDecimal ?? intervalEnum.PriceFor(sub, limits), periodStart, periodEnd);
+                }
+                catch
+                {
+                    // Release the claim so a transient Mollie failure doesn't permanently lock
+                    // this subscription out of ever being activated by a later retry (webhook
+                    // redelivery or the next reconciliation run).
+                    try
+                    {
+                        _db.MandateFlowClaims.Remove(claimRow);
+                        await _db.SaveChangesAsync();
+                    }
+                    catch { /* best effort — a stuck claim row just needs manual cleanup later */ }
+                    throw;
+                }
             }
         }
         else if (payment.IsFailedOrExpired)
