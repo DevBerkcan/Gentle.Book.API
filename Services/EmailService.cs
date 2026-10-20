@@ -584,7 +584,7 @@ public class EmailService
 
         var valueLabel = type switch
         {
-            VoucherType.MonetaryValue => $"{remainingAmount:N2} Guthaben",
+            VoucherType.MonetaryValue => $"{remainingAmount:N2} €",
             VoucherType.PercentageDiscount => $"{percentageValue:N0}% Rabatt",
             _ => $"{remainingSessions} Sitzung(en)",
         };
