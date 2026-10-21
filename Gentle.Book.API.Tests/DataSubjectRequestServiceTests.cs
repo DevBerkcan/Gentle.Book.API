@@ -29,7 +29,8 @@ public class DataSubjectRequestServiceTests
         tenant.Subscription = subscription;
         tenant.Settings = settings;
         var customer = new Customer { TenantId = tenant.Id, FirstName = "Lena", LastName = "Kunde", Email = "lena@example.test" };
-        db.AddRange(tenant, settings, subscription, customer);
+        var employee = new Employee { TenantId = tenant.Id, Name = "Mara Mitarbeiterin", Username = "mara", PasswordHash = "hash" };
+        db.AddRange(tenant, settings, subscription, customer, employee);
         db.SaveChanges();
         return (tenant, subscription);
     }
@@ -113,6 +114,9 @@ public class DataSubjectRequestServiceTests
         var reloadedSub = await db.Subscriptions.AsNoTracking().FirstAsync(s => s.TenantId == tenant.Id);
         Assert.NotNull(reloadedSub.OperationalDataDeletedAt);
         Assert.False(await db.Customers.IgnoreQueryFilters().AsNoTracking().AnyAsync(c => c.TenantId == tenant.Id));
+        // Regression: the Employee row itself (name, username, password hash) used to survive
+        // the purge — only its notes/vacations/schedules/service-links were cleared.
+        Assert.False(await db.Employees.IgnoreQueryFilters().AsNoTracking().AnyAsync(e => e.TenantId == tenant.Id));
     }
 
     [Fact]

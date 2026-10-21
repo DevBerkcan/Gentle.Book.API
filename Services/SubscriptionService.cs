@@ -413,6 +413,10 @@ public class SubscriptionService
             db.ServiceEmployees.RemoveRange(await db.ServiceEmployees.IgnoreQueryFilters()
                 .Where(x => x.Service.TenantId == tenantId || x.Employee.TenantId == tenantId)
                 .ToListAsync());
+            // The Employee row itself (name, username, password hash, photo, tagline) was never
+            // deleted here — only its notes/vacations/schedules/service-links were. Found while
+            // verifying a "purged" tenant still showed a non-zero employee count.
+            db.Employees.RemoveRange(await db.Employees.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
             db.Services.RemoveRange(await db.Services.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
             db.BusinessLocations.RemoveRange(await db.BusinessLocations.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
             db.ServiceCategories.RemoveRange(await db.ServiceCategories.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
