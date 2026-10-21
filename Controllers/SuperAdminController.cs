@@ -409,6 +409,25 @@ public class SuperAdminController : ControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// Anonymizes a tenant's operational data directly (no TenantAdmin-initiated request) — the
+    /// same irreversible purge DataSubjectRequestService.ApproveDeletionRequestAsync runs, just
+    /// triggered by the SuperAdmin on their own initiative (e.g. admin test-data cleanup).
+    /// Invoices and the Tenant shell row survive by design; use DeleteTenant for a tenant that
+    /// has no invoices and should be removed entirely instead.
+    /// </summary>
+    [HttpPost("tenants/{id:guid}/purge")]
+    public async Task<IActionResult> PurgeTenant(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var actorUserId = JwtService.GetUserId(User) ?? Guid.Empty;
+        var (success, error) = await _dataSubjectRequests.SuperAdminPurgeAsync(id, actorUserId);
+        if (!success) return BadRequest(new { message = error });
+
+        return Ok(new { message = "Operative Daten bereinigt." });
+    }
+
     /// <summary>Delete a tenant and all its data.</summary>
     [HttpDelete("tenants/{id:guid}")]
     public async Task<IActionResult> DeleteTenant(Guid id)
@@ -418,11 +437,20 @@ public class SuperAdminController : ControllerBase
         var tenant = await _db.Tenants.FindAsync(id);
         if (tenant == null) return NotFound();
 
+        // Invoices deliberately have a Restrict FK to Tenant and are never deleted here
+        // (statutory retention) — a tenant with invoices can therefore never be hard-deleted.
+        // Fail with a clear message instead of a 500 from the FK violation; use /purge instead,
+        // which anonymizes operational data and correctly keeps the Tenant shell + invoices.
+        if (await _db.Invoices.AnyAsync(i => i.TenantId == id))
+            return BadRequest(new { message = "Dieser Mandant hat Rechnungen, die aus gesetzlichen Gründen nicht gelöscht werden dürfen. Bitte den /purge-Endpunkt verwenden (anonymisiert operative Daten, behält Rechnungen und die Mandanten-Hülle)." });
+
         await using var tx = await _db.Database.BeginTransactionAsync();
         try
         {
             // Dependents with optional/restrictive foreign keys must be removed
             // before their bookings, services or employees.
+            await _db.TrialAccessInvitations.IgnoreQueryFilters().Where(i => i.TenantId == id).ExecuteDeleteAsync();
+            await _db.DataSubjectRequests.Where(r => r.TenantId == id).ExecuteDeleteAsync();
             await _db.EmailLogs.IgnoreQueryFilters().Where(e => e.TenantId == id).ExecuteDeleteAsync();
             await _db.WaitlistEntries.IgnoreQueryFilters().Where(w => w.TenantId == id).ExecuteDeleteAsync();
             await _db.EmployeeNotes.IgnoreQueryFilters().Where(n => n.TenantId == id).ExecuteDeleteAsync();

@@ -204,6 +204,25 @@ public class DataSubjectRequestService
         return (true, null);
     }
 
+    /// <summary>
+    /// SuperAdmin-direct purge, with no TenantAdmin-initiated DataSubjectRequest needed — for
+    /// administrative test-data cleanup where the SuperAdmin IS the one deciding, not reviewing
+    /// someone else's request. Runs the exact same irreversible anonymizing purge as the
+    /// reviewed flow (PurgeTenantDataOnDemandAsync keeps Invoices and the Tenant shell row for
+    /// statutory/FK reasons — this is not a hard tenant delete).
+    /// </summary>
+    public async Task<(bool Success, string? Error)> SuperAdminPurgeAsync(Guid tenantId, Guid actorUserId)
+    {
+        var purged = await _subscriptionService.PurgeTenantDataOnDemandAsync(tenantId);
+        if (!purged)
+            return (false, "Daten wurden bereits gelöscht oder es existiert kein Abonnement.");
+
+        await _audit.LogAsync("tenant.operational_data_purged_by_superadmin", "Tenant", tenantId.ToString(),
+            "SuperAdmin hat die operativen Daten direkt bereinigt (kein kundeninitiierter Antrag).", tenantId);
+
+        return (true, null);
+    }
+
     public async Task<(bool Success, string? Error)> RejectDeletionRequestAsync(Guid requestId, Guid approverUserId, string reason)
     {
         var request = await _db.DataSubjectRequests.FirstOrDefaultAsync(r => r.Id == requestId);
