@@ -417,12 +417,12 @@ public class SuperAdminController : ControllerBase
     /// has no invoices and should be removed entirely instead.
     /// </summary>
     [HttpPost("tenants/{id:guid}/purge")]
-    public async Task<IActionResult> PurgeTenant(Guid id)
+    public async Task<IActionResult> PurgeTenant(Guid id, [FromQuery] bool force = false)
     {
         if (ForbidIfNotSuperAdmin() is { } err) return err;
 
         var actorUserId = JwtService.GetUserId(User) ?? Guid.Empty;
-        var (success, error) = await _dataSubjectRequests.SuperAdminPurgeAsync(id, actorUserId);
+        var (success, error) = await _dataSubjectRequests.SuperAdminPurgeAsync(id, actorUserId, force);
         if (!success) return BadRequest(new { message = error });
 
         return Ok(new { message = "Operative Daten bereinigt." });

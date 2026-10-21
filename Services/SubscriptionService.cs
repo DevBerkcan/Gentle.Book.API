@@ -351,15 +351,19 @@ public class SubscriptionService
     /// (see DataSubjectRequestService) instead of waiting out the normal retention window.
     /// Returns false if the tenant has no subscription or its data was already purged.
     /// </summary>
-    public async Task<bool> PurgeTenantDataOnDemandAsync(Guid tenantId)
+    public async Task<bool> PurgeTenantDataOnDemandAsync(Guid tenantId, bool force = false)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<GentleBookDbContext>();
         var environment = scope.ServiceProvider.GetRequiredService<IWebHostEnvironment>();
 
-        var sub = await db.Subscriptions
-            .Include(s => s.Tenant).ThenInclude(t => t.Settings)
-            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.OperationalDataDeletedAt == null);
+        var query = db.Subscriptions.Include(s => s.Tenant).ThenInclude(t => t.Settings).Where(s => s.TenantId == tenantId);
+        // force re-runs the purge even if OperationalDataDeletedAt is already set — every step
+        // is a RemoveRange on a Where-filtered set, so re-running against already-empty tables
+        // is a no-op; this only matters for catching up a tenant whose first purge ran before a
+        // later-discovered gap in PurgeOperationalTenantDataAsync (e.g. Employees) was fixed.
+        if (!force) query = query.Where(s => s.OperationalDataDeletedAt == null);
+        var sub = await query.FirstOrDefaultAsync();
         if (sub == null) return false;
 
         await PurgeOperationalTenantDataAsync(db, environment, sub, DateTime.UtcNow);

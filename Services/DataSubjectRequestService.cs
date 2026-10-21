@@ -211,9 +211,9 @@ public class DataSubjectRequestService
     /// reviewed flow (PurgeTenantDataOnDemandAsync keeps Invoices and the Tenant shell row for
     /// statutory/FK reasons — this is not a hard tenant delete).
     /// </summary>
-    public async Task<(bool Success, string? Error)> SuperAdminPurgeAsync(Guid tenantId, Guid actorUserId)
+    public async Task<(bool Success, string? Error)> SuperAdminPurgeAsync(Guid tenantId, Guid actorUserId, bool force = false)
     {
-        var purged = await _subscriptionService.PurgeTenantDataOnDemandAsync(tenantId);
+        var purged = await _subscriptionService.PurgeTenantDataOnDemandAsync(tenantId, force);
         if (!purged)
             return (false, "Daten wurden bereits gelöscht oder es existiert kein Abonnement.");
 
