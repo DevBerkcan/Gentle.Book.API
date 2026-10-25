@@ -201,7 +201,13 @@ public class BookingService
         }
 
         customer.TotalBookings++;
-        customer.LastVisit = DateTime.SpecifyKind(bookingDateTime, DateTimeKind.Utc);
+        // LastVisit means "the customer was actually here," not "has a reservation" — a booking
+        // for a future date must not overwrite it before the appointment has happened. Only a
+        // same-day/already-past booking (e.g. a walk-in logged immediately) counts right away;
+        // a genuinely future booking advances LastVisit later, when it's actually completed
+        // (BookingCompletionService / AdminService.UpdateBookingStatusAsync).
+        if (bookingDateTime <= DateTime.UtcNow)
+            customer.LastVisit = DateTime.SpecifyKind(bookingDateTime, DateTimeKind.Utc);
         customer.UpdatedAt = DateTime.UtcNow;
 
         // Same trigger point as the manual/staff booking flow (ManualBookingService) — a

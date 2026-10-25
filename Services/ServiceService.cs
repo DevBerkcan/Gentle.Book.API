@@ -134,10 +134,12 @@ public class ServiceService
             ))
             .ToListAsync();
 
-        if (employeeId.HasValue)
-        {
-            categories = categories.Where(c => c.Services.Any()).ToList();
-        }
+        // A category whose services were all filtered out above (none active, none matching the
+        // selected employee/location) has nothing bookable in it — showing it on the booking
+        // page as an empty section is just confusing. This used to only apply when an employee
+        // was pre-selected, so the plain public/anonymous booking page (the common case) still
+        // showed empty categories.
+        categories = categories.Where(c => c.Services.Any()).ToList();
 
         _logger.LogInformation("Retrieved {Count} service categories for employee {EmployeeId}",
             categories.Count, employeeId);

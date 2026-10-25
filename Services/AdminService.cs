@@ -330,6 +330,11 @@ public class AdminService
         (BookingStatus.Confirmed, BookingStatus.Completed) => true,
         (BookingStatus.Confirmed, BookingStatus.Cancelled) => true,
         (BookingStatus.Confirmed, BookingStatus.NoShow)    => true,
+        // Re-confirming a cancelled booking (e.g. the customer calls back) is a real workflow
+        // the admin bookings UI already exposes (the status dropdown offers every value
+        // regardless of current status) — it just always failed server-side before. Cancelled
+        // was previously an unconditional end-state; only this one path back out of it exists.
+        (BookingStatus.Cancelled, BookingStatus.Confirmed) => true,
         _ => false,
     };
 
@@ -361,6 +366,14 @@ public class AdminService
         if (newStatus == BookingStatus.Cancelled && !booking.CancelledAt.HasValue)
             booking.CancelledAt = DateTime.UtcNow;
 
+        // Re-confirming clears the stale cancellation evidence — the booking is active again,
+        // a leftover CancelledAt/CancellationReason would otherwise still show as if it were.
+        if (newStatus == BookingStatus.Confirmed && oldStatus == BookingStatus.Cancelled)
+        {
+            booking.CancelledAt = null;
+            booking.CancellationReason = null;
+        }
+
         await _context.SaveChangesAsync();
 
         // Same trigger point as the automatic completion job (BookingCompletionService) — a
@@ -380,7 +393,7 @@ public class AdminService
         {
             try
             {
-                await _emailService.SendCancellationConfirmationAsync(booking, booking.Customer, booking.Service);
+                await _emailService.SendCancellationConfirmationAsync(booking, booking.Customer, booking.Service, cancelledByStudio: true);
                 _logger.LogInformation("Cancellation email sent to {Email} for booking {BookingId}", booking.Customer.Email, bookingId);
             }
             catch (Exception ex)
@@ -439,7 +452,7 @@ public class AdminService
         {
             try
             {
-                await _emailService.SendCancellationConfirmationAsync(booking, booking.Customer, booking.Service);
+                await _emailService.SendCancellationConfirmationAsync(booking, booking.Customer, booking.Service, cancelledByStudio: true);
                 _logger.LogInformation("Cancellation email sent to {Email} for deleted booking {BookingId}", booking.Customer.Email, bookingId);
             }
             catch (Exception ex)

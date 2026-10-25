@@ -209,7 +209,11 @@ public class EmailService
         await _context.SaveChangesAsync();
     }
 
-    public async Task SendCancellationConfirmationAsync(Booking booking, Customer customer, Service service)
+    // cancelledByStudio distinguishes a customer's own self-cancellation (CancelBookingAsync)
+    // from the salon cancelling on the customer's behalf (AdminService.UpdateBookingStatusAsync /
+    // DeleteBookingAsync) — both used to send the exact same "Ihre Buchung wurde storniert"
+    // wording, which reads to the customer as if THEY had cancelled even when the salon did.
+    public async Task SendCancellationConfirmationAsync(Booking booking, Customer customer, Service service, bool cancelledByStudio = false)
     {
         var emailLog = new EmailLog
         {
@@ -230,7 +234,7 @@ public class EmailService
             var tenantLogo3      = GetAbsoluteLogoUrl(tenantSettings3?.LogoUrl);
             var primaryColor3    = tenantSettings3?.PrimaryColor ?? "#6355E4";
 
-            emailLog.Subject = $"Ihre Stornierung – {tenantName3}";
+            emailLog.Subject = cancelledByStudio ? $"Ihr Termin wurde storniert – {tenantName3}" : $"Ihre Stornierung – {tenantName3}";
 
             message.From.Add(new MailboxAddress(tenantName3, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(customer.FullName, customer.Email!));
@@ -238,8 +242,8 @@ public class EmailService
 
             var builder = new BodyBuilder();
 
-            builder.HtmlBody = GetCancellationEmailHtml(booking, customer, service, tenantName3, tenantLogo3, primaryColor3);
-            builder.TextBody = GetCancellationEmailText(booking, customer, service, tenantName3);
+            builder.HtmlBody = GetCancellationEmailHtml(booking, customer, service, tenantName3, tenantLogo3, primaryColor3, cancelledByStudio);
+            builder.TextBody = GetCancellationEmailText(booking, customer, service, tenantName3, cancelledByStudio);
 
             message.Body = builder.ToMessageBody();
 
@@ -1737,15 +1741,17 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
         return GetBaseEmailTemplate("Buchung bestätigt", content, tenantName, tenantLogoUrl, primaryColor);
     }
 
-    private string GetCancellationEmailHtml(Booking booking, Customer customer, Service service, string tenantName = "GentleBook", string? tenantLogoUrl = null, string primaryColor = "#6355E4")
+    private string GetCancellationEmailHtml(Booking booking, Customer customer, Service service, string tenantName = "GentleBook", string? tenantLogoUrl = null, string primaryColor = "#6355E4", bool cancelledByStudio = false)
     {
         var content = $@"
             <div class='greeting'>
                 Hallo {customer.FirstName},
             </div>
-            
+
             <p style='color: var(--text-secondary); margin-bottom: 30px;'>
-                Ihre Buchung bei {tenantName} wurde erfolgreich storniert.
+                {(cancelledByStudio
+                    ? $"Ihr Termin bei {tenantName} wurde leider von uns storniert."
+                    : $"Ihre Buchung bei {tenantName} wurde erfolgreich storniert.")}
             </p>
             
             <div class='booking-card'>
@@ -1909,7 +1915,7 @@ Status: Bestätigt
 © {DateTime.UtcNow.Year} {tenantName}. Alle Rechte vorbehalten.";
     }
 
-    private string GetCancellationEmailText(Booking booking, Customer customer, Service service, string tenantName = "Buchungssystem")
+    private string GetCancellationEmailText(Booking booking, Customer customer, Service service, string tenantName = "Buchungssystem", bool cancelledByStudio = false)
     {
         return $@"
 {tenantName.ToUpperInvariant()} - STORNIERUNGSBESTÄTIGUNG
@@ -1917,7 +1923,7 @@ Status: Bestätigt
 ------------------------------------------------
 Hallo {customer.FirstName},
 
-Ihre Buchung wurde erfolgreich storniert.
+{(cancelledByStudio ? $"Ihr Termin bei {tenantName} wurde leider von uns storniert." : "Ihre Buchung wurde erfolgreich storniert.")}
 
 STORNIERTE BUCHUNG:
 ------------------------------------------------

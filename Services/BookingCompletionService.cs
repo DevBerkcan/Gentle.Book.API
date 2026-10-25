@@ -67,10 +67,24 @@ public class BookingCompletionService
 
         if (completed.Count == 0) return;
 
+        var customerIds = completed.Select(b => b.CustomerId).Distinct().ToList();
+        var customers = await _context.Customers.IgnoreQueryFilters()
+            .Where(c => customerIds.Contains(c.Id))
+            .ToDictionaryAsync(c => c.Id);
+
         foreach (var booking in completed)
         {
             booking.Status = BookingStatus.Completed;
             booking.UpdatedAt = now;
+
+            // Now that the appointment has actually happened, this is the correct moment to
+            // record it as the customer's last visit (see BookingService.CreateBookingAsync).
+            if (customers.TryGetValue(booking.CustomerId, out var customer))
+            {
+                var bookingDateTime = DateTime.SpecifyKind(booking.BookingDate.ToDateTime(booking.StartTime), DateTimeKind.Utc);
+                if (customer.LastVisit == null || bookingDateTime > customer.LastVisit)
+                    customer.LastVisit = bookingDateTime;
+            }
         }
         await _context.SaveChangesAsync();
 

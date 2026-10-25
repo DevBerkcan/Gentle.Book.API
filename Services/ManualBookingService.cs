@@ -123,9 +123,13 @@ public class ManualBookingService
 
         _context.Bookings.Add(booking);
 
-        // Update customer stats
+        // Update customer stats. LastVisit means "the customer was actually here" — a manual
+        // booking staff create for a future date must not overwrite it before the appointment
+        // has happened (see the matching fix/comment in BookingService.CreateBookingAsync).
         customer.TotalBookings++;
-        customer.LastVisit = DateTime.UtcNow;
+        var manualBookingDateTime = bookingDate.ToDateTime(startTime);
+        if (manualBookingDateTime <= DateTime.UtcNow)
+            customer.LastVisit = DateTime.SpecifyKind(manualBookingDateTime, DateTimeKind.Utc);
         customer.UpdatedAt = DateTime.UtcNow;
 
         // Voucher redemption happens inside the same transaction as the booking — if the code
