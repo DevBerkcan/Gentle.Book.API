@@ -747,8 +747,19 @@ public class SuperAdminController : ControllerBase
         if (!Enum.TryParse<SubscriptionPlan>(dto.Plan, ignoreCase: true, out var newPlan))
             return BadRequest(new { message = $"Ungültiger Plan: {dto.Plan}. Erlaubt: Trial, Starter, Professional, Agency" });
 
+        // Agency has no fixed price ("Preis auf Anfrage") — SuperAdmin may activate it directly
+        // here (e.g. for an already-negotiated deal or internal testing), but only with a price
+        // attached, exactly like the formal offer flow (SendOffer/ActivateSubscriptionRequest)
+        // requires. This is a deliberate manual override: no Mollie subscription is created here,
+        // so a tenant activated this way needs its billing set up separately if it's a real
+        // paying customer.
         if (newPlan == SubscriptionPlan.Agency)
-            return BadRequest(new { message = "Agency darf nicht direkt aktiviert werden. Bitte eine Agency-Anfrage öffnen und dem Kunden ein Angebot senden." });
+        {
+            var hasExistingPrice = subscription.NegotiatedMonthlyPrice != null || subscription.NegotiatedAnnualPrice != null;
+            var hasNewPrice = dto.NegotiatedMonthlyPrice != null || dto.NegotiatedAnnualPrice != null;
+            if (!hasExistingPrice && !hasNewPrice)
+                return BadRequest(new { message = "Für den Agency-Plan muss ein individuell verhandelter Preis (Monat oder Jahr) angegeben werden." });
+        }
 
         // Only overwrite the interval if the caller explicitly specified one — a plain plan
         // change must not silently reset an existing yearly subscriber back to monthly.
