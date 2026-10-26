@@ -2,6 +2,7 @@
 // TenantAdmin self-service endpoints: settings + subscription info
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
@@ -19,6 +20,11 @@ namespace GentleBook.Api.Controllers;
 [Authorize]
 public class TenantController : ControllerBase
 {
+    // At least two RFC 1035-legal dot-separated labels, final label alphabetic-only (rejects
+    // bare hostnames like "keine-domain", "localhost", and raw IP addresses).
+    private static readonly Regex FqdnRegex = new(
+        @"^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$", RegexOptions.Compiled);
+
     private readonly GentleBookDbContext _db;
     private readonly ITenantContext _tenantContext;
     private readonly EmailService _emailService;
@@ -173,7 +179,12 @@ public class TenantController : ControllerBase
         if (await RequireAgencyPlanAsync("Eine eigene Domain", "custom_domain") is { } deny) return deny;
 
         var domain = dto.Domain?.Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(domain) || !Uri.CheckHostName(domain).Equals(UriHostNameType.Dns))
+        // Uri.CheckHostName alone accepts any single DNS-legal label (e.g. "keine-domain") as
+        // valid — it only checks character set, not that the value is an actual fully-qualified
+        // domain with a real TLD. Require at least two dot-separated labels, each RFC 1035-legal,
+        // with an alphabetic-only final label (no bare "localhost"/"keine-domain"/IP addresses).
+        if (string.IsNullOrWhiteSpace(domain) || !Uri.CheckHostName(domain).Equals(UriHostNameType.Dns)
+            || !FqdnRegex.IsMatch(domain))
             return BadRequest(new { message = "Bitte eine gültige Domain angeben (z. B. buchung.deinefirma.de)." });
 
         var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value);

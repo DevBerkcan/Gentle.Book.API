@@ -114,6 +114,8 @@ public class AdminIntakeFormController : ControllerBase
             return BadRequest(new { message = "Ungültiger Feldtyp." });
         if (!Enum.TryParse<IntakeFormType>(dto.FormType ?? "Anamnese", out var formType))
             return BadRequest(new { message = "Ungültiger Formular-Typ." });
+        if (fieldType is IntakeFormFieldType.MultipleChoice or IntakeFormFieldType.Checkboxes && !HasValidOptions(dto.OptionsJson))
+            return BadRequest(new { message = "Bitte mindestens zwei Auswahloptionen angeben." });
 
         var tenantId = _tenantContext.TenantId!.Value;
         var maxOrder = await _db.IntakeFormFields.Where(f => f.TenantId == tenantId).AnyAsync()
@@ -157,6 +159,8 @@ public class AdminIntakeFormController : ControllerBase
             return BadRequest(new { message = "Ungültiger Feldtyp." });
         if (!Enum.TryParse<IntakeFormType>(dto.FormType ?? "Anamnese", out var formType))
             return BadRequest(new { message = "Ungültiger Formular-Typ." });
+        if (fieldType is IntakeFormFieldType.MultipleChoice or IntakeFormFieldType.Checkboxes && !HasValidOptions(dto.OptionsJson))
+            return BadRequest(new { message = "Bitte mindestens zwei Auswahloptionen angeben." });
 
         field.Label = dto.Label.Trim();
         field.FieldType = fieldType;
@@ -327,6 +331,23 @@ public class AdminIntakeFormController : ControllerBase
         field.OptionsJson, field.CategoryId, field.ConditionalOnFieldId, field.ConditionalOnValue,
         field.IsRequired, field.IsActive, field.DisplayOrder,
     };
+
+    // Found during live pre-launch testing: a MultipleChoice ("Einfachauswahl") field saved with
+    // no options at all — nothing validated that OptionsJson actually carried any. Requires at
+    // least two non-blank options, since a "choice" field with fewer offers nothing to choose.
+    private static bool HasValidOptions(string? optionsJson)
+    {
+        if (string.IsNullOrWhiteSpace(optionsJson)) return false;
+        try
+        {
+            var options = System.Text.Json.JsonSerializer.Deserialize<string[]>(optionsJson);
+            return options != null && options.Count(o => !string.IsNullOrWhiteSpace(o)) >= 2;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
+    }
 }
 
 public record IntakeFormFieldRequest(
