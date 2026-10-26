@@ -320,6 +320,11 @@ public class EmployeesController : ControllerBase
                     message = $"Ihr Plan erlaubt maximal {limits.MaxEmployees} Mitarbeiter. Bitte upgraden Sie Ihren Plan.",
                     limit = limits.MaxEmployees,
                     current = activeCount,
+                    // Missing here previously — the frontend's response interceptor treats a
+                    // feature-less 402 as a global "go to /admin/subscription" redirect, which
+                    // aborts this in-flight request before the modal's own catch block ever sees
+                    // the (perfectly good) message above, surfacing as a bare "Network Error".
+                    feature = "employee_limit",
                     upgrade = true
                 });
         }

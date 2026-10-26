@@ -43,6 +43,64 @@ public class AdminServiceBookingStatusTransitionTests
         return (tenant, booking);
     }
 
+    private static (Tenant tenant, Customer customer, Booking booking) SeedConfirmedBooking(
+        GentleBook.Api.Data.GentleBookDbContext db, DateTime? existingLastVisit = null)
+    {
+        var tenant = new Tenant { Name = "Salon Status", Slug = "salon-status-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(tenant);
+        var category = new ServiceCategory { TenantId = tenant.Id, Name = "Haarschnitt" };
+        db.ServiceCategories.Add(category);
+        var service = new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = "Waschen, Schneiden, Föhnen", DurationMinutes = 30, Price = 40m, IsActive = true };
+        db.Services.Add(service);
+        var customer = new Customer { TenantId = tenant.Id, FirstName = "Kim", LastName = "Kunde", LastVisit = existingLastVisit };
+        db.Customers.Add(customer);
+        var booking = new Booking
+        {
+            TenantId = tenant.Id,
+            CustomerId = customer.Id,
+            ServiceId = service.Id,
+            BookingDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            StartTime = new TimeOnly(11, 0),
+            EndTime = new TimeOnly(11, 30),
+            Status = BookingStatus.Confirmed,
+        };
+        db.Bookings.Add(booking);
+        db.SaveChanges();
+        return (tenant, customer, booking);
+    }
+
+    // Found during live pre-launch testing: "Letzter Besuch" stayed "—" even after a booking was
+    // manually marked Completed. BookingCompletionService.AutoCompleteBookingsAsync (the only
+    // other place LastVisit gets set after creation) only runs for Agency tenants, so every
+    // other plan's staff marking a booking Completed by hand never advanced it at all.
+    [Fact]
+    public async Task UpdateBookingStatusAsync_ConfirmedToCompleted_SetsCustomerLastVisit()
+    {
+        using var db = TestDbContextFactory.Create();
+        var (_, customer, booking) = SeedConfirmedBooking(db);
+        var adminService = Build(db);
+
+        await adminService.UpdateBookingStatusAsync(booking.Id, new UpdateBookingStatusDto("Completed", null));
+
+        var reloadedCustomer = await db.Customers.AsNoTracking().FirstAsync(c => c.Id == customer.Id);
+        Assert.NotNull(reloadedCustomer.LastVisit);
+        Assert.Equal(booking.BookingDate.ToDateTime(booking.StartTime), reloadedCustomer.LastVisit!.Value, TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public async Task UpdateBookingStatusAsync_ConfirmedToCompleted_ExistingLastVisitIsMoreRecent_DoesNotMoveItBackwards()
+    {
+        using var db = TestDbContextFactory.Create();
+        var alreadyNewer = DateTime.UtcNow.AddDays(1);
+        var (_, customer, booking) = SeedConfirmedBooking(db, existingLastVisit: alreadyNewer);
+        var adminService = Build(db);
+
+        await adminService.UpdateBookingStatusAsync(booking.Id, new UpdateBookingStatusDto("Completed", null));
+
+        var reloadedCustomer = await db.Customers.AsNoTracking().FirstAsync(c => c.Id == customer.Id);
+        Assert.Equal(alreadyNewer, reloadedCustomer.LastVisit!.Value, TimeSpan.FromSeconds(1));
+    }
+
     [Fact]
     public async Task UpdateBookingStatusAsync_CancelledToConfirmed_SucceedsAndClearsCancellationFields()
     {

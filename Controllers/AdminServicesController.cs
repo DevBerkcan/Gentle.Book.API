@@ -107,6 +107,10 @@ public class AdminServicesController : ControllerBase
                     message = $"Ihr Plan erlaubt maximal {limits.MaxServices} Services. Bitte upgraden Sie Ihren Plan.",
                     limit = limits.MaxServices,
                     current = serviceCount,
+                    // Same reasoning as EmployeesController's employee-limit 402: without this,
+                    // the frontend's interceptor treats it as a global redirect instead of letting
+                    // the calling page show this message inline.
+                    feature = "service_limit",
                     upgrade = true
                 });
         }

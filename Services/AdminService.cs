@@ -384,6 +384,17 @@ public class AdminService
             booking.CancellationReason = null;
         }
 
+        // Same trigger point as BookingCompletionService.AutoCompleteBookingsAsync — that job
+        // only runs for Agency tenants, so this manual Confirmed->Completed path (every plan)
+        // is the only place LastVisit ever advances for everyone else. Only move it forward,
+        // matching the auto-complete job's own rule.
+        if (newStatus == BookingStatus.Completed && oldStatus != BookingStatus.Completed && booking.Customer != null)
+        {
+            var bookingDateTime = DateTime.SpecifyKind(booking.BookingDate.ToDateTime(booking.StartTime), DateTimeKind.Utc);
+            if (booking.Customer.LastVisit == null || bookingDateTime > booking.Customer.LastVisit)
+                booking.Customer.LastVisit = bookingDateTime;
+        }
+
         await _context.SaveChangesAsync();
 
         // Same trigger point as the automatic completion job (BookingCompletionService) — a

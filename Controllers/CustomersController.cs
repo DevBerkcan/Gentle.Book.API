@@ -6,6 +6,7 @@ using GentleBook.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 
 namespace GentleBook.Api.Controllers;
 
@@ -14,6 +15,12 @@ namespace GentleBook.Api.Controllers;
 [Authorize]
 public class CustomersController : ControllerBase
 {
+    // Same pattern as the public booking form's client-side check (ContactForm.tsx) — kept in
+    // sync so a format that's rejected there isn't silently accepted here, where this admin-side
+    // form has no HTML <form> submit event for the browser's own type="email" validation to
+    // ever run against (handleSubmit is called directly from a Button's onPress).
+    private static readonly Regex EmailFormatRegex = new(@"^[^\s@]+@[^\s@]+\.[^\s@]+$", RegexOptions.Compiled);
+
     private readonly CustomerService _customerService;
     private readonly GentleBookDbContext _db;
     private readonly ITenantContext _tenantContext;
@@ -181,6 +188,9 @@ public class CustomersController : ControllerBase
         if (string.IsNullOrWhiteSpace(dto.FirstName) || string.IsNullOrWhiteSpace(dto.LastName))
             return BadRequest(new { message = "Vor- und Nachname sind erforderlich" });
 
+        if (!string.IsNullOrWhiteSpace(dto.Email) && !EmailFormatRegex.IsMatch(dto.Email))
+            return BadRequest(new { message = "Bitte eine gültige E-Mail-Adresse angeben." });
+
         // TenantAdmins don't have an EmployeeId — pass null so the FK isn't violated
         var role = JwtService.GetRole(User);
         var employeeId = (role == "TenantAdmin") ? (Guid?)null : GetCurrentEmployeeId();
@@ -233,6 +243,9 @@ public class CustomersController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(dto.FirstName) || string.IsNullOrWhiteSpace(dto.LastName))
             return BadRequest(new { message = "Vor- und Nachname sind erforderlich" });
+
+        if (!string.IsNullOrWhiteSpace(dto.Email) && !EmailFormatRegex.IsMatch(dto.Email))
+            return BadRequest(new { message = "Bitte eine gültige E-Mail-Adresse angeben." });
 
         var employeeId = GetCurrentEmployeeId();
         var isAdmin = IsAdminRequest();
