@@ -330,11 +330,18 @@ public class AdminController : ControllerBase
         var bookings = await query.OrderBy(b => b.BookingDate).ThenBy(b => b.StartTime).ToListAsync();
 
         var sb = new StringBuilder();
-        sb.AppendLine("Buchungsnummer,Datum,Startzeit,Endzeit,Kunde,E-Mail,Telefon,Service,Mitarbeiter,Preis,Währung,Status,Erstellt am");
+        sb.AppendLine("Buchungsnummer,Datum,Startzeit,Endzeit,Kunde,E-Mail,Telefon,Service,Mitarbeiter,Preis,Währung,Status,Erstellt am,Gutschein-Code,Gutschein-Rabatt,Vor Ort zu zahlen");
 
         foreach (var b in bookings)
         {
-            var price = (b.Service?.Price ?? 0).ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            var servicePrice = b.Service?.Price ?? 0;
+            var price = servicePrice.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+            var voucherDiscount = b.VoucherDiscountAmount.HasValue
+                ? b.VoucherDiscountAmount.Value.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                : "";
+            var amountDue = b.VoucherDiscountAmount.HasValue
+                ? Math.Max(0, servicePrice - b.VoucherDiscountAmount.Value).ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                : price;
             var bookingNumber = Booking.GenerateBookingNumber(b.BookingDate, b.Id);
             var row = string.Join(",", new[]
             {
@@ -351,6 +358,9 @@ public class AdminController : ControllerBase
                 CsvEscape(b.Service?.Currency ?? "EUR"),
                 CsvEscape(b.Status.ToString()),
                 b.CreatedAt.ToString("dd.MM.yyyy HH:mm"),
+                CsvEscape(b.RedeemedVoucherCode ?? ""),
+                voucherDiscount,
+                amountDue,
             });
             sb.AppendLine(row);
         }

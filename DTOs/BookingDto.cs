@@ -39,7 +39,9 @@ public record BookingDetailsDto(
     string StartTime,
     string EndTime,
     decimal Price,
-    string Currency
+    string Currency,
+    string? RedeemedVoucherCode = null,
+    decimal? VoucherDiscountAmount = null
 );
 
 public record CustomerToBookingDto(

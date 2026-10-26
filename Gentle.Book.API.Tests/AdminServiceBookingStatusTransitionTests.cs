@@ -14,7 +14,7 @@ namespace Gentle.Book.API.Tests;
 public class AdminServiceBookingStatusTransitionTests
 {
     private static AdminService Build(GentleBook.Api.Data.GentleBookDbContext db) =>
-        new(db, NullLogger<AdminService>.Instance, TestServiceFactory.CreateEmailService(db), new LoyaltyService(db, NullLogger<LoyaltyService>.Instance));
+        new(db, NullLogger<AdminService>.Instance, TestServiceFactory.CreateEmailService(db), new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), TestServiceFactory.CreateVoucherService(db));
 
     private static (Tenant tenant, Booking booking) SeedCancelledBooking(GentleBook.Api.Data.GentleBookDbContext db)
     {

@@ -594,6 +594,7 @@ public class GentleBookDbContext : DbContext
                   .HasForeignKey(e => e.LocationId)
                   .OnDelete(DeleteBehavior.Restrict);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.VoucherDiscountAmount).HasPrecision(10, 2);
             entity.HasIndex(e => new { e.TenantId, e.BookingDate });
             entity.HasIndex(e => new { e.TenantId, e.Status });
             entity.HasIndex(e => new { e.TenantId, e.LocationId });

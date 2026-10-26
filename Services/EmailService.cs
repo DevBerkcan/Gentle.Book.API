@@ -1725,8 +1725,17 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                     <span class='detail-label'>Preis</span>
                     <span class='detail-value'><span class='price'>{booking.Service.Price:0.00} {currency}</span></span>
                 </div>
+                {(booking.VoucherDiscountAmount is { } voucherDiscountHtml && voucherDiscountHtml > 0 ? $@"
+                <div class='detail-row'>
+                    <span class='detail-label'>Gutschein ({booking.RedeemedVoucherCode})</span>
+                    <span class='detail-value'>-{voucherDiscountHtml:0.00} {currency}</span>
+                </div>
+                <div class='detail-row'>
+                    <span class='detail-label'>Vor Ort zu zahlen</span>
+                    <span class='detail-value'><span class='price'>{Math.Max(0, booking.Service.Price - voucherDiscountHtml):0.00} {currency}</span></span>
+                </div>" : "")}
             </div>
-            
+
             <div class='cancel-section'>
                 <div class='cancel-title'>Termin stornieren?</div>
                 <div class='cancel-text'>
@@ -1942,7 +1951,10 @@ Uhrzeit: {booking.StartTime:HH:mm} - {booking.EndTime:HH:mm} Uhr
 Dauer: {booking.Service.DurationMinutes} Minuten
 Preis: {booking.Service.Price:0.00} {currency}
 Status: Bestätigt
-
+{(booking.VoucherDiscountAmount is { } voucherDiscountText && voucherDiscountText > 0 ? $@"
+Gutschein ({booking.RedeemedVoucherCode}): -{voucherDiscountText:0.00} {currency}
+Vor Ort zu zahlen: {Math.Max(0, booking.Service.Price - voucherDiscountText):0.00} {currency}
+" : "")}
 
 TERMIN STORNIEREN:
 ------------------------------------------------

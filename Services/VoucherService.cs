@@ -152,6 +152,65 @@ public class VoucherService
         return (voucher, discountAmount);
     }
 
+    /// <summary>
+    /// Restores the balance/session a booking consumed from its voucher, called when that
+    /// booking is cancelled or deleted (found during live pre-launch testing: nothing did this
+    /// before — a cancelled booking permanently kept the customer's voucher spent). Mutates the
+    /// tracked Voucher/Booking entities only — does NOT call SaveChangesAsync itself, so the
+    /// caller's own save persists this together with the booking's status change in one
+    /// transaction, same atomicity guarantee RedeemAsync already has via ManualBookingService's
+    /// transaction.
+    /// </summary>
+    public async Task RefundVoucherForBookingAsync(Booking booking)
+    {
+        if (string.IsNullOrWhiteSpace(booking.RedeemedVoucherCode) || booking.VoucherRefunded)
+            return;
+
+        var voucher = await _context.Vouchers
+            .FirstOrDefaultAsync(v => v.TenantId == booking.TenantId && v.Code == booking.RedeemedVoucherCode);
+        if (voucher == null)
+        {
+            _logger.LogWarning("Could not refund voucher {Code} for booking {BookingId}: voucher no longer exists", booking.RedeemedVoucherCode, booking.Id);
+            booking.VoucherRefunded = true; // nothing left to refund against — don't keep retrying
+            return;
+        }
+
+        // An admin explicitly cancelling the voucher itself is a deliberate "this is void" action
+        // — a later, unrelated booking cancellation must not resurrect it.
+        if (voucher.Status == VoucherStatus.Cancelled)
+        {
+            _logger.LogInformation("Skipped refund for booking {BookingId}: voucher {Code} was separately cancelled", booking.Id, voucher.Code);
+            booking.VoucherRefunded = true;
+            return;
+        }
+
+        if (voucher.Type == VoucherType.MonetaryValue)
+        {
+            if (booking.VoucherDiscountAmount is { } refundAmount && refundAmount > 0)
+            {
+                var cap = voucher.InitialAmount ?? decimal.MaxValue;
+                voucher.RemainingAmount = Math.Min(cap, (voucher.RemainingAmount ?? 0) + refundAmount);
+            }
+        }
+        else
+        {
+            var cap = voucher.InitialSessions ?? int.MaxValue;
+            voucher.RemainingSessions = Math.Min(cap, (voucher.RemainingSessions ?? 0) + 1);
+        }
+
+        // Only reactivate a fully-spent voucher — never un-expire one past its ExpiresAt just
+        // because a booking against it got cancelled.
+        if (voucher.Status == VoucherStatus.Redeemed)
+        {
+            voucher.Status = (voucher.ExpiresAt.HasValue && voucher.ExpiresAt.Value < DateTime.UtcNow)
+                ? VoucherStatus.Expired
+                : VoucherStatus.Active;
+        }
+
+        booking.VoucherRefunded = true;
+        _logger.LogInformation("Refunded voucher {Code} for cancelled/deleted booking {BookingId}", voucher.Code, booking.Id);
+    }
+
     public async Task CancelAsync(Guid tenantId, Guid id)
     {
         var voucher = await _context.Vouchers.FirstOrDefaultAsync(v => v.Id == id && v.TenantId == tenantId)

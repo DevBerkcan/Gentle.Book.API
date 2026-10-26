@@ -137,8 +137,15 @@ public class ManualBookingService
         // leaving a booking with a silently-failed "paid by voucher" note.
         if (!string.IsNullOrWhiteSpace(dto.VoucherCode))
         {
-            var (voucher, _) = await _voucherService.RedeemAsync(tenantId, dto.VoucherCode, service.Price);
+            var (voucher, discountAmount) = await _voucherService.RedeemAsync(tenantId, dto.VoucherCode, service.Price);
             booking.RedeemedVoucherCode = voucher.Code;
+            // RedeemAsync already computes discountAmount correctly for MonetaryValue (amount
+            // actually deducted) and PercentageDiscount (rounded % of the price) — it stays 0 for
+            // SessionPackage since that type has no per-redemption monetary value there, but a
+            // session credit covers the full service price, same as if paid in full.
+            booking.VoucherDiscountAmount = voucher.Type == VoucherType.SessionPackage
+                ? service.Price
+                : discountAmount;
         }
 
         // Same trigger point as the public booking flow (BookingService.CreateBookingAsync) —
@@ -185,7 +192,9 @@ public class ManualBookingService
                 startTime.ToString("HH:mm"),
                 endTime.ToString("HH:mm"),
                 service.Price,
-                service.Currency
+                service.Currency,
+                booking.RedeemedVoucherCode,
+                booking.VoucherDiscountAmount
             ),
             new CustomerBasicDto(
                 customer.FirstName,
@@ -261,7 +270,9 @@ public class ManualBookingService
                 booking.StartTime.ToString("HH:mm"),
                 booking.EndTime.ToString("HH:mm"),
                 booking.Service.Price,
-                booking.Service.Currency
+                booking.Service.Currency,
+                booking.RedeemedVoucherCode,
+                booking.VoucherDiscountAmount
             ),
             new CustomerBasicDto(
                 booking.Customer.FirstName,

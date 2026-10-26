@@ -63,7 +63,9 @@ public record BookingListItemDto(
     decimal Price,
     string Currency,
     string? CustomerNotes,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    string? RedeemedVoucherCode = null,
+    decimal? VoucherDiscountAmount = null
 );
 
 // Update Booking Status Request

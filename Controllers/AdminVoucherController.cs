@@ -136,6 +136,30 @@ public class AdminVoucherController : ControllerBase
         }
     }
 
+    // ── GET /api/admin/vouchers/{id}/pdf ────────────────────────────
+    // Downloadable, personalized PDF for a voucher issued in person — the studio hands this to
+    // the customer (print or send) so they have something to bring back and redeem against a
+    // future booking. No payment happens here; this is purely a printable record of the
+    // already-collected-in-person payment (see Data/Entities/Voucher.cs).
+    [HttpGet("{id:guid}/pdf")]
+    public async Task<IActionResult> DownloadPdf(Guid id)
+    {
+        var guard = RequireTenantAdmin();
+        if (guard != null) return guard;
+        if (await RequireAgencyPlanAsync() is { } deny) return deny;
+
+        var voucher = await _db.Vouchers.Include(v => v.Customer)
+            .FirstOrDefaultAsync(v => v.Id == id && v.TenantId == _tenantContext.TenantId!.Value);
+        if (voucher == null) return NotFound(new { message = "Gutschein nicht gefunden." });
+
+        var settings = await _db.TenantSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.TenantId == _tenantContext.TenantId!.Value)
+            ?? new TenantSettings { TenantId = _tenantContext.TenantId!.Value };
+
+        var pdfBytes = VoucherPdfBuilder.Build(voucher, settings, voucher.Customer?.FullName, settings.DefaultCurrency);
+        return File(pdfBytes, "application/pdf", $"gutschein-{voucher.Code}.pdf");
+    }
+
     [HttpPost("{id:guid}/cancel")]
     public async Task<IActionResult> Cancel(Guid id)
     {

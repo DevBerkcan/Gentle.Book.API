@@ -11,13 +11,15 @@ public class AdminService
     private readonly ILogger<AdminService> _logger;
     private readonly EmailService _emailService;
     private readonly LoyaltyService _loyaltyService;
+    private readonly VoucherService _voucherService;
 
-    public AdminService(GentleBookDbContext context, ILogger<AdminService> logger, EmailService emailService, LoyaltyService loyaltyService)
+    public AdminService(GentleBookDbContext context, ILogger<AdminService> logger, EmailService emailService, LoyaltyService loyaltyService, VoucherService voucherService)
     {
         _context = context;
         _logger = logger;
         _emailService = emailService;
         _loyaltyService = loyaltyService;
+        _voucherService = voucherService;
     }
 
     public async Task<DashboardOverviewDto> GetDashboardOverviewAsync(Guid? employeeId = null)
@@ -82,7 +84,9 @@ public class AdminService
                 b.ServicePrice,
                 b.ServiceCurrency,
                 b.Booking.CustomerNotes,
-                b.Booking.CreatedAt
+                b.Booking.CreatedAt,
+                b.Booking.RedeemedVoucherCode,
+                b.Booking.VoucherDiscountAmount
             )).ToList()
         );
 
@@ -318,7 +322,9 @@ public class AdminService
                 b.Service?.Price ?? 0,
                 b.Service?.Currency ?? "CHF",
                 b.CustomerNotes,
-                b.CreatedAt
+                b.CreatedAt,
+                b.RedeemedVoucherCode,
+                b.VoucherDiscountAmount
             );
         }).ToList();
 
@@ -375,6 +381,15 @@ public class AdminService
 
         if (newStatus == BookingStatus.Cancelled && !booking.CancelledAt.HasValue)
             booking.CancelledAt = DateTime.UtcNow;
+
+        // Refund on Cancelled, deliberately not on NoShow — a no-show held the slot and didn't
+        // cancel in time, so the voucher/session stays spent (open product question whether a
+        // tenant should be able to override this per booking; see voucher audit).
+        if (newStatus == BookingStatus.Cancelled && oldStatus != BookingStatus.Cancelled
+            && !string.IsNullOrWhiteSpace(booking.RedeemedVoucherCode))
+        {
+            await _voucherService.RefundVoucherForBookingAsync(booking);
+        }
 
         // Re-confirming clears the stale cancellation evidence — the booking is active again,
         // a leftover CancelledAt/CancellationReason would otherwise still show as if it were.
@@ -444,7 +459,9 @@ public class AdminService
             booking.Service?.Price ?? 0,
             booking.Service?.Currency ?? "CHF",
             booking.CustomerNotes,
-            booking.CreatedAt
+            booking.CreatedAt,
+            booking.RedeemedVoucherCode,
+            booking.VoucherDiscountAmount
         );
     }
 
@@ -487,6 +504,12 @@ public class AdminService
         {
             _context.EmailLogs.RemoveRange(booking.EmailLogs);
         }
+
+        // Deletion is treated the same as a studio-initiated cancellation above (same
+        // SendCancellationConfirmationAsync call) — refund any voucher it consumed too, before
+        // the row disappears and RedeemedVoucherCode/VoucherDiscountAmount go with it.
+        if (booking.Status != BookingStatus.Cancelled && !string.IsNullOrWhiteSpace(booking.RedeemedVoucherCode))
+            await _voucherService.RefundVoucherForBookingAsync(booking);
 
         // Remove the booking
         _context.Bookings.Remove(booking);

@@ -360,6 +360,9 @@ public class BookingService
         booking.CancelledAt = DateTime.UtcNow;
         booking.CancellationReason = dto.Reason;
 
+        if (!string.IsNullOrWhiteSpace(booking.RedeemedVoucherCode))
+            await _voucherService.RefundVoucherForBookingAsync(booking);
+
         await _context.SaveChangesAsync();
 
         _logger.LogInformation(

@@ -31,6 +31,17 @@ public class Booking
     /// <summary>Informational only — the Voucher.Code redeemed against this booking, if any (no FK/nav, same soft-reference shortcut as BrandImportJob.CreatedBy). No payment processing happens here.</summary>
     public string? RedeemedVoucherCode { get; set; }
 
+    /// <summary>
+    /// How much of this booking's price was covered by the voucher at redemption time — the
+    /// studio still collects (Service.Price - VoucherDiscountAmount) in person. Null unless
+    /// RedeemedVoucherCode is set. Snapshotted here (not recomputed later) because the
+    /// underlying Voucher's RemainingAmount keeps changing as it's used elsewhere.
+    /// </summary>
+    public decimal? VoucherDiscountAmount { get; set; }
+
+    /// <summary>Guards VoucherService.RefundVoucherForBookingAsync against refunding the same booking's voucher usage twice (e.g. Cancel then Delete on an already-cancelled booking).</summary>
+    public bool VoucherRefunded { get; set; } = false;
+
     // Timestamps
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
