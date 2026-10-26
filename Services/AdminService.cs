@@ -22,8 +22,18 @@ public class AdminService
 
     public async Task<DashboardOverviewDto> GetDashboardOverviewAsync(Guid? employeeId = null)
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var now = DateTime.UtcNow;
+        // BookingDate/StartTime are stored as the tenant's local wall-clock values (same
+        // convention as BookingCompletionService/NoShowService), so "today"/"now" must be
+        // converted into that same local timezone before being compared against them — a
+        // pure-UTC comparison can read an already-past local appointment as still upcoming
+        // near the local midnight boundary.
+        var tenantTimeZone = await _context.TenantSettings.Select(t => t.TimeZone).FirstOrDefaultAsync();
+        TimeZoneInfo tz;
+        try { tz = TimeZoneInfo.FindSystemTimeZoneById(tenantTimeZone ?? "Europe/Berlin"); }
+        catch { tz = TimeZoneInfo.Utc; }
+
+        var now = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+        var today = DateOnly.FromDateTime(now);
 
         // Base query with employee filter
         var bookingsQuery = _context.Bookings

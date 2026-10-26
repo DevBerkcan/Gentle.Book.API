@@ -1238,6 +1238,67 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
         }
     }
 
+    // Found during live pre-launch testing: EmployeeNotesController.SendNote only ever wrote the
+    // note to the EmployeeNotes table — the admin found out about it only by happening to open
+    // /admin/employee-notes later. The frontend's success toast ("Ihre Nachricht wurde an den
+    // Admin gesendet") claimed an actual delivery that never happened, so it now does.
+    public async Task SendEmployeeNoteNotificationAsync(Guid tenantId, string employeeName, string subject, string messageBody)
+    {
+        var tenantSettings = await _context.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        var tenantName   = tenantSettings?.CompanyName ?? "GentleBook";
+        var primaryColor = tenantSettings?.PrimaryColor ?? "#6355E4";
+
+        var (adminEmail, adminName) = await GetTenantAdminEmailAsync(tenantId);
+
+        await SendInternalNotificationAsync(
+            $"Neue Nachricht von {employeeName}: {subject}",
+            GetEmployeeNoteNotificationHtml(employeeName, subject, messageBody, tenantName, primaryColor),
+            GetEmployeeNoteNotificationText(employeeName, subject, messageBody, tenantName),
+            adminEmail, adminName
+        );
+    }
+
+    private string GetEmployeeNoteNotificationHtml(string employeeName, string subject, string messageBody, string tenantName, string primaryColor)
+    {
+        return $@"<!DOCTYPE html>
+<html lang='de'>
+<head><meta charset='UTF-8'><meta name='color-scheme' content='light'><meta name='supported-color-schemes' content='light'></head>
+<body style='font-family:Inter,Arial,sans-serif;background:#f4f4f5;padding:40px 20px;margin:0'>
+<div style='max-width:600px;margin:0 auto'>
+  <div style='background:linear-gradient(135deg,#14162B 0%,#201F47 100%);border-radius:16px 16px 0 0;padding:28px 32px;text-align:center;'>
+    <h1 style='color:#fff;margin:0;font-size:18px;font-weight:700'>💬 Neue Nachricht von einem Mitarbeiter</h1>
+    <p style='color:rgba(255,255,255,0.75);margin:6px 0 0;font-size:13px'>{tenantName}</p>
+  </div>
+  <div style='background:#ffffff;border-radius:0 0 16px 16px;padding:32px;border:1px solid #e5e7eb;border-top:none'>
+    <p style='font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px'>Von</p>
+    <p style='font-size:16px;font-weight:700;color:#111827;margin:0 0 20px'>{employeeName}</p>
+    <p style='font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;margin:0 0 6px'>Betreff</p>
+    <p style='font-size:16px;font-weight:700;color:#111827;margin:0 0 20px'>{subject}</p>
+    <p style='font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px'>Nachricht</p>
+    <div style='background:#f8fafc;border-left:4px solid {primaryColor};border-radius:0 8px 8px 0;padding:16px 20px;font-size:14px;color:#374151;line-height:1.7;white-space:pre-wrap'>{messageBody}</div>
+    <p style='text-align:center;font-size:11px;color:#9ca3af;margin-top:20px'>
+      Eingegangen am {DateTime.Now:dd.MM.yyyy} um {DateTime.Now:HH:mm} Uhr
+    </p>
+  </div>
+</div>
+</body>
+</html>";
+    }
+
+    private string GetEmployeeNoteNotificationText(string employeeName, string subject, string messageBody, string tenantName)
+    {
+        return $@"Neue Nachricht von einem Mitarbeiter – {tenantName}
+==============================
+Von:      {employeeName}
+Betreff:  {subject}
+
+Nachricht:
+{messageBody}
+
+---
+Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
+    }
+
     #endregion
 
     #region Helpers

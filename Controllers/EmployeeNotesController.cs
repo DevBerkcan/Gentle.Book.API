@@ -12,10 +12,12 @@ namespace GentleBook.Api.Controllers;
 public class EmployeeNotesController : ControllerBase
 {
     private readonly GentleBookDbContext _db;
+    private readonly EmailService _emailService;
 
-    public EmployeeNotesController(GentleBookDbContext db)
+    public EmployeeNotesController(GentleBookDbContext db, EmailService emailService)
     {
         _db = db;
+        _emailService = emailService;
     }
 
     // POST /api/employee-notes — employee sends a note to admin
@@ -47,6 +49,8 @@ public class EmployeeNotesController : ControllerBase
 
         _db.EmployeeNotes.Add(note);
         await _db.SaveChangesAsync();
+
+        _ = _emailService.SendEmployeeNoteNotificationAsync(tenantId.Value, employee.Name, note.Subject, note.Message);
 
         return Ok(new { success = true, data = MapNote(note) });
     }
