@@ -39,11 +39,15 @@ public class TrackingController : ControllerBase
         var limits = PlanLimits.Get(currentPlan);
         if (!limits.HasAnalytics)
         {
-            // Cheapest plan tier that actually includes analytics, so this never needs
-            // updating by hand if plan names/tiers change.
+            // Lowest real upgrade tier that actually includes analytics, so this never needs
+            // updating by hand if plan names/tiers change. Ordered by the SubscriptionPlan enum's
+            // own Trial < Starter < Professional < Agency tier order, not MonthlyPrice — a
+            // temporarily negotiated/test price on a higher tier (e.g. an Agency deal priced
+            // below Professional's list price) must never make this message suggest a downgrade.
+            // Trial itself is excluded: it's never something a paying tenant "upgrades" into.
             var requiredPlan = PlanLimits.All
-                .Where(kv => kv.Value.HasAnalytics)
-                .OrderBy(kv => kv.Value.MonthlyPrice)
+                .Where(kv => kv.Value.HasAnalytics && kv.Key != SubscriptionPlan.Trial)
+                .OrderBy(kv => kv.Key)
                 .Select(kv => kv.Value)
                 .FirstOrDefault();
 

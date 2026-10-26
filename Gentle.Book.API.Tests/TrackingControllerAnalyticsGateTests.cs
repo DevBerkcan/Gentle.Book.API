@@ -73,4 +73,33 @@ public class TrackingControllerAnalyticsGateTests
 
         Assert.IsType<OkObjectResult>(result.Result);
     }
+
+    // Found during live pre-launch testing: a temporarily negotiated/test Agency price below
+    // Professional's list price made the 402 upsell message suggest "Agency" instead of "Pro" —
+    // the required-plan pick was ordered by live MonthlyPrice, which a per-tenant negotiated
+    // price (or just a not-yet-finalized list price) can put below a lower tier's price.
+    [Fact]
+    public async Task GetTrackingStatistics_AgencyPricedBelowProfessional_StillSuggestsProfessional()
+    {
+        using var db = TestDbContextFactory.Create();
+        var (tenant, _) = AgencyTenantFactory.Seed(db, SubscriptionPlan.Starter);
+        var controller = BuildController(db, tenant.Id);
+        GentleBook.Api.Configuration.PlanLimits.SetPrice(SubscriptionPlan.Agency, 1m, 12m);
+        try
+        {
+            var result = await controller.GetTrackingStatistics(null, null);
+
+            var objectResult = Assert.IsType<ObjectResult>(result.Result);
+            Assert.Equal(402, objectResult.StatusCode);
+            Assert.Equal("Pro", GetProperty(objectResult.Value!, "requiredPlan"));
+        }
+        finally
+        {
+            // Restore — PlanLimits.SetPrice mutates process-wide, in-memory state shared across tests.
+            GentleBook.Api.Configuration.PlanLimits.SetPrice(SubscriptionPlan.Agency, 99m, 950m);
+        }
+    }
+
+    private static object GetProperty(object obj, string name) =>
+        obj.GetType().GetProperty(name)!.GetValue(obj)!;
 }
