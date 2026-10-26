@@ -21,7 +21,6 @@ public class TrackingControllerAnalyticsGateTests
     }
 
     [Theory]
-    [InlineData(SubscriptionPlan.Trial)]
     [InlineData(SubscriptionPlan.Starter)]
     public async Task GetTrackingStatistics_NoAnalyticsPlan_Returns402(SubscriptionPlan plan)
     {
@@ -36,6 +35,7 @@ public class TrackingControllerAnalyticsGateTests
     }
 
     [Theory]
+    [InlineData(SubscriptionPlan.Trial)]
     [InlineData(SubscriptionPlan.Professional)]
     [InlineData(SubscriptionPlan.Agency)]
     public async Task GetTrackingStatistics_AnalyticsPlan_Succeeds(SubscriptionPlan plan)

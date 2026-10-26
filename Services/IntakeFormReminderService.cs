@@ -28,7 +28,8 @@ public class IntakeFormReminderService
         var createdBefore = now.AddHours(-24);
 
         var eligibleTenantIds = await _context.Subscriptions.IgnoreQueryFilters()
-            .Where(s => s.Plan == SubscriptionPlan.Agency)
+            .Where(s => s.Plan == SubscriptionPlan.Agency ||
+                (s.Plan == SubscriptionPlan.Trial && s.Status == SubscriptionStatus.Trial && s.TrialEndsAt > DateTime.UtcNow))
             .Select(s => s.TenantId)
             .ToListAsync();
         if (eligibleTenantIds.Count == 0) return;

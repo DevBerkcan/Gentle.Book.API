@@ -31,7 +31,8 @@ public class AdminDigestService
         var isMonday = DateTime.UtcNow.DayOfWeek == DayOfWeek.Monday;
 
         var agencyTenantIds = await _context.Subscriptions.IgnoreQueryFilters()
-            .Where(s => s.Plan == SubscriptionPlan.Agency)
+            .Where(s => s.Plan == SubscriptionPlan.Agency ||
+                (s.Plan == SubscriptionPlan.Trial && s.Status == SubscriptionStatus.Trial && s.TrialEndsAt > DateTime.UtcNow))
             .Select(s => s.TenantId)
             .ToListAsync();
         if (agencyTenantIds.Count == 0) return;

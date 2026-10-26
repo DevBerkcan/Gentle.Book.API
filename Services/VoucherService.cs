@@ -37,7 +37,7 @@ public class VoucherService
             .Where(s => s.TenantId == tenantId)
             .Select(s => (SubscriptionPlan?)s.Plan)
             .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
-        if (AgencyFeatureGate.ValidateForPlan(plan) != null) return;
+        if (AgencyFeatureGate.ValidateNonAiForPlan(plan) != null) return;
 
         if (!Enum.TryParse<VoucherType>(settings.LoyaltyRewardType, out var type)) type = VoucherType.MonetaryValue;
 

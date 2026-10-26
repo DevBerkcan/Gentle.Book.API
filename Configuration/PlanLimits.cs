@@ -20,7 +20,7 @@ public static class PlanLimits
     // fully overridable afterward via the SuperAdmin pricing editor just like MonthlyPrice.
     private static readonly Dictionary<SubscriptionPlan, Limits> _limits = new()
     {
-        [SubscriptionPlan.Trial]        = new(2,   10,  100,        false, false, "Trial",    0m,  0m),
+        [SubscriptionPlan.Trial]        = new(int.MaxValue, int.MaxValue, int.MaxValue, true, true, "Trial", 0m, 0m),
         [SubscriptionPlan.Starter]      = new(2,   15,  200,        false, false, "Starter",  29m, 278m),
         [SubscriptionPlan.Professional] = new(10,  50,  int.MaxValue, true, false, "Pro",     59m, 566m),
         [SubscriptionPlan.Agency]       = new(int.MaxValue, int.MaxValue, int.MaxValue, true, true, "Agency", 99m, 950m),

@@ -1,4 +1,4 @@
-﻿using GentleBook.Api.Configuration;
+using GentleBook.Api.Configuration;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
@@ -50,7 +50,7 @@ public class CustomersController : ControllerBase
             .Select(s => (SubscriptionPlan?)s.Plan)
             .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
 
-        var requiredPlanName = AgencyFeatureGate.ValidateForPlan(currentPlan);
+        var requiredPlanName = AgencyFeatureGate.ValidateNonAiForPlan(currentPlan);
         if (requiredPlanName != null)
         {
             return StatusCode(402, new

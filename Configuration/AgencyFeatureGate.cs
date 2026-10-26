@@ -10,5 +10,9 @@ public static class AgencyFeatureGate
     public static string? ValidateForPlan(SubscriptionPlan tenantPlan) =>
         tenantPlan == SubscriptionPlan.Agency ? null : PlanLimits.Get(SubscriptionPlan.Agency).DisplayName;
 
+    // Trial includes all non-AI features; AI callers keep using ValidateForPlan/IsAgency.
+    public static string? ValidateNonAiForPlan(SubscriptionPlan tenantPlan) =>
+        tenantPlan == SubscriptionPlan.Trial ? null : ValidateForPlan(tenantPlan);
+
     public static bool IsAgency(SubscriptionPlan tenantPlan) => tenantPlan == SubscriptionPlan.Agency;
 }

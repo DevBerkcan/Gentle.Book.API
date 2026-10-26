@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Gentle.Book.API.Tests;
 
-// Covers the monthly-booking-count plan limit (Trial=100, Starter=200, Professional/Agency
+// Covers the monthly-booking-count plan limit (Starter=200, Trial/Professional/Agency
 // unlimited) on both entry points — had zero test coverage before this pass. Only the
 // rejection path is tested directly: both CreateBookingAsync and CreateManualBookingAsync open
 // a SERIALIZABLE transaction immediately after this check (for slot-availability locking), and
@@ -60,26 +60,16 @@ public class BookingMonthlyLimitTests
         Assert.Contains("Buchungskontingent", ex.Message);
     }
 
-    [Fact]
-    public async Task CreateBookingAsync_TrialAtMonthlyLimit_ThrowsBookingLimitMessage()
-    {
-        using var db = TestDbContextFactory.Create();
-        var (tenant, service) = SeedTenantAtBookingLimit(db, SubscriptionPlan.Trial, existingBookingsThisMonth: 100); // Trial MaxBookingsPerMonth = 100
-        var bookingService = new BookingService(db, NullLogger<BookingService>.Instance, TestServiceFactory.CreateEmailService(db), new FakeBackgroundJobClient(), TestServiceFactory.CreateVoucherService(db));
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => bookingService.CreateBookingAsync(PublicBookingDto(service.Id)));
-
-        Assert.Contains("Buchungskontingent", ex.Message);
-    }
-
-    [Fact]
-    public async Task CreateBookingAsync_ProfessionalPastStarterLimit_NeverThrowsBookingLimitMessage()
+    [Theory]
+    [InlineData(SubscriptionPlan.Trial)]
+    [InlineData(SubscriptionPlan.Professional)]
+    public async Task CreateBookingAsync_UnlimitedPlanPastStarterLimit_NeverThrowsBookingLimitMessage(SubscriptionPlan plan)
     {
         // 200 bookings would block a Starter tenant — Professional is unlimited, so the limit
         // check must not even trigger (any exception thrown past this point belongs to the
         // slot/transaction logic, not the plan-limit gate this test targets).
         using var db = TestDbContextFactory.Create();
-        var (tenant, service) = SeedTenantAtBookingLimit(db, SubscriptionPlan.Professional, existingBookingsThisMonth: 200);
+        var (tenant, service) = SeedTenantAtBookingLimit(db, plan, existingBookingsThisMonth: 200);
         var bookingService = new BookingService(db, NullLogger<BookingService>.Instance, TestServiceFactory.CreateEmailService(db), new FakeBackgroundJobClient(), TestServiceFactory.CreateVoucherService(db));
 
         var ex = await Record.ExceptionAsync(() => bookingService.CreateBookingAsync(PublicBookingDto(service.Id)));

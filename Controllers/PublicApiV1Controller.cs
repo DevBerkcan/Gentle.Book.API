@@ -54,7 +54,7 @@ public class PublicApiV1Controller : ControllerBase
             .Select(s => (SubscriptionPlan?)s.Plan)
             .FirstOrDefaultAsync();
 
-        if (plan == null || AgencyFeatureGate.ValidateForPlan(plan.Value) != null)
+        if (plan == null || AgencyFeatureGate.ValidateNonAiForPlan(plan.Value) != null)
             return StatusCode(402, new { message = "Der API-Zugang ist dem Agency-Plan vorbehalten." });
 
         return null;

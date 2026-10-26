@@ -37,7 +37,7 @@ public class PublicIntakeFormController : ControllerBase
             .Where(s => s.TenantId == tenantId)
             .Select(s => (SubscriptionPlan?)s.Plan)
             .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
-        if (AgencyFeatureGate.ValidateForPlan(plan) != null) return false;
+        if (AgencyFeatureGate.ValidateNonAiForPlan(plan) != null) return false;
 
         var industry = await _db.Tenants.IgnoreQueryFilters()
             .Where(t => t.Id == tenantId)

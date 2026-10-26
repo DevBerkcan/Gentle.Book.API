@@ -57,7 +57,7 @@ public class TenantController : ControllerBase
             .Select(s => (SubscriptionPlan?)s.Plan)
             .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
 
-        var requiredPlanName = AgencyFeatureGate.ValidateForPlan(currentPlan);
+        var requiredPlanName = AgencyFeatureGate.ValidateNonAiForPlan(currentPlan);
         if (requiredPlanName != null)
         {
             // Same 402 shape as TrackingController.RequireAnalyticsPlanAsync — the frontend's

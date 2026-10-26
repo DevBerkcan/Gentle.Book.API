@@ -47,7 +47,7 @@ public class AdminIntakeFormController : ControllerBase
             .Select(s => (SubscriptionPlan?)s.Plan)
             .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
 
-        var requiredPlanName = AgencyFeatureGate.ValidateForPlan(currentPlan);
+        var requiredPlanName = AgencyFeatureGate.ValidateNonAiForPlan(currentPlan);
         if (requiredPlanName != null)
         {
             return StatusCode(402, new

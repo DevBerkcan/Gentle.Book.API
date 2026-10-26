@@ -40,7 +40,7 @@ public class LoyaltyService
             .Where(s => s.TenantId == booking.TenantId)
             .Select(s => (SubscriptionPlan?)s.Plan)
             .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
-        if (AgencyFeatureGate.ValidateForPlan(plan) != null) return; // not Agency — feature not available
+        if (AgencyFeatureGate.ValidateNonAiForPlan(plan) != null) return; // not Agency — feature not available
 
         var pointsPerBooking = await _context.TenantSettings.IgnoreQueryFilters()
             .Where(s => s.TenantId == booking.TenantId)

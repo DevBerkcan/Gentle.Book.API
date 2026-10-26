@@ -29,14 +29,11 @@ public static class LinkPageTemplates
         ["portfolio"] = SubscriptionPlan.Agency,
     };
 
-    // Trial and Starter share the same (lowest) template tier — mirrors the frontend's
-    // own tenantPlan normalization (app/admin/links/page.tsx: anything that isn't
-    // "pro"/"business" is treated as "starter"), so this never rejects something the
-    // frontend itself currently allows.
+    // Trial includes all templates; AI permissions are checked separately.
     private static int Rank(SubscriptionPlan plan) => plan switch
     {
         SubscriptionPlan.Professional => 1,
-        SubscriptionPlan.Agency => 2,
+        SubscriptionPlan.Agency or SubscriptionPlan.Trial => 2,
         _ => 0,
     };
 

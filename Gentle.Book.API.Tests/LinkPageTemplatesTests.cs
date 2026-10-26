@@ -13,6 +13,8 @@ public class LinkPageTemplatesTests
 {
     [Theory]
     [InlineData("classic", SubscriptionPlan.Trial)]
+    [InlineData("neon", SubscriptionPlan.Trial)]
+    [InlineData("corporate", SubscriptionPlan.Trial)]
     [InlineData("classic", SubscriptionPlan.Starter)]
     [InlineData("beauty", SubscriptionPlan.Starter)]
     [InlineData("hairsalon", SubscriptionPlan.Starter)]
@@ -27,7 +29,6 @@ public class LinkPageTemplatesTests
     }
 
     [Theory]
-    [InlineData("neon", SubscriptionPlan.Trial)]
     [InlineData("neon", SubscriptionPlan.Starter)]
     [InlineData("corporate", SubscriptionPlan.Starter)]
     [InlineData("corporate", SubscriptionPlan.Professional)]
