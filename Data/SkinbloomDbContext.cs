@@ -81,6 +81,13 @@ public class GentleBookDbContext : DbContext
     public DbSet<IntakeFormAnswer> IntakeFormAnswers { get; set; }
     public DbSet<Voucher> Vouchers { get; set; }
 
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        base.ConfigureConventions(configurationBuilder);
+        configurationBuilder.Properties<DateTime>().HaveConversion<UtcDateTimeValueConverter>();
+        configurationBuilder.Properties<DateTime?>().HaveConversion<NullableUtcDateTimeValueConverter>();
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

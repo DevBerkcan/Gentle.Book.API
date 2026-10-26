@@ -2,6 +2,7 @@ using Gentle.Book.API.Tests.TestSupport;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
 using GentleBook.Api.Services;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -73,5 +74,31 @@ public class AdminServiceBookingStatusTransitionTests
             () => service.UpdateBookingStatusAsync(booking.Id, new UpdateBookingStatusDto("Confirmed", null)));
 
         Assert.Contains("nicht zulässig", ex.Message);
+    }
+
+    // Found during live pre-launch testing (employee test account): the bookings UI offered
+    // these transitions in its dropdown and they appeared to just silently fail to save — this
+    // confirms the backend has always correctly rejected them (Completed is a true end-state);
+    // the actual bug was the frontend not disabling/explaining the rejected options, fixed
+    // separately in app/admin/bookings/page.tsx.
+    [Theory]
+    [InlineData("Pending")]
+    [InlineData("Cancelled")]
+    public async Task UpdateBookingStatusAsync_CompletedToOtherStatus_Rejected(string targetStatus)
+    {
+        using var db = TestDbContextFactory.Create();
+        var (_, booking) = SeedCancelledBooking(db);
+        booking.Status = BookingStatus.Completed;
+        booking.CancelledAt = null;
+        db.SaveChanges();
+        var service = Build(db);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.UpdateBookingStatusAsync(booking.Id, new UpdateBookingStatusDto(targetStatus, null)));
+
+        Assert.Contains("nicht zulässig", ex.Message);
+
+        var reloaded = await db.Bookings.AsNoTracking().FirstAsync(b => b.Id == booking.Id);
+        Assert.Equal(BookingStatus.Completed, reloaded.Status);
     }
 }
