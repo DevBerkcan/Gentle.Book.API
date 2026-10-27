@@ -38,4 +38,22 @@ public class TrackingServiceIpAnonymizationTests
         var stored = await db.PageViews.AsNoTracking().SingleAsync();
         Assert.Null(stored.IpAddress);
     }
+
+    // Found during live pre-launch testing: the admin "meistgeklickter Link" stat showed a
+    // blank name for 2 real click records — GET /api/admin/tracking returned
+    // linkClicks: [{ linkName: "", clickCount: 2 }]. Falls back to the URL so there's always
+    // something identifiable to show instead of persisting an empty string.
+    [Fact]
+    public async Task TrackLinkClickAsync_BlankLinkName_FallsBackToUrl()
+    {
+        using var db = Gentle.Book.API.Tests.TestSupport.TestDbContextFactory.Create();
+        var service = new TrackingService(db, NullLogger<TrackingService>.Instance, new GentleBook.Api.Services.TenantContext());
+
+        await service.TrackLinkClickAsync(
+            new TrackLinkClickDto { LinkName = "", LinkUrl = "https://example.test/booking" },
+            referrerUrl: "");
+
+        var stored = await db.LinkClicks.AsNoTracking().SingleAsync();
+        Assert.Equal("https://example.test/booking", stored.LinkName);
+    }
 }

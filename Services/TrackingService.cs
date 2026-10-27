@@ -35,10 +35,15 @@ public class TrackingService
 
     public async Task TrackLinkClickAsync(TrackLinkClickDto dto, string referrerUrl)
     {
+        // Found during live pre-launch testing: a stored click with a blank LinkName renders as
+        // an unlabeled row in the admin "meistgeklickter Link" stat — fall back to the URL so
+        // there's always something identifiable to show, rather than persisting "".
+        var linkName = string.IsNullOrWhiteSpace(dto.LinkName) ? dto.LinkUrl : dto.LinkName;
+
         var linkClick = new LinkClick
         {
             Id = Guid.NewGuid(),
-            LinkName = dto.LinkName,
+            LinkName = linkName,
             LinkUrl = dto.LinkUrl,
             SessionId = dto.SessionId,
             ReferrerUrl = referrerUrl,
