@@ -222,4 +222,64 @@ public class ServiceFinderEngineTests
         var previewResult = await engine.FindServicesAsync(tenant.Id, noAnswers, CancellationToken.None, bypassEnabledCheck: true);
         Assert.Contains(previewResult.MissingQuestions, q => q.QuestionKey == "GB-FINDER-08");
     }
+
+    // Found during live pre-launch testing: the admin guide explicitly promises the Finder
+    // "never returns zero matches", but the code's own fallback-when-empty branch still filtered
+    // by !Excluded — identical to the query above it except for sort order — so when every
+    // service happened to get excluded by matched rules, both branches returned empty. The AI
+    // explanation step then had nothing to reference and invented a non-existent service name to
+    // fill the message. This confirms the promise now actually holds in code.
+    [Fact]
+    public async Task FindServicesAsync_AllServicesExcludedByRules_StillReturnsRecommendations()
+    {
+        using var db = TestDbContextFactory.Create();
+
+        var tenant = new Tenant { Name = "A", Slug = "all-excluded-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(tenant);
+
+        var profile = new IndustryProfile { Key = "beauty_aesthetics", Name = "Beauty", IsActive = true };
+        db.IndustryProfiles.Add(profile);
+
+        db.TenantIndustrySettings.Add(new TenantIndustrySetting
+        {
+            TenantId = tenant.Id,
+            PrimaryIndustryProfileId = profile.Id,
+            IsFinderEnabled = true
+        });
+
+        var category = new ServiceCategory { TenantId = tenant.Id, Name = "Face", IsActive = true };
+        db.ServiceCategories.Add(category);
+
+        var service = new Service
+        {
+            TenantId = tenant.Id,
+            CategoryId = category.Id,
+            Name = "Laser-Haarentfernung",
+            DurationMinutes = 30,
+            Price = 50,
+            Currency = "EUR",
+            IsActive = true
+        };
+        db.Services.Add(service);
+
+        db.ServiceFinderRules.Add(new ServiceFinderRule
+        {
+            TenantId = tenant.Id,
+            ServiceId = service.Id,
+            RuleType = ServiceFinderRuleType.ExcludeService,
+            ConditionJson = "{}",
+            ResultJson = "{}",
+            Priority = 100,
+            IsActive = true,
+            ApprovalStatus = ApprovalStatus.Approved
+        });
+
+        await db.SaveChangesAsync();
+
+        var engine = new ServiceFinderEngine(db);
+        var result = await engine.FindServicesAsync(tenant.Id, new ServiceFinderAnswers(new Dictionary<string, JsonElement>()), CancellationToken.None);
+
+        Assert.NotEmpty(result.Recommendations);
+        Assert.Contains(result.Recommendations, r => r.ServiceId == service.Id);
+    }
 }

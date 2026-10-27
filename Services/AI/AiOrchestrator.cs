@@ -161,7 +161,20 @@ public sealed class AiOrchestrator : IAiOrchestrator
         string latestMessage,
         CancellationToken cancellationToken)
     {
-        var allowedServiceIds = result.Recommendations.Select(r => r.ServiceId).ToHashSet();
+        // The caller always runs the Finder engine with an empty answers dictionary for the
+        // chatbot (no accumulated conversation state), so result.Recommendations is just the
+        // engine's generic top-3 fallback pick — recomputed identically every turn, not "the
+        // tenant's full catalog". Grounding the chat prompt (and the suggestedServiceIds
+        // allow-list) against only those 3 made the bot flatly deny real services whenever they
+        // weren't among that arbitrary subset — found during live pre-launch testing, where it
+        // answered "no" to services that are in fact offered. The chat needs the full active
+        // service list for "do you offer X"-style questions, not the Finder's narrower picks.
+        var allServices = await _db.Services
+            .Where(s => s.TenantId == tenantId && s.IsActive)
+            .Select(s => new ServiceRecommendation(s.Id, s.Name, 0, s.Price, s.Currency, s.DurationMinutes, new List<Guid>()))
+            .ToListAsync(cancellationToken);
+        var chatContext = result with { Recommendations = allServices };
+        var allowedServiceIds = allServices.Select(r => r.ServiceId).ToHashSet();
 
         var tenantPlan = await _db.Subscriptions
             .Where(s => s.TenantId == tenantId)
@@ -180,7 +193,7 @@ public sealed class AiOrchestrator : IAiOrchestrator
             try
             {
                 var aiMessage = withinBudget
-                    ? await _provider.ChatTurnAsync(tenantId, history, latestMessage, result, cancellationToken)
+                    ? await _provider.ChatTurnAsync(tenantId, history, latestMessage, chatContext, cancellationToken)
                     : null;
                 if (aiMessage != null)
                 {

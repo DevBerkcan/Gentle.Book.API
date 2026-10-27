@@ -108,6 +108,65 @@ public class AiOrchestratorChatbotTests
         Assert.DoesNotContain(disallowedServiceId, response.RecommendedServiceIds);
     }
 
+    // Found during live pre-launch testing: the chatbot answered "no" to real services that just
+    // weren't among the Finder engine's top-3 (the engine is always run with an empty answers
+    // dictionary for the chatbot, so result.Recommendations is the same generic 3-service pick
+    // every turn, not "everything the tenant offers"). This confirms the full active-service
+    // catalog — not just that narrow subset — is what actually reaches the provider and the
+    // suggestedServiceIds allow-list.
+    [Fact]
+    public async Task BuildChatbotTurnAsync_GroundsAgainstFullActiveCatalog_NotJustFinderTopThree()
+    {
+        using var db = TestDbContextFactory.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(tenant);
+        db.Subscriptions.Add(new Subscription { TenantId = tenant.Id, Tenant = tenant, Plan = SubscriptionPlan.Agency, Status = SubscriptionStatus.Active });
+        var category = new ServiceCategory { TenantId = tenant.Id, Name = "Beauty", IsActive = true };
+        db.ServiceCategories.Add(category);
+        var laser = new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = "Laser-Haarentfernung", DurationMinutes = 30, Price = 80m, Currency = "EUR", IsActive = true };
+        db.Services.Add(laser);
+        await db.SaveChangesAsync();
+
+        var echoProvider = new EchoingPromptAiProviderAdapter();
+        var orchestrator = new AiOrchestrator(echoProvider, new AiUsageMeter(db), new AiUsageGate(db), new KnowledgeRetrievalService(db), db, NullLogger<AiOrchestrator>.Instance);
+
+        // result.Recommendations deliberately does NOT include "laser" — mirrors the real
+        // controller always calling FindServicesAsync with empty answers, whose top-3 fallback
+        // picks are unrelated to what the customer is actually asking about.
+        var narrowResult = ResultWithOneService(Guid.NewGuid());
+
+        await orchestrator.BuildChatbotTurnAsync(
+            tenant.Id, Guid.NewGuid(), Array.Empty<(string, string)>(), narrowResult, "Bietet ihr Laser-Haarentfernung an?", CancellationToken.None);
+
+        Assert.Contains("Laser-Haarentfernung", echoProvider.LastResultSeen!.Recommendations.Select(r => r.ServiceName));
+    }
+
+    private sealed class EchoingPromptAiProviderAdapter : IAiProviderAdapter
+    {
+        public ServiceFinderResult? LastResultSeen { get; private set; }
+
+        public Task<AiProviderMessage?> ExplainFinderResultAsync(
+            Guid tenantId, string? freeText, ServiceFinderResult result,
+            IReadOnlyList<KnowledgeResult> knowledge, CancellationToken cancellationToken)
+            => Task.FromResult<AiProviderMessage?>(null);
+
+        public Task<AiProviderMessage?> ChatTurnAsync(
+            Guid tenantId, IReadOnlyList<(string Role, string Content)> history, string latestMessage,
+            ServiceFinderResult result, CancellationToken cancellationToken)
+        {
+            LastResultSeen = result;
+            return Task.FromResult<AiProviderMessage?>(new AiProviderMessage(
+                Message: "ok", InputTokens: 1, OutputTokens: 1, EstimatedCost: 0m, Model: "echo",
+                SuggestedServiceIds: new List<Guid>(), SuggestedGuidanceIds: new List<Guid>(),
+                SuggestedEmployeeIds: new List<Guid>(), RequiresHumanConsultation: false));
+        }
+
+        public Task<DesignAssistantProviderMessage?> SuggestDesignAsync(
+            Guid tenantId, IReadOnlyList<(string Role, string Content)> history, string latestMessage,
+            string industryType, CancellationToken cancellationToken)
+            => Task.FromResult<DesignAssistantProviderMessage?>(null);
+    }
+
     private sealed class HallucinatingAiProviderAdapter : IAiProviderAdapter
     {
         private readonly Guid _hallucinatedServiceId;

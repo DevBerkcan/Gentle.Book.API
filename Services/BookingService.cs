@@ -124,44 +124,8 @@ public class BookingService
             throw new InvalidOperationException(
                 $"Termine können maximal {maxAdvanceDays} Tage im Voraus gebucht werden");
 
-        // 5. Normalize empty strings → null
-        var email = string.IsNullOrWhiteSpace(dto.Customer.Email)
-            ? null : dto.Customer.Email.Trim();
-        var phone = string.IsNullOrWhiteSpace(dto.Customer.Phone)
-            ? null : dto.Customer.Phone.Trim();
-
-        // 6. Find or create customer (lookup by email OR phone)
-        Customer? customer = null;
-
-        if (email != null)
-            customer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Email != null && c.Email == email);
-
-        if (customer == null && phone != null)
-            customer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Phone != null && c.Phone == phone);
-
-        if (customer == null)
-        {
-            customer = new Customer
-            {
-                TenantId = tenantId,
-                FirstName = dto.Customer.FirstName,
-                LastName = dto.Customer.LastName,
-                Email = email,
-                Phone = phone,
-                EmployeeId = dto.EmployeeId
-            };
-            _context.Customers.Add(customer);
-        }
-        else
-        {
-            customer.FirstName = dto.Customer.FirstName;
-            customer.LastName = dto.Customer.LastName;
-            if (email != null) customer.Email = email;
-            if (phone != null) customer.Phone = phone;
-            customer.UpdatedAt = DateTime.UtcNow;
-        }
+        // 5-6. Find or create customer (lookup by email OR phone)
+        var customer = await FindOrCreateCustomerForPublicBookingAsync(tenantId, dto.Customer, dto.EmployeeId);
 
         // 7. Resolve employee (optional) — must belong to the same tenant as the service
         Employee? employee = null;
@@ -235,6 +199,53 @@ public class BookingService
         }
 
         return ToDto(booking, customer, service, employee);
+    }
+
+    // Internal: resolves the Customer for a public, [AllowAnonymous] booking by email/phone,
+    // creating one if no match exists. Split out from CreateBookingAsync (which immediately
+    // opens a SERIALIZABLE transaction EF Core's InMemory provider doesn't support) so this —
+    // the part that matters for data integrity — is directly unit-testable.
+    public async Task<Customer> FindOrCreateCustomerForPublicBookingAsync(
+        Guid tenantId, CustomerInfoDto customerDto, Guid? employeeId)
+    {
+        var email = string.IsNullOrWhiteSpace(customerDto.Email) ? null : customerDto.Email.Trim();
+        var phone = string.IsNullOrWhiteSpace(customerDto.Phone) ? null : customerDto.Phone.Trim();
+
+        Customer? customer = null;
+
+        if (email != null)
+            customer = await _context.Customers
+                .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Email != null && c.Email == email);
+
+        if (customer == null && phone != null)
+            customer = await _context.Customers
+                .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Phone != null && c.Phone == phone);
+
+        if (customer == null)
+        {
+            customer = new Customer
+            {
+                TenantId = tenantId,
+                FirstName = customerDto.FirstName,
+                LastName = customerDto.LastName,
+                Email = email,
+                Phone = phone,
+                EmployeeId = employeeId
+            };
+            _context.Customers.Add(customer);
+        }
+        else
+        {
+            // Anyone can hit this endpoint with any email/phone they know — letting that
+            // overwrite the matched customer's real name would retroactively rename them
+            // across all their past bookings. Only fill in contact details that were
+            // genuinely missing before; never touch the name of an existing match.
+            if (email != null && customer.Email == null) customer.Email = email;
+            if (phone != null && customer.Phone == null) customer.Phone = phone;
+            if (email != null || phone != null) customer.UpdatedAt = DateTime.UtcNow;
+        }
+
+        return customer;
     }
 
     // ── READ ──────────────────────────────────────────────────────

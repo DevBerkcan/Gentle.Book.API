@@ -156,8 +156,14 @@ public sealed class ServiceFinderEngine : IServiceFinderEngine
 
         if (recommendations.Count == 0)
         {
+            // This was meant to be the "never zero matches" guarantee (the admin-facing guide
+            // promises it explicitly), but it filtered by !s.Excluded too — identical to the
+            // query above except for sort order, so when every service happened to get excluded
+            // by matched rules, this returned empty as well. Found during live pre-launch
+            // testing: the AI explanation ended up inventing a non-existent "Einführungstermin"
+            // to have something to say about an empty service list. As a true last resort,
+            // ignore exclusions entirely rather than recommend nothing.
             recommendations = state.Values
-                .Where(s => !s.Excluded)
                 .OrderBy(s => s.Name)
                 .Take(3)
                 .Select(s => new ServiceRecommendation(

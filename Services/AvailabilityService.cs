@@ -258,6 +258,22 @@ public class AvailabilityService
         Guid employeeId,
         Guid tenantId)
     {
+        // This is the path used whenever no specific employee has been pre-selected yet (the
+        // normal public booking flow checks "is ANY employee free" per slot) — unlike
+        // DetermineAvailableSlotsForEmployee below, it used to only check bookings/blocked slots
+        // and never the employee's own vacation or weekly schedule at all, so a slot outside an
+        // employee's actual working hours (or on a day they're on vacation) was still offered as
+        // long as nothing else happened to occupy it.
+        var isOnVacation = await _context.EmployeeVacations
+            .AnyAsync(v => v.TenantId == tenantId && v.EmployeeId == employeeId && v.StartDate <= date && v.EndDate >= date);
+        if (isOnVacation)
+            return false;
+
+        var schedule = await _context.EmployeeSchedules
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.EmployeeId == employeeId && s.DayOfWeek == date.DayOfWeek);
+        if (schedule != null && (!schedule.IsWorkingDay || startTime < schedule.StartTime || endTime > schedule.EndTime))
+            return false;
+
         // Check for any non-cancelled booking for this employee at this time.
         // EndTime is extended by the existing booking's service BufferTimeMinutes
         // to block the cleanup/preparation gap after each appointment.

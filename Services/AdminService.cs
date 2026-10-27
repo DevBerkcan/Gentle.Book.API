@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
@@ -276,13 +277,27 @@ public class AdminService
         if (!string.IsNullOrEmpty(filter.SearchTerm))
         {
             var search = filter.SearchTerm.ToLower();
+            // Booking.GenerateBookingNumber() (BK-yyyyMMdd-XXXXXXXX, shown everywhere a booking
+            // is referenced — audit log, emails, this list's own rows) is derived from the Id,
+            // not stored as a column, so a tester pasting that number/id fragment back into this
+            // search box got zero matches even though the booking fully exists — found when a
+            // booking confirmed present in the audit log and customer stats seemed to be
+            // "missing" from this list. Guid.ToString() is translatable by the SQL Server
+            // provider, so this still runs server-side.
+            var searchUpper = filter.SearchTerm.Trim().ToUpperInvariant();
+            // "BK-20261027-0C6EA9F5" → just the trailing id fragment, so pasting either the bare
+            // fragment or the full formatted booking number both work.
+            var bookingNumberMatch = Regex.Match(searchUpper, @"^BK-\d{8}-([0-9A-F]{8})$");
+            if (bookingNumberMatch.Success)
+                searchUpper = bookingNumberMatch.Groups[1].Value;
 
             query = query.Where(b =>
                 (b.Customer != null && b.Customer.FirstName.ToLower().Contains(search)) ||
                 (b.Customer != null && b.Customer.LastName.ToLower().Contains(search)) ||
                 (b.Customer != null && b.Customer.Email != null && b.Customer.Email.ToLower().Contains(search)) ||
                 (b.Customer != null && b.Customer.Phone != null && b.Customer.Phone.Contains(search)) ||
-                (b.Service != null && b.Service.Name.ToLower().Contains(search))
+                (b.Service != null && b.Service.Name.ToLower().Contains(search)) ||
+                b.Id.ToString().ToUpper().Contains(searchUpper)
             );
         }
 
