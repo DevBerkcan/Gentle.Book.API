@@ -16,7 +16,7 @@ namespace Gentle.Book.API.Tests;
 public class AdminServiceBookingSearchTests
 {
     private static AdminService Build(GentleBook.Api.Data.GentleBookDbContext db) =>
-        new(db, NullLogger<AdminService>.Instance, TestServiceFactory.CreateEmailService(db), new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), TestServiceFactory.CreateVoucherService(db));
+        new(db, NullLogger<AdminService>.Instance, TestServiceFactory.CreateEmailService(db), new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), TestServiceFactory.CreateVoucherService(db), new FakeBackgroundJobClient());
 
     private static (Tenant tenant, Booking booking) SeedBooking(GentleBook.Api.Data.GentleBookDbContext db)
     {

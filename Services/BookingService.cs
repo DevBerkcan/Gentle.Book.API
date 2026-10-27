@@ -190,17 +190,13 @@ public class BookingService
             "Booking created: {BookingId} for customer {Email} on {Date} at {Time}, employee: {EmployeeId}",
             booking.Id, customer.Email, bookingDate, startTime, employee?.Id);
 
-        // 9. Send confirmation email — EmailService handles the EmailLog internally
+        // 9. Send confirmation email — EmailService handles the EmailLog internally. Backgrounded
+        // via Hangfire (two full SMTP round trips — customer email + internal admin
+        // notification — made this request itself take 10+ seconds otherwise); the booking
+        // itself is already committed above regardless of whether/when this job runs.
         if (!string.IsNullOrEmpty(customer.Email))
         {
-            try
-            {
-                await _emailService.SendBookingConfirmationAsync(booking.Id);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Confirmation email failed for booking {BookingId}", booking.Id);
-            }
+            _jobs.Enqueue<EmailService>(s => s.SendBookingConfirmationAsync(booking.Id));
         }
 
         return ToDto(booking, customer, service, employee);
@@ -384,22 +380,14 @@ public class BookingService
         _logger.LogInformation(
             "Booking cancelled: {BookingId}, Reason: {Reason}", booking.Id, dto.Reason);
 
-        // SendCancellationConfirmationAsync already writes its own EmailLog entry
-        // (Sent or Failed) — it must not be duplicated here.
-        bool emailSent = false;
+        // Backgrounded via Hangfire (two full SMTP round trips — see CreateBookingAsync's
+        // comment above); emailSent here now means "queued for sending", not "confirmed
+        // delivered" — EmailLog (written by the job itself) is the actual source of truth for
+        // delivery status.
+        var emailSent = dto.NotifyCustomer;
         if (dto.NotifyCustomer)
         {
-            try
-            {
-                await _emailService.SendCancellationConfirmationAsync(
-                    booking, booking.Customer, booking.Service);
-                emailSent = true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "Failed to send cancellation email to {Email}", booking.Customer.Email);
-            }
+            _jobs.Enqueue<EmailService>(s => s.SendCancellationConfirmationByIdAsync(booking.Id, false));
         }
 
         // Offer the freed slot to the oldest matching waitlist entry.
@@ -430,8 +418,7 @@ public class BookingService
         // Idempotent: already Confirmed → just resend receipt, no error
         if (booking.Status == BookingStatus.Confirmed)
         {
-            try { await _emailService.SendConfirmationReceiptAsync(booking, booking.Customer, booking.Service); }
-            catch (Exception ex) { _logger.LogError(ex, "Failed to resend receipt for already-confirmed booking {BookingId}", booking.Id); }
+            _jobs.Enqueue<EmailService>(s => s.SendConfirmationReceiptByIdAsync(booking.Id));
             return ToDto(booking, true);
         }
 
@@ -456,22 +443,10 @@ public class BookingService
             "Booking confirmed: {BookingId} for customer {Email}",
             booking.Id, booking.Customer.Email);
 
-        // SendConfirmationReceiptAsync already writes its own EmailLog entry
-        // (Sent or Failed) — it must not be duplicated here.
-        bool emailSent = false;
-        try
-        {
-            await _emailService.SendConfirmationReceiptAsync(
-                booking, booking.Customer, booking.Service);
-            emailSent = true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex,
-                "Failed to send confirmation receipt to {Email}", booking.Customer.Email);
-        }
+        // Backgrounded via Hangfire — see CreateBookingAsync's comment above.
+        _jobs.Enqueue<EmailService>(s => s.SendConfirmationReceiptByIdAsync(booking.Id));
 
-        return ToDto(booking, emailSent);
+        return ToDto(booking, true);
     }
 
     // ── Private helpers ───────────────────────────────────────────

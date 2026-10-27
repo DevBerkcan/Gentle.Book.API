@@ -65,7 +65,13 @@ public record BookingListItemDto(
     string? CustomerNotes,
     DateTime CreatedAt,
     string? RedeemedVoucherCode = null,
-    decimal? VoucherDiscountAmount = null
+    decimal? VoucherDiscountAmount = null,
+    // Name as actually typed on this booking's form (Booking.ContactFirstName/LastName) —
+    // shown alongside CustomerName in the admin list since the two can legitimately differ
+    // (a matched customer record's name vs. who this specific booking was actually made
+    // under, e.g. a partner booking under a shared email). Null if it matches CustomerName
+    // or wasn't captured (bookings created before this field existed).
+    string? BookingContactName = null
 );
 
 // Update Booking Status Request

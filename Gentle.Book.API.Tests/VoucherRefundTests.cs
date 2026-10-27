@@ -143,7 +143,7 @@ public class VoucherRefundTests
         var booking = SeedConfirmedBookingWithVoucher(db, tenant, service, customer, voucher.Code, 40m);
 
         var adminService = new AdminService(db, NullLogger<AdminService>.Instance, TestServiceFactory.CreateEmailService(db),
-            new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), voucherService);
+            new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), voucherService, new FakeBackgroundJobClient());
 
         await adminService.UpdateBookingStatusAsync(booking.Id, new UpdateBookingStatusDto("Cancelled", null));
 
@@ -166,7 +166,7 @@ public class VoucherRefundTests
         var booking = SeedConfirmedBookingWithVoucher(db, tenant, service, customer, voucher.Code, 40m);
 
         var adminService = new AdminService(db, NullLogger<AdminService>.Instance, TestServiceFactory.CreateEmailService(db),
-            new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), voucherService);
+            new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), voucherService, new FakeBackgroundJobClient());
 
         await adminService.UpdateBookingStatusAsync(booking.Id, new UpdateBookingStatusDto("NoShow", null));
 
@@ -186,7 +186,7 @@ public class VoucherRefundTests
         var booking = SeedConfirmedBookingWithVoucher(db, tenant, service, customer, voucher.Code, service.Price);
 
         var adminService = new AdminService(db, NullLogger<AdminService>.Instance, TestServiceFactory.CreateEmailService(db),
-            new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), voucherService);
+            new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), voucherService, new FakeBackgroundJobClient());
 
         await adminService.DeleteBookingAsync(booking.Id, "Testabsage");
 

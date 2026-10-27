@@ -209,6 +209,24 @@ public class EmailService
         await _context.SaveChangesAsync();
     }
 
+    // ID-based wrapper so this can be enqueued as a Hangfire background job (which serializes
+    // just the booking id, then re-fetches fresh state in its own DI scope) instead of awaited
+    // synchronously inside the HTTP request — found during live pre-launch testing: booking and
+    // cancellation each wait on two full SMTP round trips in series (customer email + internal
+    // admin notification), which is why submitting a booking took 10+ seconds and cancelling
+    // 15-20.
+    public async Task SendConfirmationReceiptByIdAsync(Guid bookingId)
+    {
+        var booking = await _context.Bookings
+            .IgnoreQueryFilters()
+            .Include(b => b.Customer)
+            .Include(b => b.Service)
+            .FirstOrDefaultAsync(b => b.Id == bookingId);
+        if (booking == null) return;
+
+        await SendConfirmationReceiptAsync(booking, booking.Customer, booking.Service);
+    }
+
     // cancelledByStudio distinguishes a customer's own self-cancellation (CancelBookingAsync)
     // from the salon cancelling on the customer's behalf (AdminService.UpdateBookingStatusAsync /
     // DeleteBookingAsync) — both used to send the exact same "Ihre Buchung wurde storniert"
@@ -277,6 +295,19 @@ public class EmailService
 
         _context.EmailLogs.Add(emailLog);
         await _context.SaveChangesAsync();
+    }
+
+    // Same Hangfire-friendly ID-based wrapper as SendConfirmationReceiptByIdAsync above.
+    public async Task SendCancellationConfirmationByIdAsync(Guid bookingId, bool cancelledByStudio = false)
+    {
+        var booking = await _context.Bookings
+            .IgnoreQueryFilters()
+            .Include(b => b.Customer)
+            .Include(b => b.Service)
+            .FirstOrDefaultAsync(b => b.Id == bookingId);
+        if (booking == null) return;
+
+        await SendCancellationConfirmationAsync(booking, booking.Customer, booking.Service, cancelledByStudio);
     }
 
     public async Task SendBookingReminderAsync(Guid bookingId)

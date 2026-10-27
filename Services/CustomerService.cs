@@ -98,10 +98,26 @@ public class CustomerService
         // Calculate NoShowCount from bookings
         var noShowCount = customer.Bookings.Count(b => b.Status == BookingStatus.NoShow);
 
+        // TotalBookings/LastVisit are denormalized counters updated as a side effect of booking
+        // creation/completion — found during live pre-launch testing that they go stale and stay
+        // wrong forever once a booking they counted is later hard-deleted elsewhere (e.g.
+        // ServiceService.DeleteServiceAsync removing a service's booking history), since nothing
+        // ever decrements them for a row that no longer exists. Recomputed from the customer's
+        // actual surviving bookings on every detail-view load, same self-healing approach this
+        // method already used for NoShowCount above.
+        var actualTotalBookings = customer.Bookings.Count;
+        var lastCompletedVisit = customer.Bookings
+            .Where(b => b.Status == BookingStatus.Completed)
+            .Select(b => (DateTime?)b.BookingDate.ToDateTime(b.StartTime))
+            .OrderByDescending(d => d)
+            .FirstOrDefault();
+
         // Optional: Update the customer entity if the count doesn't match
-        if (customer.NoShowCount != noShowCount)
+        if (customer.NoShowCount != noShowCount || customer.TotalBookings != actualTotalBookings || customer.LastVisit != lastCompletedVisit)
         {
             customer.NoShowCount = noShowCount;
+            customer.TotalBookings = actualTotalBookings;
+            customer.LastVisit = lastCompletedVisit;
             await _context.SaveChangesAsync();
         }
 

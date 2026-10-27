@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using GentleBook.Api.Data;
 using GentleBook.Api.Data.Entities;
 using GentleBook.Api.DTOs;
+using Hangfire;
 using Microsoft.EntityFrameworkCore;
 
 namespace GentleBook.Api.Services;
@@ -13,14 +14,16 @@ public class AdminService
     private readonly EmailService _emailService;
     private readonly LoyaltyService _loyaltyService;
     private readonly VoucherService _voucherService;
+    private readonly IBackgroundJobClient _jobs;
 
-    public AdminService(GentleBookDbContext context, ILogger<AdminService> logger, EmailService emailService, LoyaltyService loyaltyService, VoucherService voucherService)
+    public AdminService(GentleBookDbContext context, ILogger<AdminService> logger, EmailService emailService, LoyaltyService loyaltyService, VoucherService voucherService, IBackgroundJobClient jobs)
     {
         _context = context;
         _logger = logger;
         _emailService = emailService;
         _loyaltyService = loyaltyService;
         _voucherService = voucherService;
+        _jobs = jobs;
     }
 
     public async Task<DashboardOverviewDto> GetDashboardOverviewAsync(Guid? employeeId = null)
@@ -323,6 +326,12 @@ public class AdminService
                     customerName = "Unknown Customer";
             }
 
+            var bookingContactName = b.ContactFirstName != null || b.ContactLastName != null
+                ? $"{b.ContactFirstName} {b.ContactLastName}".Trim()
+                : null;
+            if (string.Equals(bookingContactName, customerName, StringComparison.OrdinalIgnoreCase))
+                bookingContactName = null;
+
             return new BookingListItemDto(
                 b.Id,
                 Booking.GenerateBookingNumber(b.BookingDate, b.Id),
@@ -339,7 +348,8 @@ public class AdminService
                 b.CustomerNotes,
                 b.CreatedAt,
                 b.RedeemedVoucherCode,
-                b.VoucherDiscountAmount
+                b.VoucherDiscountAmount,
+                bookingContactName
             );
         }).ToList();
 
@@ -442,15 +452,7 @@ public class AdminService
         if (newStatus == BookingStatus.Cancelled && oldStatus != BookingStatus.Cancelled
             && booking.Customer?.Email != null && booking.Service != null)
         {
-            try
-            {
-                await _emailService.SendCancellationConfirmationAsync(booking, booking.Customer, booking.Service, cancelledByStudio: true);
-                _logger.LogInformation("Cancellation email sent to {Email} for booking {BookingId}", booking.Customer.Email, bookingId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send cancellation email for booking {BookingId}", bookingId);
-            }
+            _jobs.Enqueue<EmailService>(s => s.SendCancellationConfirmationByIdAsync(booking.Id, true));
         }
 
         var customerName = booking.Customer != null
@@ -500,7 +502,11 @@ public class AdminService
             reason ?? "No reason provided"
         );
 
-        // Notify customer before deleting
+        // Notify customer before deleting. Kept synchronous (unlike the other call sites in
+        // this file) — the booking row itself is about to be permanently removed below, so a
+        // backgrounded job re-fetching it by id afterward would just find nothing and silently
+        // never send anything. This is a less latency-sensitive admin action anyway (not the
+        // customer-facing booking/cancel flow the Hangfire conversion elsewhere is about).
         if (booking.Customer?.Email != null && booking.Service != null && booking.Status != BookingStatus.Cancelled)
         {
             try
