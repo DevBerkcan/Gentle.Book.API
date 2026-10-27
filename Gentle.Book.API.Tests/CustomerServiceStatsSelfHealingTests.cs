@@ -65,6 +65,45 @@ public class CustomerServiceStatsSelfHealingTests
         Assert.Equal(1, reloaded!.TotalBookings);
     }
 
+    // Found right after the fix above shipped: the admin UI never actually calls
+    // GetCustomerByIdAsync anywhere (no customer detail page exists, and clicking a customer in
+    // the edit dialog only loads loyalty points) — the customer LIST, which IS what the UI loads,
+    // kept showing the stale stored counters since it never self-healed at all.
+    [Fact]
+    public async Task GetCustomersAsync_StaleTotalBookings_ShowsRecomputedValueFromSurvivingBookings()
+    {
+        using var db = TestDbContextFactory.Create();
+        var tenant = new Tenant { Name = "Salon Stats List", Slug = "salon-stats-list-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(tenant);
+        var category = new ServiceCategory { TenantId = tenant.Id, Name = "Haarschnitt" };
+        db.ServiceCategories.Add(category);
+        var service = new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = "Waschen, Schneiden, Föhnen", DurationMinutes = 30, Price = 40m, IsActive = true };
+        db.Services.Add(service);
+        var customer = new Customer
+        {
+            TenantId = tenant.Id,
+            FirstName = "Mitarbeiter",
+            LastName = "Stornotest",
+            Email = "mitarbeiter-stornotest@example.test",
+            TotalBookings = 1,
+            LastVisit = DateTime.UtcNow.AddDays(-1),
+        };
+        db.Customers.Add(customer);
+        // No surviving Booking rows at all — mirrors the real case (its one booking was
+        // hard-deleted along with a since-removed service).
+        db.SaveChanges();
+
+        var tenantContext = new TenantContext();
+        tenantContext.Set(tenant.Id, "test-tenant", isSuperAdmin: false, "TenantAdmin");
+        var customerService = new CustomerService(db, NullLogger<CustomerService>.Instance, tenantContext, TestServiceFactory.CreateEmailService(db));
+
+        var result = await customerService.GetCustomersAsync(null, null);
+
+        var item = Assert.Single(result.Items, c => c.Id == customer.Id);
+        Assert.Equal(0, item.TotalBookings);
+        Assert.Null(item.LastVisit);
+    }
+
     [Fact]
     public async Task GetCustomerByIdAsync_NoSurvivingBookings_ResetsCountersToZeroAndNullLastVisit()
     {

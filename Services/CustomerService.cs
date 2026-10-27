@@ -49,21 +49,41 @@ public class CustomerService
 
         var totalCount = await query.CountAsync();
 
-        var customers = await query
+        // TotalBookings/LastVisit are denormalized counters updated as a side effect of booking
+        // creation/completion (see GetCustomerByIdAsync's self-heal above) — but found during
+        // live pre-launch testing that the admin customer LIST (this method) is the only place
+        // the UI actually loads customers from; it never calls GetCustomerByIdAsync at all, so
+        // that self-heal never ran in practice. Computed live from each customer's actual
+        // surviving bookings (only for this page's rows, not the whole table) instead of
+        // trusting the stored columns, so the list is never stuck showing counts for bookings
+        // that no longer exist (e.g. after the service-deletion bug fixed previously).
+        var pageCustomers = await query
+            .Include(c => c.Bookings)
             .OrderByDescending(c => c.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .Select(c => new CustomerListItemDto(
+            .ToListAsync();
+
+        var customers = pageCustomers.Select(c =>
+        {
+            var lastVisit = c.Bookings
+                .Where(b => b.Status == BookingStatus.Completed)
+                .Select(b => b.BookingDate.ToDateTime(b.StartTime))
+                .OrderDescending()
+                .Cast<DateTime?>()
+                .FirstOrDefault();
+
+            return new CustomerListItemDto(
                 c.Id,
                 c.FirstName + " " + c.LastName,
                 c.Email,
                 c.Phone,
-                c.TotalBookings,
-                c.LastVisit,
+                c.Bookings.Count,
+                lastVisit,
                 c.CreatedAt,
                 c.LoyaltyPoints
-            ))
-            .ToListAsync();
+            );
+        }).ToList();
 
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 

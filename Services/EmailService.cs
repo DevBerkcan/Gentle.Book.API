@@ -252,7 +252,10 @@ public class EmailService
             var tenantLogo3      = GetAbsoluteLogoUrl(tenantSettings3?.LogoUrl);
             var primaryColor3    = tenantSettings3?.PrimaryColor ?? "#6355E4";
 
-            emailLog.Subject = cancelledByStudio ? $"Ihr Termin wurde storniert – {tenantName3}" : $"Ihre Stornierung – {tenantName3}";
+            // The body already distinguished "von uns storniert" (studio-initiated) from the
+            // customer's own cancellation — found during live pre-launch testing that the
+            // subject line didn't, reading as ambiguous about who actually cancelled.
+            emailLog.Subject = cancelledByStudio ? $"Ihr Termin wurde von uns storniert – {tenantName3}" : $"Ihre Stornierung – {tenantName3}";
 
             message.From.Add(new MailboxAddress(tenantName3, _emailOptions.SenderEmail));
             message.To.Add(new MailboxAddress(customer.FullName, customer.Email!));
