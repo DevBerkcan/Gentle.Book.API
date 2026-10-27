@@ -174,4 +174,52 @@ public class ServiceFinderEngineTests
         Assert.Contains(resultA.Recommendations, r => r.ServiceId == serviceA.Id);
         Assert.DoesNotContain(resultA.Recommendations, r => r.ServiceId == serviceB.Id);
     }
+
+    // Found during live pre-launch testing: the admin "Vorschau" (preview) panel always reported
+    // "Fehlende Fragen: Keine" for an active, required question with no answers given, even though
+    // the engine's own missing-question logic is correct in isolation. Root cause: IsFinderEnabled
+    // being false (the public finder toggle, which admins deliberately leave off while still
+    // configuring it) makes FindServicesAsync short-circuit to all-empty results — including
+    // MissingQuestions — regardless of what questions/answers are passed in. The admin preview
+    // path now passes bypassEnabledCheck: true to opt out of that gate.
+    [Fact]
+    public async Task FindServicesAsync_FinderDisabled_ReturnsEmptyUnlessBypassed()
+    {
+        using var db = TestDbContextFactory.Create();
+
+        var tenant = new Tenant { Name = "A", Slug = "finder-disabled-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(tenant);
+
+        var profile = new IndustryProfile { Key = "beauty_aesthetics", Name = "Beauty", IsActive = true };
+        db.IndustryProfiles.Add(profile);
+
+        db.TenantIndustrySettings.Add(new TenantIndustrySetting
+        {
+            TenantId = tenant.Id,
+            PrimaryIndustryProfileId = profile.Id,
+            IsFinderEnabled = false,
+        });
+
+        db.ServiceFinderQuestions.Add(new ServiceFinderQuestion
+        {
+            TenantId = tenant.Id,
+            QuestionKey = "GB-FINDER-08",
+            QuestionText = "Test question",
+            AnswerType = ServiceFinderAnswerType.SingleChoice,
+            IsRequired = true,
+            IsActive = true,
+            DisplayOrder = 0,
+        });
+
+        await db.SaveChangesAsync();
+
+        var engine = new ServiceFinderEngine(db);
+        var noAnswers = new ServiceFinderAnswers(new Dictionary<string, JsonElement>());
+
+        var normalResult = await engine.FindServicesAsync(tenant.Id, noAnswers, CancellationToken.None);
+        Assert.Empty(normalResult.MissingQuestions);
+
+        var previewResult = await engine.FindServicesAsync(tenant.Id, noAnswers, CancellationToken.None, bypassEnabledCheck: true);
+        Assert.Contains(previewResult.MissingQuestions, q => q.QuestionKey == "GB-FINDER-08");
+    }
 }

@@ -60,7 +60,8 @@ public class CustomerService
                 c.Phone,
                 c.TotalBookings,
                 c.LastVisit,
-                c.CreatedAt
+                c.CreatedAt,
+                c.LoyaltyPoints
             ))
             .ToListAsync();
 
@@ -135,7 +136,8 @@ public class CustomerService
             customer.Notes,
             customer.FullName,
             customer.EmployeeId,
-            recentBookings
+            recentBookings,
+            customer.LoyaltyPoints
         );
     }
 
@@ -381,7 +383,8 @@ public class CustomerService
                 c.Phone,
                 c.TotalBookings,
                 c.LastVisit,
-                c.CreatedAt
+                c.CreatedAt,
+                c.LoyaltyPoints
             ))
             .ToListAsync();
     }

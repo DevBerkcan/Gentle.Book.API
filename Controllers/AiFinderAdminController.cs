@@ -307,6 +307,13 @@ public class AiFinderAdminController : ControllerBase
                 ? await _db.ServiceFinderQuestions.FirstOrDefaultAsync(q => q.Id == item.Id.Value && q.TenantId == tenantId, cancellationToken)
                 : null;
 
+            // This is edited as raw JSON, not a structured form — if the admin's edit drops or
+            // mismatches the id for a question that otherwise already exists (same QuestionKey),
+            // fall back to matching on that before creating a new row: (TenantId, QuestionKey) is
+            // unique, so creating one outright would just throw a 500 on save instead.
+            entity ??= await _db.ServiceFinderQuestions
+                .FirstOrDefaultAsync(q => q.TenantId == tenantId && q.QuestionKey == item.QuestionKey.Trim(), cancellationToken);
+
             if (entity == null)
             {
                 entity = new ServiceFinderQuestion
@@ -477,7 +484,7 @@ public class AiFinderAdminController : ControllerBase
             return Unauthorized(new { message = "Kein Tenant im Token" });
 
         var answerMap = request.Answers.ToDictionary(a => a.Key, a => a.Value, StringComparer.OrdinalIgnoreCase);
-        var result = await _engine.FindServicesAsync(tenantId, new ServiceFinderAnswers(answerMap), cancellationToken);
+        var result = await _engine.FindServicesAsync(tenantId, new ServiceFinderAnswers(answerMap), cancellationToken, bypassEnabledCheck: true);
         var response = await _orchestrator.BuildFinderResponseAsync(tenantId, result, request.FreeText, cancellationToken);
 
         return Ok(new EvaluateFinderResponseDto(

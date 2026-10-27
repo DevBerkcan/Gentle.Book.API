@@ -9,7 +9,8 @@ public record CustomerListItemDto(
     string? Phone,
     int TotalBookings,
     DateTime? LastVisit,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    int LoyaltyPoints
 );
 
 // ── Customer Details ────────────────────────────────────────────
@@ -28,7 +29,8 @@ public record CustomerDetailDto(
     string? Notes,
     string FullName,
     Guid? EmployeeId,
-    List<CustomerBookingItemDto> RecentBookings
+    List<CustomerBookingItemDto> RecentBookings,
+    int LoyaltyPoints
 );
 
 public record CustomerBookingItemDto(

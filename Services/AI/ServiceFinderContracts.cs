@@ -37,7 +37,8 @@ public interface IServiceFinderEngine
     Task<ServiceFinderResult> FindServicesAsync(
         Guid tenantId,
         ServiceFinderAnswers answers,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        bool bypassEnabledCheck = false);
 }
 
 public sealed record OrchestratedFinderResponse(

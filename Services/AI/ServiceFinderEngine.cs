@@ -17,13 +17,16 @@ public sealed class ServiceFinderEngine : IServiceFinderEngine
     public async Task<ServiceFinderResult> FindServicesAsync(
         Guid tenantId,
         ServiceFinderAnswers answers,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool bypassEnabledCheck = false)
     {
         var setting = await _db.TenantIndustrySettings
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
 
-        if (setting == null || !setting.IsFinderEnabled)
+        // Admin preview (bypassEnabledCheck) must work while the public finder toggle is still
+        // off, since that's exactly the state admins configure it in before switching it on.
+        if (setting == null || (!setting.IsFinderEnabled && !bypassEnabledCheck))
         {
             return new ServiceFinderResult(
                 Array.Empty<ServiceRecommendation>(),
