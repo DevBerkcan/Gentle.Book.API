@@ -125,6 +125,9 @@ public class AiOrchestratorChatbotTests
         db.ServiceCategories.Add(category);
         var laser = new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = "Laser-Haarentfernung", DurationMinutes = 30, Price = 80m, Currency = "EUR", IsActive = true };
         db.Services.Add(laser);
+        var employee = new Employee { TenantId = tenant.Id, Name = "Mara Mitarbeiterin", IsActive = true };
+        db.Employees.Add(employee);
+        db.ServiceEmployees.Add(new ServiceEmployee { ServiceId = laser.Id, EmployeeId = employee.Id });
         await db.SaveChangesAsync();
 
         var echoProvider = new EchoingPromptAiProviderAdapter();
@@ -139,6 +142,34 @@ public class AiOrchestratorChatbotTests
             tenant.Id, Guid.NewGuid(), Array.Empty<(string, string)>(), narrowResult, "Bietet ihr Laser-Haarentfernung an?", CancellationToken.None);
 
         Assert.Contains("Laser-Haarentfernung", echoProvider.LastResultSeen!.Recommendations.Select(r => r.ServiceName));
+    }
+
+    // Found during live pre-launch testing: deactivating a service's only employee left the chat
+    // still offering to book it ("Ja, wir bieten Laser-Haarentfernung an...") — this grounding
+    // query had no equivalent to the booking page's "hide unbookable services" rule.
+    [Fact]
+    public async Task BuildChatbotTurnAsync_ServiceHasNoActiveEmployee_IsExcludedFromGrounding()
+    {
+        using var db = TestDbContextFactory.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(tenant);
+        db.Subscriptions.Add(new Subscription { TenantId = tenant.Id, Tenant = tenant, Plan = SubscriptionPlan.Agency, Status = SubscriptionStatus.Active });
+        var category = new ServiceCategory { TenantId = tenant.Id, Name = "Beauty", IsActive = true };
+        db.ServiceCategories.Add(category);
+        var laser = new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = "Laser-Haarentfernung", DurationMinutes = 30, Price = 80m, Currency = "EUR", IsActive = true };
+        db.Services.Add(laser);
+        var inactiveEmployee = new Employee { TenantId = tenant.Id, Name = "Tea Test", IsActive = false };
+        db.Employees.Add(inactiveEmployee);
+        db.ServiceEmployees.Add(new ServiceEmployee { ServiceId = laser.Id, EmployeeId = inactiveEmployee.Id });
+        await db.SaveChangesAsync();
+
+        var echoProvider = new EchoingPromptAiProviderAdapter();
+        var orchestrator = new AiOrchestrator(echoProvider, new AiUsageMeter(db), new AiUsageGate(db), new KnowledgeRetrievalService(db), db, NullLogger<AiOrchestrator>.Instance);
+
+        await orchestrator.BuildChatbotTurnAsync(
+            tenant.Id, Guid.NewGuid(), Array.Empty<(string, string)>(), ResultWithOneService(Guid.NewGuid()), "Kann ich Laser-Haarentfernung buchen?", CancellationToken.None);
+
+        Assert.DoesNotContain("Laser-Haarentfernung", echoProvider.LastResultSeen!.Recommendations.Select(r => r.ServiceName));
     }
 
     private sealed class EchoingPromptAiProviderAdapter : IAiProviderAdapter

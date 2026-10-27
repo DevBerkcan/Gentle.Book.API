@@ -57,6 +57,12 @@ public class ServiceFinderEngineTests
 
         db.Services.AddRange(consultation, treatment);
 
+        var employee = new Employee { TenantId = tenant.Id, Name = "Mara Mitarbeiterin", IsActive = true };
+        db.Employees.Add(employee);
+        db.ServiceEmployees.AddRange(
+            new ServiceEmployee { ServiceId = consultation.Id, EmployeeId = employee.Id },
+            new ServiceEmployee { ServiceId = treatment.Id, EmployeeId = employee.Id });
+
         db.ServiceFinderQuestions.AddRange(
             new ServiceFinderQuestion
             {
@@ -141,6 +147,13 @@ public class ServiceFinderEngineTests
         var serviceA = new Service { TenantId = tenantA.Id, CategoryId = catA.Id, Name = "A-Service", DurationMinutes = 30, Price = 20, Currency = "EUR", IsActive = true };
         var serviceB = new Service { TenantId = tenantB.Id, CategoryId = catB.Id, Name = "B-Service", DurationMinutes = 30, Price = 20, Currency = "EUR", IsActive = true };
         db.Services.AddRange(serviceA, serviceB);
+
+        var employeeA = new Employee { TenantId = tenantA.Id, Name = "Mara A", IsActive = true };
+        var employeeB = new Employee { TenantId = tenantB.Id, Name = "Mara B", IsActive = true };
+        db.Employees.AddRange(employeeA, employeeB);
+        db.ServiceEmployees.AddRange(
+            new ServiceEmployee { ServiceId = serviceA.Id, EmployeeId = employeeA.Id },
+            new ServiceEmployee { ServiceId = serviceB.Id, EmployeeId = employeeB.Id });
 
         db.ServiceFinderRules.AddRange(
             new ServiceFinderRule
@@ -238,6 +251,9 @@ public class ServiceFinderEngineTests
         db.ServiceCategories.Add(category);
         var service = new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = "Laser-Haarentfernung", DurationMinutes = 30, Price = 50, Currency = "EUR", IsActive = true };
         db.Services.Add(service);
+        var employee = new Employee { TenantId = tenant.Id, Name = "Mara Mitarbeiterin", IsActive = true };
+        db.Employees.Add(employee);
+        db.ServiceEmployees.Add(new ServiceEmployee { ServiceId = service.Id, EmployeeId = employee.Id });
         await db.SaveChangesAsync();
         // Deliberately no TenantIndustrySettings row at all for this tenant.
 
@@ -290,6 +306,10 @@ public class ServiceFinderEngineTests
         };
         db.Services.Add(service);
 
+        var employee = new Employee { TenantId = tenant.Id, Name = "Mara Mitarbeiterin", IsActive = true };
+        db.Employees.Add(employee);
+        db.ServiceEmployees.Add(new ServiceEmployee { ServiceId = service.Id, EmployeeId = employee.Id });
+
         db.ServiceFinderRules.Add(new ServiceFinderRule
         {
             TenantId = tenant.Id,
@@ -309,5 +329,33 @@ public class ServiceFinderEngineTests
 
         Assert.NotEmpty(result.Recommendations);
         Assert.Contains(result.Recommendations, r => r.ServiceId == service.Id);
+    }
+
+    // Found during live pre-launch testing: deactivating a service's only employee left the
+    // Finder still able to recommend it — it should follow the same "needs at least one active
+    // employee to be bookable" rule as the public booking page (ServiceService.GetServicesAsync).
+    [Fact]
+    public async Task FindServicesAsync_ServiceHasNoActiveEmployee_IsExcludedFromRecommendations()
+    {
+        using var db = TestDbContextFactory.Create();
+
+        var tenant = new Tenant { Name = "A", Slug = "no-active-employee-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(tenant);
+        var profile = new IndustryProfile { Key = "beauty_aesthetics", Name = "Beauty", IsActive = true };
+        db.IndustryProfiles.Add(profile);
+        db.TenantIndustrySettings.Add(new TenantIndustrySetting { TenantId = tenant.Id, PrimaryIndustryProfileId = profile.Id, IsFinderEnabled = true });
+        var category = new ServiceCategory { TenantId = tenant.Id, Name = "Face", IsActive = true };
+        db.ServiceCategories.Add(category);
+        var unbookable = new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = "Laser-Haarentfernung", DurationMinutes = 30, Price = 50, Currency = "EUR", IsActive = true };
+        db.Services.Add(unbookable);
+        var inactiveEmployee = new Employee { TenantId = tenant.Id, Name = "Tea Test", IsActive = false };
+        db.Employees.Add(inactiveEmployee);
+        db.ServiceEmployees.Add(new ServiceEmployee { ServiceId = unbookable.Id, EmployeeId = inactiveEmployee.Id });
+        await db.SaveChangesAsync();
+
+        var engine = new ServiceFinderEngine(db);
+        var result = await engine.FindServicesAsync(tenant.Id, new ServiceFinderAnswers(new Dictionary<string, JsonElement>()), CancellationToken.None);
+
+        Assert.DoesNotContain(result.Recommendations, r => r.ServiceId == unbookable.Id);
     }
 }

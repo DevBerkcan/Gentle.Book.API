@@ -169,8 +169,13 @@ public sealed class AiOrchestrator : IAiOrchestrator
         // weren't among that arbitrary subset — found during live pre-launch testing, where it
         // answered "no" to services that are in fact offered. The chat needs the full active
         // service list for "do you offer X"-style questions, not the Finder's narrower picks.
+        // A service with no active employee assigned can't actually be booked — found during
+        // live pre-launch testing: deactivating a service's only employee still left the chat
+        // offering to book it ("Ja, wir bieten Laser-Haarentfernung an..."), since this grounding
+        // query had no equivalent to the booking page's "hide unbookable services" rule
+        // (ServiceService.GetServicesAsync et al.).
         var allServices = await _db.Services
-            .Where(s => s.TenantId == tenantId && s.IsActive)
+            .Where(s => s.TenantId == tenantId && s.IsActive && s.ServiceEmployees.Any(se => se.Employee.IsActive))
             .Select(s => new ServiceRecommendation(s.Id, s.Name, 0, s.Price, s.Currency, s.DurationMinutes, new List<Guid>()))
             .ToListAsync(cancellationToken);
         var chatContext = result with { Recommendations = allServices };

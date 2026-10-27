@@ -51,9 +51,12 @@ public sealed class ServiceFinderEngine : IServiceFinderEngine
             .Select(q => new RequiredQuestion(q.QuestionKey, q.QuestionText, q.AnswerType))
             .ToList();
 
+        // A service with no active employee assigned can't actually be booked — same rule the
+        // public booking page already applies (ServiceService.GetServicesAsync et al.). Without
+        // it here, the Finder could recommend something the customer then can't book.
         var services = await _db.Services
             .AsNoTracking()
-            .Where(s => s.TenantId == tenantId && s.IsActive)
+            .Where(s => s.TenantId == tenantId && s.IsActive && s.ServiceEmployees.Any(se => se.Employee.IsActive))
             .OrderBy(s => s.DisplayOrder)
             .Select(s => new
             {
@@ -62,7 +65,7 @@ public sealed class ServiceFinderEngine : IServiceFinderEngine
                 s.Price,
                 s.Currency,
                 s.DurationMinutes,
-                EmployeeIds = s.ServiceEmployees.Select(se => se.EmployeeId).ToList()
+                EmployeeIds = s.ServiceEmployees.Where(se => se.Employee.IsActive).Select(se => se.EmployeeId).ToList()
             })
             .ToListAsync(cancellationToken);
 
