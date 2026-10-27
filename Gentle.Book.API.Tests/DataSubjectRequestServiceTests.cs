@@ -113,6 +113,12 @@ public class DataSubjectRequestServiceTests
 
         var reloadedSub = await db.Subscriptions.AsNoTracking().FirstAsync(s => s.TenantId == tenant.Id);
         Assert.NotNull(reloadedSub.OperationalDataDeletedAt);
+        // Found during live pre-launch testing: Tenant.IsActive was set to false by the purge,
+        // but the Subscription's own Status was left untouched — SuperAdminController's "Aktive
+        // Abos"/MRR/Agency-tenant-count/AI-cost-worst-case all filter Subscriptions by
+        // Status == Active directly (no join back to Tenant.IsActive), so a purged tenant kept
+        // counting in every one of those platform-wide numbers indefinitely.
+        Assert.Equal(SubscriptionStatus.Cancelled, reloadedSub.Status);
         Assert.False(await db.Customers.IgnoreQueryFilters().AsNoTracking().AnyAsync(c => c.TenantId == tenant.Id));
         // Regression: the Employee row itself (name, username, password hash) used to survive
         // the purge — only its notes/vacations/schedules/service-links were cleared.

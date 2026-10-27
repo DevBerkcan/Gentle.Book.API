@@ -441,6 +441,12 @@ public class SubscriptionService
             sub.Tenant.UpdatedAt = now;
             sub.CancelReason = null;
             sub.OperationalDataDeletedAt = now;
+            // Found during live pre-launch testing: Tenant.IsActive was set to false here, but
+            // the Subscription's own Status never changed — SuperAdminController.GetStats'
+            // "Aktive Abos"/MRR/plan distribution all query Subscriptions by Status == Active
+            // directly, with no join back to Tenant.IsActive, so a purged tenant kept counting
+            // in every one of those numbers indefinitely.
+            sub.Status = SubscriptionStatus.Cancelled;
             sub.UpdatedAt = now;
 
             db.AuditLogs.Add(new AuditLog
