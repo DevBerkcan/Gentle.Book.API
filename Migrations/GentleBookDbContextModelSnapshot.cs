@@ -479,6 +479,14 @@ namespace GentleBook.Api.Migrations
                     b.Property<DateTime?>("ConfirmationSentAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("ContactFirstName")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
+                    b.Property<string>("ContactLastName")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 

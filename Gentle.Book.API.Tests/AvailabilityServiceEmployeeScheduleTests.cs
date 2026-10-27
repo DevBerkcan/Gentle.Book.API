@@ -135,12 +135,15 @@ public class AvailabilityServiceEmployeeScheduleTests
         Assert.False(available);
     }
 
+    // Found during further live pre-launch testing, right after this fix first shipped: an
+    // employee who had genuinely never saved ANY schedule row still got the studio's full
+    // opening hours (08:00-19:30, including Saturday) rather than any restriction at all, since
+    // a null schedule meant "no restriction". This now falls back to the exact same default the
+    // admin "Arbeitszeiten" dialog itself shows for an unconfigured day — Mon-Fri 09:00-18:00,
+    // Sat/Sun closed — rather than either extreme.
     [Fact]
-    public async Task IsTimeSlotAvailable_NoScheduleConfiguredAtAll_FallsBackToAvailable()
+    public async Task IsTimeSlotAvailable_NoScheduleConfiguredAtAll_FallsBackToMonFri9To18Default()
     {
-        // An employee who never touched the schedule feature at all (no rows for any day)
-        // keeps the legacy permissive behavior — only bookings/blocked slots matter — so
-        // existing tenants that never configured this aren't suddenly unbookable everywhere.
         using var db = TestDbContextFactory.Create();
         var tenant = new Tenant { Name = "Salon NoSchedule", Slug = "salon-no-schedule-" + Guid.NewGuid(), IsActive = true };
         db.Tenants.Add(tenant);
@@ -149,10 +152,43 @@ public class AvailabilityServiceEmployeeScheduleTests
         db.SaveChanges();
         var service = Build(db);
         var monday = NextDateFor(DayOfWeek.Monday);
+        var saturday = NextDateFor(DayOfWeek.Saturday);
 
-        var available = await service.IsTimeSlotAvailableForEmployeeAsync(
-            monday, new TimeOnly(8, 0), new TimeOnly(8, 30), employee.Id, tenant.Id);
+        Assert.False(await service.IsTimeSlotAvailableForEmployeeAsync(
+            monday, new TimeOnly(8, 0), new TimeOnly(8, 30), employee.Id, tenant.Id));
+        Assert.True(await service.IsTimeSlotAvailableForEmployeeAsync(
+            monday, new TimeOnly(11, 0), new TimeOnly(11, 30), employee.Id, tenant.Id));
+        Assert.False(await service.IsTimeSlotAvailableForEmployeeAsync(
+            saturday, new TimeOnly(11, 0), new TimeOnly(11, 30), employee.Id, tenant.Id));
+    }
 
-        Assert.True(available);
+    // This is the path actually hit by the real reported bug: the public booking widget sends
+    // an explicit employeeId (GET /api/availability/{serviceId}?...&employeeId=...), which goes
+    // through GetAvailableTimeSlotsForEmployeeAsync / DetermineAvailableSlotsForEmployee, not
+    // IsTimeSlotAvailableForEmployeeAsync above — a separate code path with the same bug.
+    [Fact]
+    public async Task GetAvailableTimeSlotsForEmployee_NoScheduleConfiguredAtAll_RestrictsToMonFri9To18Default()
+    {
+        using var db = TestDbContextFactory.Create();
+        var tenant = new Tenant { Name = "Salon NoSchedule2", Slug = "salon-no-schedule-2-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(tenant);
+        var employee = new Employee { TenantId = tenant.Id, Name = "Berk-Can A.", IsActive = true };
+        db.Employees.Add(employee);
+        var saturday = NextDateFor(DayOfWeek.Saturday);
+        var thursday = NextDateFor(DayOfWeek.Thursday);
+        // Studio is open wider than the employee's (unconfigured) hours on both days, mirroring
+        // the real report: 08:00-19:30 opening hours, open Saturdays too.
+        db.BusinessHours.Add(new BusinessHours { TenantId = tenant.Id, DayOfWeek = DayOfWeek.Thursday, IsOpen = true, OpenTime = new TimeOnly(8, 0), CloseTime = new TimeOnly(19, 30) });
+        db.BusinessHours.Add(new BusinessHours { TenantId = tenant.Id, DayOfWeek = DayOfWeek.Saturday, IsOpen = true, OpenTime = new TimeOnly(9, 0), CloseTime = new TimeOnly(14, 0) });
+        db.SaveChanges();
+        var service = Build(db);
+
+        var thursdaySlots = await service.GetAvailableTimeSlotsForEmployeeAsync(thursday, 30, employee.Id, tenant.Id);
+        Assert.Contains(thursdaySlots, s => s.StartTime == "08:00" && !s.IsAvailable);
+        Assert.Contains(thursdaySlots, s => s.StartTime == "11:00" && s.IsAvailable);
+        Assert.DoesNotContain(thursdaySlots, s => s.StartTime == "18:00" && s.IsAvailable);
+
+        var saturdaySlots = await service.GetAvailableTimeSlotsForEmployeeAsync(saturday, 30, employee.Id, tenant.Id);
+        Assert.All(saturdaySlots, s => Assert.False(s.IsAvailable));
     }
 }

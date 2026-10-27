@@ -700,15 +700,18 @@ public class ServiceService
         if (service == null)
             throw new ArgumentException("Service nicht gefunden");
 
-        // Block deletion if future non-cancelled bookings exist
-        var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
-        var futureBookingCount = service.Bookings?.Count(b =>
-            b.BookingDate >= today &&
-            b.Status != BookingStatus.Cancelled) ?? 0;
-
-        if (futureBookingCount > 0)
+        // Block deletion if ANY booking exists at all, not just future ones — a completed or
+        // no-show booking is a historical record (counted in the customer's TotalBookings/
+        // LastVisit and in the audit log), not something a later catalog change should be able
+        // to erase. Found during live pre-launch testing: deleting a service had silently
+        // hard-deleted every one of its past bookings along with it — gone from every booking
+        // list, dashboard and SuperAdmin view, while the customer's own (denormalized) counters
+        // and the audit log still referenced them, since neither is touched by this deletion.
+        var totalBookingCount = service.Bookings?.Count ?? 0;
+        if (totalBookingCount > 0)
             throw new InvalidOperationException(
-                $"Dieser Service hat {futureBookingCount} offene zukünftige Buchung(en). Bitte deaktivieren Sie den Service statt ihn zu löschen, oder stornieren Sie zuerst alle Buchungen.");
+                $"Dieser Service hat {totalBookingCount} Buchung(en) (auch vergangene zählen als Verlauf). " +
+                "Bitte deaktivieren Sie den Service stattdessen — Löschen ist nur für Services ohne jede Buchungshistorie möglich.");
 
         // Use a transaction to ensure all operations succeed or fail together
         using var transaction = await _context.Database.BeginTransactionAsync();
@@ -721,13 +724,15 @@ public class ServiceService
             _logger.LogWarning("Deleting service {ServiceName} with {BookingsCount} bookings and {EmployeeCount} employee associations",
                 service.Name, bookingsCount, serviceEmployeesCount);
 
-            // 1. First delete all bookings that use this service
+            // 1. First delete all bookings that use this service (always empty now — see the
+            // totalBookingCount guard above — kept only so the rest of this cleanup still runs
+            // correctly for the genuinely-zero-bookings case).
             if (service.Bookings != null && service.Bookings.Any())
             {
                 _context.Bookings.RemoveRange(service.Bookings);
             }
 
-            // 2. Delete ServiceEmployees entries (though cascade delete would handle this, 
+            // 2. Delete ServiceEmployees entries (though cascade delete would handle this,
             // but explicit is clearer)
             if (service.ServiceEmployees != null && service.ServiceEmployees.Any())
             {

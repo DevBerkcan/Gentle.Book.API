@@ -114,4 +114,79 @@ public class BookingServiceCustomerMatchTests
         Assert.Equal("Kunde", result.LastName);
         Assert.Single(db.Customers, c => c.TenantId == tenant.Id);
     }
+
+    // Found during further live pre-launch testing, right after the fix above shipped: the
+    // confirmation page's "Gebucht von" showed the MATCHED customer's real stored name — not
+    // the name actually typed on this booking — so booking with a known stranger's email leaked
+    // that stranger's real name back to whoever typed it, and a legitimate case (a partner
+    // booking under the same shared email) showed the wrong name too. The booking now
+    // snapshots what was actually typed (Booking.ContactFirstName/LastName) and the response
+    // prefers that over the customer's name.
+    [Fact]
+    public async Task GetBookingById_ContactNameDiffersFromMatchedCustomer_ResponseUsesContactName()
+    {
+        using var db = TestDbContextFactory.Create();
+        var (tenant, _) = AgencyTenantFactory.Seed(db, SubscriptionPlan.Starter);
+        var category = new ServiceCategory { TenantId = tenant.Id, Name = "Haarschnitt" };
+        db.ServiceCategories.Add(category);
+        var service = new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = "Waschen, Schneiden, Föhnen", DurationMinutes = 30, Price = 40m, IsActive = true };
+        db.Services.Add(service);
+        var existingCustomer = new Customer { TenantId = tenant.Id, FirstName = "TEST Claude-GoLive-Check", LastName = "Real", Email = "shared@example.test" };
+        db.Customers.Add(existingCustomer);
+        var booking = new Booking
+        {
+            TenantId = tenant.Id,
+            CustomerId = existingCustomer.Id,
+            ServiceId = service.Id,
+            BookingDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),
+            StartTime = new TimeOnly(11, 0),
+            EndTime = new TimeOnly(11, 30),
+            Status = BookingStatus.Confirmed,
+            ContactFirstName = "FREMD Umbenennungstest",
+            ContactLastName = "Prober",
+        };
+        db.Bookings.Add(booking);
+        db.SaveChanges();
+
+        var bookingService = CreateService(db);
+        var response = await bookingService.GetBookingByIdAsync(booking.Id);
+
+        Assert.NotNull(response);
+        Assert.Equal("FREMD Umbenennungstest", response!.Customer.FirstName);
+        Assert.Equal("Prober", response.Customer.LastName);
+    }
+
+    [Fact]
+    public async Task GetBookingById_NoContactNameSnapshot_FallsBackToCustomerName()
+    {
+        // Bookings created before this field existed have ContactFirstName/LastName == null —
+        // must still show a name, not blank.
+        using var db = TestDbContextFactory.Create();
+        var (tenant, _) = AgencyTenantFactory.Seed(db, SubscriptionPlan.Starter);
+        var category = new ServiceCategory { TenantId = tenant.Id, Name = "Haarschnitt" };
+        db.ServiceCategories.Add(category);
+        var service = new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = "Waschen, Schneiden, Föhnen", DurationMinutes = 30, Price = 40m, IsActive = true };
+        db.Services.Add(service);
+        var customer = new Customer { TenantId = tenant.Id, FirstName = "Kim", LastName = "Kunde", Email = "kim@example.test" };
+        db.Customers.Add(customer);
+        var booking = new Booking
+        {
+            TenantId = tenant.Id,
+            CustomerId = customer.Id,
+            ServiceId = service.Id,
+            BookingDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),
+            StartTime = new TimeOnly(11, 0),
+            EndTime = new TimeOnly(11, 30),
+            Status = BookingStatus.Confirmed,
+        };
+        db.Bookings.Add(booking);
+        db.SaveChanges();
+
+        var bookingService = CreateService(db);
+        var response = await bookingService.GetBookingByIdAsync(booking.Id);
+
+        Assert.NotNull(response);
+        Assert.Equal("Kim", response!.Customer.FirstName);
+        Assert.Equal("Kunde", response.Customer.LastName);
+    }
 }

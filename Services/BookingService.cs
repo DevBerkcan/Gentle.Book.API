@@ -151,6 +151,11 @@ public class BookingService
             EndTime = endTime,
             Status = BookingStatus.Confirmed,
             CustomerNotes = dto.CustomerNotes,
+            // Snapshot of what was actually typed on THIS booking's form — the matched customer
+            // (by email/phone) may have a different real name (a partner booking under the same
+            // email, or anyone who knows a stranger's email). See Booking.ContactFirstName.
+            ContactFirstName = dto.Customer.FirstName,
+            ContactLastName = dto.Customer.LastName,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
@@ -590,7 +595,13 @@ public class BookingService
                 service.Price,
                 service.Currency
             ),
-            new CustomerToBookingDto(customer.FirstName, customer.LastName, customer.Email),
+            // Prefer the name as actually typed on this booking (see Booking.ContactFirstName)
+            // over the matched customer's stored name, which can legitimately differ — falls
+            // back to the customer's name for bookings created before this field existed.
+            new CustomerToBookingDto(
+                b.ContactFirstName ?? customer.FirstName,
+                b.ContactLastName ?? customer.LastName,
+                customer.Email),
             employee == null
                 ? null
                 : new EmployeeDto(employee.Id, employee.Name, employee.Role, employee.Specialty)

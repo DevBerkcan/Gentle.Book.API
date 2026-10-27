@@ -595,6 +595,8 @@ public class GentleBookDbContext : DbContext
                   .OnDelete(DeleteBehavior.Restrict);
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
             entity.Property(e => e.VoucherDiscountAmount).HasPrecision(10, 2);
+            entity.Property(e => e.ContactFirstName).HasMaxLength(120);
+            entity.Property(e => e.ContactLastName).HasMaxLength(120);
             entity.HasIndex(e => new { e.TenantId, e.BookingDate });
             entity.HasIndex(e => new { e.TenantId, e.Status });
             entity.HasIndex(e => new { e.TenantId, e.LocationId });

@@ -223,6 +223,34 @@ public class ServiceFinderEngineTests
         Assert.Contains(previewResult.MissingQuestions, q => q.QuestionKey == "GB-FINDER-08");
     }
 
+    // Found during live pre-launch testing, immediately after the fix above shipped: the preview
+    // still returned a completely empty result for a tenant that had never saved any
+    // TenantIndustrySettings row at all (setting == null) — the first version of the bypass only
+    // skipped the !IsFinderEnabled half of the check, not the setting == null half, so a tenant
+    // still mid-setup (no Finder settings saved yet) got an empty preview regardless of bypass.
+    [Fact]
+    public async Task FindServicesAsync_NoIndustrySettingsRowAtAll_PreviewStillBypassesIt()
+    {
+        using var db = TestDbContextFactory.Create();
+        var tenant = new Tenant { Name = "A", Slug = "no-settings-" + Guid.NewGuid(), IsActive = true };
+        db.Tenants.Add(tenant);
+        var category = new ServiceCategory { TenantId = tenant.Id, Name = "Face", IsActive = true };
+        db.ServiceCategories.Add(category);
+        var service = new Service { TenantId = tenant.Id, CategoryId = category.Id, Name = "Laser-Haarentfernung", DurationMinutes = 30, Price = 50, Currency = "EUR", IsActive = true };
+        db.Services.Add(service);
+        await db.SaveChangesAsync();
+        // Deliberately no TenantIndustrySettings row at all for this tenant.
+
+        var engine = new ServiceFinderEngine(db);
+        var noAnswers = new ServiceFinderAnswers(new Dictionary<string, JsonElement>());
+
+        var normalResult = await engine.FindServicesAsync(tenant.Id, noAnswers, CancellationToken.None);
+        Assert.Empty(normalResult.Recommendations);
+
+        var previewResult = await engine.FindServicesAsync(tenant.Id, noAnswers, CancellationToken.None, bypassEnabledCheck: true);
+        Assert.NotEmpty(previewResult.Recommendations);
+    }
+
     // Found during live pre-launch testing: the admin guide explicitly promises the Finder
     // "never returns zero matches", but the code's own fallback-when-empty branch still filtered
     // by !Excluded — identical to the query above it except for sort order — so when every

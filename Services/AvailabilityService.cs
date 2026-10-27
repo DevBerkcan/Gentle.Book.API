@@ -174,15 +174,25 @@ public class AvailabilityService
 
         var schedule = await _context.EmployeeSchedules
             .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.EmployeeId == employeeId && s.DayOfWeek == date.DayOfWeek);
+        var (defaultIsWorkingDay, defaultStart, defaultEnd) = DefaultScheduleFor(date.DayOfWeek);
+        var isWorkingDay = schedule?.IsWorkingDay ?? defaultIsWorkingDay;
+        var scheduleStart = schedule?.StartTime ?? defaultStart;
+        var scheduleEnd = schedule?.EndTime ?? defaultEnd;
 
-        if (schedule != null && !schedule.IsWorkingDay)
+        if (!isWorkingDay)
             return "Der ausgewählte Mitarbeiter arbeitet laut Arbeitszeiten an diesem Wochentag nicht.";
 
-        if (schedule != null)
-            return $"Keine freien Zeiten: Der Mitarbeiter arbeitet an diesem Tag von {schedule.StartTime:HH\\:mm} bis {schedule.EndTime:HH\\:mm} Uhr — alle passenden Zeiten sind belegt, blockiert oder liegen außerhalb der Öffnungszeiten.";
-
-        return "Alle Zeiten an diesem Tag sind bereits belegt oder blockiert.";
+        return $"Keine freien Zeiten: Der Mitarbeiter arbeitet an diesem Tag von {scheduleStart:HH\\:mm} bis {scheduleEnd:HH\\:mm} Uhr — alle passenden Zeiten sind belegt, blockiert oder liegen außerhalb der Öffnungszeiten.";
     }
+
+    // Mirrors the admin "Arbeitszeiten" dialog's own default (Gentle.Book.UI
+    // app/admin/employees/page.tsx's defaultSchedule()) — Mon–Fri 09:00–18:00, Sat/Sun closed —
+    // so an employee who never saved any schedule at all gets that same sensible default instead
+    // of silently falling back to the studio's full opening hours for every day of the week.
+    private static (bool IsWorkingDay, TimeOnly Start, TimeOnly End) DefaultScheduleFor(DayOfWeek dayOfWeek) =>
+        dayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday
+            ? (false, new TimeOnly(9, 0), new TimeOnly(18, 0))
+            : (true, new TimeOnly(9, 0), new TimeOnly(18, 0));
 
     /// <summary>
     /// Get available time slots for all employees (for admin view)
@@ -271,7 +281,11 @@ public class AvailabilityService
 
         var schedule = await _context.EmployeeSchedules
             .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.EmployeeId == employeeId && s.DayOfWeek == date.DayOfWeek);
-        if (schedule != null && (!schedule.IsWorkingDay || startTime < schedule.StartTime || endTime > schedule.EndTime))
+        var (defaultIsWorkingDay, defaultStart, defaultEnd) = DefaultScheduleFor(date.DayOfWeek);
+        var isWorkingDay = schedule?.IsWorkingDay ?? defaultIsWorkingDay;
+        var scheduleStart = schedule?.StartTime ?? defaultStart;
+        var scheduleEnd = schedule?.EndTime ?? defaultEnd;
+        if (!isWorkingDay || startTime < scheduleStart || endTime > scheduleEnd)
             return false;
 
         // Check for any non-cancelled booking for this employee at this time.
@@ -488,8 +502,18 @@ public class AvailabilityService
         var employeeSchedule = await _context.EmployeeSchedules
             .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.EmployeeId == employeeId && s.DayOfWeek == dayOfWeek);
 
-        // If schedule exists and employee is not working → all slots unavailable
-        if (employeeSchedule != null && !employeeSchedule.IsWorkingDay)
+        // An employee with no saved schedule at all used to mean "no restriction — the studio's
+        // full opening hours apply", which is how a Saturday the studio is open (but this
+        // employee never works) still offered slots, and weekday hours outside the employee's
+        // actual (never-saved) hours were offered too. Falls back to the exact same default the
+        // admin "Arbeitszeiten" dialog itself shows for an unconfigured day (Mon–Fri 09:00–18:00,
+        // Sat/Sun closed) instead.
+        var (defaultIsWorkingDay, defaultStart, defaultEnd) = DefaultScheduleFor(dayOfWeek);
+        var isWorkingDay = employeeSchedule?.IsWorkingDay ?? defaultIsWorkingDay;
+        var scheduleStart = employeeSchedule?.StartTime ?? defaultStart;
+        var scheduleEnd = employeeSchedule?.EndTime ?? defaultEnd;
+
+        if (!isWorkingDay)
         {
             return timeSlots.Select(slot => new TimeSlotDto(
                 slot.Start.ToString("HH:mm"),
@@ -519,10 +543,7 @@ public class AvailabilityService
         foreach (var slot in timeSlots)
         {
             // Check if slot falls within employee's personal working hours
-            var outsideSchedule = employeeSchedule != null && (
-                slot.Start < employeeSchedule.StartTime ||
-                slot.End > employeeSchedule.EndTime
-            );
+            var outsideSchedule = slot.Start < scheduleStart || slot.End > scheduleEnd;
 
             // Check if slot is booked
             var isBooked = employeeBookings.Any(b =>

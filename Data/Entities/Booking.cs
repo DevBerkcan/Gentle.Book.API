@@ -28,6 +28,16 @@ public class Booking
     public string? CustomerNotes { get; set; }
     public string? AdminNotes { get; set; }
 
+    /// <summary>
+    /// The name as actually typed on THIS booking's form — snapshotted because CustomerId can
+    /// resolve to an existing Customer matched by email/phone whose stored name may differ (a
+    /// partner booking under the same email, or someone who knows a stranger's email). The
+    /// confirmation page must show what this booker actually entered, never the matched
+    /// customer's possibly-different real name. Null on bookings created before this existed.
+    /// </summary>
+    public string? ContactFirstName { get; set; }
+    public string? ContactLastName { get; set; }
+
     /// <summary>Informational only — the Voucher.Code redeemed against this booking, if any (no FK/nav, same soft-reference shortcut as BrandImportJob.CreatedBy). No payment processing happens here.</summary>
     public string? RedeemedVoucherCode { get; set; }
 

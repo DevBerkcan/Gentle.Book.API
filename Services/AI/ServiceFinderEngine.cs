@@ -25,8 +25,12 @@ public sealed class ServiceFinderEngine : IServiceFinderEngine
             .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
 
         // Admin preview (bypassEnabledCheck) must work while the public finder toggle is still
-        // off, since that's exactly the state admins configure it in before switching it on.
-        if (setting == null || (!setting.IsFinderEnabled && !bypassEnabledCheck))
+        // off, since that's exactly the state admins configure it in before switching it on — and
+        // also before a TenantIndustrySettings row has ever been saved at all (setting == null),
+        // which the first version of this bypass still missed: it only skipped the
+        // !IsFinderEnabled half of the check, so a tenant that had never saved any Finder
+        // settings yet still got an empty preview no matter what.
+        if (!bypassEnabledCheck && (setting == null || !setting.IsFinderEnabled))
         {
             return new ServiceFinderResult(
                 Array.Empty<ServiceRecommendation>(),
