@@ -52,7 +52,16 @@ public class ServiceService
         // For employee portal - filter by employee
         if (employeeId.HasValue)
         {
-            query = query.Where(s => s.ServiceEmployees.Any(se => se.EmployeeId == employeeId.Value));
+            query = query.Where(s => s.ServiceEmployees.Any(se => se.EmployeeId == employeeId.Value && se.Employee.IsActive));
+        }
+        else
+        {
+            // Found during live pre-launch testing: deactivating a service's only assigned
+            // employee left it still listed on the public booking page — the customer only
+            // discovered it couldn't actually be booked in the next step ("Für diesen Service
+            // sind aktuell keine Mitarbeiter verfügbar"). A service needs at least one active
+            // employee to be bookable at all.
+            query = query.Where(s => s.ServiceEmployees.Any(se => se.Employee.IsActive));
         }
 
         // Multi-location: when the customer picked a location, only show services offered there.
@@ -116,7 +125,9 @@ public class ServiceService
                 c.IsActive,
                 c.Services
                     .Where(s => s.IsActive &&
-                           (!employeeId.HasValue || s.ServiceEmployees.Any(se => se.EmployeeId == employeeId.Value)) &&
+                           (employeeId.HasValue
+                               ? s.ServiceEmployees.Any(se => se.EmployeeId == employeeId.Value && se.Employee.IsActive)
+                               : s.ServiceEmployees.Any(se => se.Employee.IsActive)) &&
                            (!locationId.HasValue || s.LocationId == locationId.Value))
                     .OrderBy(s => s.DisplayOrder)
                     .Select(s => new ServiceDto(
@@ -168,7 +179,11 @@ public class ServiceService
 
         if (employeeId.HasValue)
         {
-            query = query.Where(s => s.ServiceEmployees.Any(se => se.EmployeeId == employeeId.Value));
+            query = query.Where(s => s.ServiceEmployees.Any(se => se.EmployeeId == employeeId.Value && se.Employee.IsActive));
+        }
+        else
+        {
+            query = query.Where(s => s.ServiceEmployees.Any(se => se.Employee.IsActive));
         }
 
         if (locationId.HasValue)
