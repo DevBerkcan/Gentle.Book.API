@@ -207,6 +207,50 @@ public class BookingsController : ControllerBase
         return Ok(balances.Select(b => new { tenantName = b.TenantName, points = b.Points }));
     }
 
+    /// <summary>
+    /// Cancel a booking from the /my-bookings customer portal. Found during live pre-launch
+    /// testing: the portal was calling the staff-only DELETE /{id} below, which requires a JWT
+    /// the portal never has (it only has a CustomerPortalTokenService magic-link token) — every
+    /// cancellation attempt from there silently failed. Mirrors GetMyBookings' token validation,
+    /// plus an ownership check so a token only ever cancels bookings under its own email.
+    /// </summary>
+    [HttpDelete("my/{id:guid}")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<CancelBookingResponseDto>> CancelMyBooking(
+        Guid id, [FromQuery] string token, [FromBody] CancelBookingDto? dto = null)
+    {
+        var email = string.IsNullOrWhiteSpace(token) ? null : _portalTokens.ValidateToken(token);
+        if (email == null)
+            return Unauthorized(new { message = "Der Zugriffslink ist ungültig oder abgelaufen. Bitte fordern Sie einen neuen an." });
+
+        var booking = await _bookingService.GetBookingByIdAsync(id);
+        if (booking == null)
+            return NotFound(new { message = "Buchung nicht gefunden" });
+        if (!string.Equals(booking.Customer.Email, email, StringComparison.OrdinalIgnoreCase))
+            return Forbid();
+
+        dto ??= new CancelBookingDto(null, true);
+
+        try
+        {
+            var result = await _bookingService.CancelBookingAsync(id, dto);
+            _logger.LogInformation("Booking cancelled via customer portal: {BookingId}", id);
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────
     // AUTHENTICATED ENDPOINTS (require JWT)
     // ─────────────────────────────────────────────────────────────
