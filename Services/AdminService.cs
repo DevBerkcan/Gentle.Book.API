@@ -15,8 +15,9 @@ public class AdminService
     private readonly LoyaltyService _loyaltyService;
     private readonly VoucherService _voucherService;
     private readonly IBackgroundJobClient _jobs;
+    private readonly ITenantContext _tenantContext;
 
-    public AdminService(GentleBookDbContext context, ILogger<AdminService> logger, EmailService emailService, LoyaltyService loyaltyService, VoucherService voucherService, IBackgroundJobClient jobs)
+    public AdminService(GentleBookDbContext context, ILogger<AdminService> logger, EmailService emailService, LoyaltyService loyaltyService, VoucherService voucherService, IBackgroundJobClient jobs, ITenantContext tenantContext)
     {
         _context = context;
         _logger = logger;
@@ -24,6 +25,7 @@ public class AdminService
         _loyaltyService = loyaltyService;
         _voucherService = voucherService;
         _jobs = jobs;
+        _tenantContext = tenantContext;
     }
 
     public async Task<DashboardOverviewDto> GetDashboardOverviewAsync(Guid? employeeId = null)
@@ -33,7 +35,14 @@ public class AdminService
         // converted into that same local timezone before being compared against them — a
         // pure-UTC comparison can read an already-past local appointment as still upcoming
         // near the local midnight boundary.
-        var tenantTimeZone = await _context.TenantSettings.Select(t => t.TimeZone).FirstOrDefaultAsync();
+        // TenantSettings has no global query filter at all (unlike Booking/Customer/etc.), so an
+        // unfiltered query here silently returned whichever tenant's settings happened to be
+        // first in the table — every tenant's dashboard was being converted to tenant #1's
+        // timezone, not its own.
+        var tenantTimeZone = await _context.TenantSettings
+            .Where(t => t.TenantId == _tenantContext.TenantId)
+            .Select(t => t.TimeZone)
+            .FirstOrDefaultAsync();
         TimeZoneInfo tz;
         try { tz = TimeZoneInfo.FindSystemTimeZoneById(tenantTimeZone ?? "Europe/Berlin"); }
         catch { tz = TimeZoneInfo.Utc; }

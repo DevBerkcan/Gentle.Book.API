@@ -16,7 +16,7 @@ public class TrackingServiceIpAnonymizationTests
     public async Task TrackPageViewAsync_ZeroesLastIpSegmentBeforePersisting(string rawIp, string expectedAnonymized)
     {
         using var db = Gentle.Book.API.Tests.TestSupport.TestDbContextFactory.Create();
-        var service = new TrackingService(db, NullLogger<TrackingService>.Instance);
+        var service = new TrackingService(db, NullLogger<TrackingService>.Instance, new GentleBook.Api.Services.TenantContext());
 
         var (success, error) = await service.TrackPageViewAsync(new TrackPageViewDto { PageUrl = "/booking/demo" }, "test-agent", rawIp);
 
@@ -30,7 +30,7 @@ public class TrackingServiceIpAnonymizationTests
     public async Task TrackPageViewAsync_NullIp_StoresNull()
     {
         using var db = Gentle.Book.API.Tests.TestSupport.TestDbContextFactory.Create();
-        var service = new TrackingService(db, NullLogger<TrackingService>.Instance);
+        var service = new TrackingService(db, NullLogger<TrackingService>.Instance, new GentleBook.Api.Services.TenantContext());
 
         var (success, error) = await service.TrackPageViewAsync(new TrackPageViewDto { PageUrl = "/booking/demo" }, "test-agent", null);
 

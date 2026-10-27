@@ -16,7 +16,7 @@ public class TrackingControllerAnalyticsGateTests
     {
         var tenantContext = new TenantContext();
         tenantContext.Set(tenantId, "test-tenant", role: "TenantAdmin");
-        var trackingService = new TrackingService(db, NullLogger<TrackingService>.Instance);
+        var trackingService = new TrackingService(db, NullLogger<TrackingService>.Instance, tenantContext);
         return new TrackingController(trackingService, db, tenantContext);
     }
 

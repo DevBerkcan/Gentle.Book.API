@@ -119,7 +119,7 @@ public class BookingService
         var bookingDateTime = bookingDate.ToDateTime(startTime);
 
         // 4. Check max advance booking days
-        var maxAdvanceDays = await GetSettingValueAsync("MAX_ADVANCE_BOOKING_DAYS", 60);
+        var maxAdvanceDays = await GetSettingValueAsync(tenantId, "MAX_ADVANCE_BOOKING_DAYS", 60);
         if (bookingDate > DateOnly.FromDateTime(DateTime.UtcNow.Date.AddDays(maxAdvanceDays)))
             throw new InvalidOperationException(
                 $"Termine können maximal {maxAdvanceDays} Tage im Voraus gebucht werden");
@@ -362,8 +362,11 @@ public class BookingService
         if (hoursUntil <= 0)
             throw new InvalidOperationException("Dieser Termin liegt in der Vergangenheit und kann nicht mehr storniert werden.");
 
-        // Stornierungsfrist prüfen (falls konfiguriert)
-        var settings = await _context.TenantSettings.FirstOrDefaultAsync();
+        // Stornierungsfrist prüfen (falls konfiguriert). TenantSettings has no global query
+        // filter at all (unlike Booking/Customer/etc.), so an unfiltered FirstOrDefaultAsync()
+        // here silently returned whichever tenant's settings happened to be first in the table
+        // — every tenant's cancellation deadline was being enforced using tenant #1's setting.
+        var settings = await _context.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == booking.TenantId);
         if (settings?.CancellationHoursNotice > 0 && hoursUntil < settings.CancellationHoursNotice)
             throw new InvalidOperationException(
                 $"Stornierung ist nur bis {settings.CancellationHoursNotice} Stunden vor dem Termin möglich.");
@@ -530,9 +533,12 @@ public class BookingService
         }
     }
 
-    private async Task<int> GetSettingValueAsync(string key, int defaultValue)
+    private async Task<int> GetSettingValueAsync(Guid tenantId, string key, int defaultValue)
     {
-        var tenantSettings = await _context.TenantSettings.FirstOrDefaultAsync();
+        // Same missing-tenant-filter issue as the cancellation-notice check above — this was
+        // silently reading whichever tenant's settings happened to be first in the table for
+        // MAX_ADVANCE_BOOKING_DAYS/BOOKING_INTERVAL_MINUTES too.
+        var tenantSettings = await _context.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId);
         if (tenantSettings == null) return defaultValue;
         return key switch
         {

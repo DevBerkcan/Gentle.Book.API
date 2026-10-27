@@ -9,11 +9,28 @@ public class TrackingService
 {
     private readonly GentleBookDbContext _context;
     private readonly ILogger<TrackingService> _logger;
+    private readonly ITenantContext _tenantContext;
 
-    public TrackingService(GentleBookDbContext context, ILogger<TrackingService> logger)
+    public TrackingService(GentleBookDbContext context, ILogger<TrackingService> logger, ITenantContext tenantContext)
     {
         _context = context;
         _logger = logger;
+        _tenantContext = tenantContext;
+    }
+
+    // TenantSettings has no global query filter at all (unlike Booking/Customer/etc.), so an
+    // unfiltered query would silently return whichever tenant's settings happened to be first in
+    // the table. Used to anchor "today"/"this week"/"this month" to the tenant's own local
+    // calendar day instead of a pure-UTC one — a booking created shortly after local midnight
+    // but before UTC midnight (or vice versa) was landing in the wrong day/period bucket.
+    private async Task<TimeZoneInfo> GetTenantTimeZoneAsync()
+    {
+        var tenantTimeZoneId = await _context.TenantSettings
+            .Where(s => s.TenantId == _tenantContext.TenantId)
+            .Select(s => s.TimeZone)
+            .FirstOrDefaultAsync();
+        try { return TimeZoneInfo.FindSystemTimeZoneById(tenantTimeZoneId ?? "Europe/Berlin"); }
+        catch { return TimeZoneInfo.Utc; }
     }
 
     public async Task TrackLinkClickAsync(TrackLinkClickDto dto, string referrerUrl)
@@ -123,14 +140,16 @@ public class TrackingService
 
     public async Task<RevenueStatisticsDto> GetRevenueStatisticsAsync()
     {
-        var today = DateTime.UtcNow.Date;
-        var weekAgo = today.AddDays(-7);
-        var monthAgo = today.AddDays(-30);
+        var tz = await GetTenantTimeZoneAsync();
+        var todayLocalStart = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz).Date;
+        var todayStartUtc = TimeZoneInfo.ConvertTimeToUtc(todayLocalStart, tz);
+        var weekAgo = TimeZoneInfo.ConvertTimeToUtc(todayLocalStart.AddDays(-7), tz);
+        var monthAgo = TimeZoneInfo.ConvertTimeToUtc(todayLocalStart.AddDays(-30), tz);
 
         // Today's bookings with currency
         var todayBookings = await _context.Bookings
             .Include(b => b.Service)
-            .Where(b => b.CreatedAt.Date == today
+            .Where(b => b.CreatedAt >= todayStartUtc
                         && b.Status != BookingStatus.Cancelled)
             .Select(b => new
             {
