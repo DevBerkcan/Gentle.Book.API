@@ -2434,6 +2434,147 @@ GentleBook · support@gentlegroup.de";
         }
     }
 
+    /// <summary>Sent once per period, the moment a tenant's AI spend reaches 100% of its budget
+    /// (AiBudgetService.CheckThresholdsAsync) — distinct from SendAiBudgetWarningEmailAsync's
+    /// earlier 80% heads-up. AI features keep working without AI (AiUsageGate just stops calling
+    /// the provider), so this is an invitation to buy more budget, not an outage notice.</summary>
+    public async Task SendAiBudgetHardCapEmailAsync(string recipientEmail, string firstName, decimal currentSpendUsd, decimal budgetUsd)
+    {
+        try
+        {
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
+            message.To.Add(new MailboxAddress(firstName, recipientEmail));
+            message.Subject = "Dein KI-Budget ist für diesen Monat aufgebraucht";
+
+            var content = $@"
+                <div class='greeting'>Hallo {firstName},</div>
+                <div class='info-box' style='background-color: var(--warning-bg); border-left-color: var(--warning-border);'>
+                    <p style='margin: 0; color: var(--warning-text);'>
+                        Deine KI-gestützten Features (Service-Finder, Chat-Assistent) haben dein Budget von <strong>{budgetUsd:0.00} $</strong> für diesen Monat
+                        bereits vollständig verbraucht ({currentSpendUsd:0.00} $). Diese Features arbeiten jetzt automatisch ohne KI weiter —
+                        es kommt zu keiner Unterbrechung deines Buchungssystems, nur zu weniger personalisierten Antworten, bis sich dein Budget
+                        zu Beginn des nächsten Monats zurücksetzt.
+                    </p>
+                </div>
+                <p style='color: var(--text-secondary); font-size: 13px; line-height: 1.6; margin-top: 16px;'>
+                    Möchtest du dein Budget noch in diesem Monat erhöhen? Melde dich einfach bei uns — wir schalten das schnell und unkompliziert frei.
+                </p>";
+
+            var html = GetBaseEmailTemplate("KI-Budget aufgebraucht", content, "GentleBook", null, "#6355E4");
+
+            var text = $@"KI-Budget aufgebraucht – GentleBook
+
+Hallo {firstName},
+
+Deine KI-gestützten Features haben dein Budget von {budgetUsd:0.00} $ für diesen Monat bereits vollständig verbraucht ({currentSpendUsd:0.00} $).
+Diese Features arbeiten jetzt automatisch ohne KI weiter — keine Unterbrechung, nur weniger personalisierte Antworten, bis zur nächsten Periode.
+
+Möchtest du dein Budget noch in diesem Monat erhöhen? Melde dich einfach bei uns.
+
+GentleBook · support@gentlegroup.de";
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = text };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("AI budget hard-cap email sent to {Email}", recipientEmail);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send AI budget hard-cap email to {Email}", recipientEmail);
+            throw;
+        }
+    }
+
+    /// <summary>Internal alert to GentleBook's own ops inbox the moment a tenant hits its AI hard
+    /// cap — same recipient/pattern as SendJobFailureAlertAsync. Lets the SuperAdmin proactively
+    /// reach out and sell a budget top-up instead of only finding out via the passive dashboard.</summary>
+    public async Task SendAiBudgetHardCapOpsAlertAsync(string tenantName, string tenantSlug, decimal currentSpendUsd, decimal budgetUsd)
+    {
+        try
+        {
+            var superadminEmail = "berkcan@gentle-webdesign.com";
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(_emailOptions.SenderName, _emailOptions.SenderEmail));
+            message.To.Add(MailboxAddress.Parse(superadminEmail));
+            message.Subject = $"💰 KI-Budget aufgebraucht: {tenantName}";
+
+            var html = $"""
+                <!DOCTYPE html>
+                <html lang="de">
+                <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"></head>
+                <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+                  <table cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;margin:32px auto">
+                    <tr><td>
+                      <table cellpadding="0" cellspacing="0" style="width:100%;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
+
+                        <!-- Header -->
+                        <tr><td style="background:linear-gradient(135deg,#14162B 0%,#201F47 100%);padding:28px 32px;text-align:center">
+                          <img src="data:image/png;base64,{LogoBase64}" alt="gentlebook" width="32" height="32" style="display:block;margin:0 auto 10px;" />
+                          <p style="font-size:20px;font-weight:800;color:#fff;margin:0">💰 KI-Budget aufgebraucht</p>
+                          <p style="font-size:12px;color:rgba(255,255,255,0.7);margin:4px 0 0">GentleBook SuperAdmin-Alert</p>
+                        </td></tr>
+
+                        <!-- Body -->
+                        <tr><td style="background:#fff;padding:36px 32px;border:1px solid #e5e7eb;border-top:none">
+                          <p style="font-size:15px;color:#1e1e1e;margin:0 0 20px">
+                            <strong>{tenantName}</strong> hat sein monatliches KI-Budget vollständig aufgebraucht und erhält ab jetzt keine
+                            KI-gestützten Antworten mehr, bis das Budget erhöht wird oder sich zur nächsten Periode zurücksetzt.
+                          </p>
+
+                          <table cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 24px">
+                            <tr>
+                              <td style="padding:8px 0;font-size:13px;color:#6b7280;width:140px;vertical-align:top">Studio:</td>
+                              <td style="padding:8px 0;font-size:13px;color:#1e1e1e;font-family:monospace">{tenantName} ({tenantSlug})</td>
+                            </tr>
+                            <tr>
+                              <td style="padding:8px 0;font-size:13px;color:#6b7280;vertical-align:top">Verbraucht:</td>
+                              <td style="padding:8px 0;font-size:13px;color:#1e1e1e;font-family:monospace">{currentSpendUsd:0.00} $ von {budgetUsd:0.00} $</td>
+                            </tr>
+                          </table>
+
+                          <p style="font-size:13px;color:#6b7280;margin:0">
+                            Jetzt ein guter Moment, das Studio anzusprechen und ein KI-Budget-Paket anzubieten (SuperAdmin → Studio → Abo-Tab).
+                          </p>
+                        </td></tr>
+
+                        <!-- Footer -->
+                        <tr><td style="background:#fafafa;padding:20px 32px;text-align:center;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 16px 16px">
+                          <p style="font-size:11px;color:#9ca3af;margin:0">GentleBook · Automatische Systembenachrichtigung</p>
+                        </td></tr>
+
+                      </table>
+                    </td></tr>
+                  </table>
+                </body>
+                </html>
+                """;
+
+            var builder = new BodyBuilder { HtmlBody = html, TextBody = $"{tenantName} ({tenantSlug}) hat sein KI-Budget aufgebraucht: {currentSpendUsd:0.00} $ von {budgetUsd:0.00} $." };
+            message.Body = builder.ToMessageBody();
+
+            using var smtp = new SmtpClient();
+            await smtp.ConnectAsync(_emailOptions.SmtpServer, _emailOptions.SmtpPort, SecureSocketOptions.Auto);
+            await smtp.AuthenticateAsync(_emailOptions.SmtpUsername, _emailOptions.SmtpPassword);
+            await smtp.SendAsync(message);
+            await smtp.DisconnectAsync(true);
+
+            _logger.LogInformation("AI budget hard-cap ops alert sent for tenant {TenantSlug}", tenantSlug);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send AI budget hard-cap ops alert for tenant {TenantSlug}", tenantSlug);
+            throw;
+        }
+    }
+
     /// <summary>Sent once, when the dunning grace period expires and the subscription is auto-cancelled.</summary>
     public async Task SendDunningFinalCancellationEmailAsync(string recipientEmail, string firstName, string planName)
     {

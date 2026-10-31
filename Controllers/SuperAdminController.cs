@@ -1367,6 +1367,53 @@ public class SuperAdminController : ControllerBase
         return Ok(new { tenantId = id, monthlyBudgetUsd = budget.MonthlyBudgetUsd });
     }
 
+    /// <summary>Sells a preset or custom top-up on a tenant's AI budget (the "Paket A/B/C"
+    /// upsell a SuperAdmin offers after reaching out about a hard-capped tenant — see
+    /// SendAiBudgetHardCapOpsAlertAsync) and bills it with a real invoice. The USD amount added
+    /// to the budget and the EUR price charged for it are independent inputs on purpose: OpenAI
+    /// bills GentleBook in USD, but GentleBook's own invoices to German tenants are in EUR — the
+    /// frontend's preset packages just happen to use the same headline number for both.
+    /// Additive (tops up the current effective budget) rather than replacing it, matching "lad
+    /// dein Budget hoch" rather than a plan change.</summary>
+    [HttpPost("tenants/{id:guid}/ai-budget/purchase-package")]
+    public async Task<IActionResult> PurchaseAiBudgetPackage(Guid id, [FromBody] PurchaseAiBudgetPackageDto dto)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+        if (dto.AdditionalBudgetUsd <= 0) return BadRequest(new { message = "Das zusätzliche Budget muss größer als 0 sein." });
+        if (dto.PriceEur <= 0) return BadRequest(new { message = "Der Preis muss größer als 0 sein." });
+        if (string.IsNullOrWhiteSpace(dto.PackageLabel)) return BadRequest(new { message = "Bitte gib eine Paket-Bezeichnung an." });
+
+        var subscription = await _db.Subscriptions.FirstOrDefaultAsync(s => s.TenantId == id);
+        if (subscription == null) return NotFound(new { message = "Kein Abonnement für dieses Studio gefunden." });
+
+        var budget = await _db.TenantAiBudgets.FirstOrDefaultAsync(b => b.TenantId == id);
+        if (budget == null)
+        {
+            budget = new TenantAiBudget { TenantId = id };
+            _db.TenantAiBudgets.Add(budget);
+        }
+
+        var effectiveBudget = budget.MonthlyBudgetUsd ?? OpenAiPricing.PlatformDefaultMonthlyBudgetUsd;
+        var newBudget = effectiveBudget + dto.AdditionalBudgetUsd;
+        budget.MonthlyBudgetUsd = newBudget;
+        if (budget.CurrentPeriodCostUsd < newBudget) budget.IsHardCapped = false;
+        budget.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+
+        var periodStart = budget.CurrentPeriodStart;
+        var periodEnd = periodStart.AddMonths(1).AddDays(-1);
+        var invoiceRef = $"ai-budget-pkg-{Guid.NewGuid():N}";
+        _backgroundJobClient.Enqueue<InvoiceService>(s => s.GenerateAndSendInvoiceAsync(
+            subscription.Id, invoiceRef, $"KI-Budget-Paket: {dto.PackageLabel}", dto.PriceEur, periodStart, periodEnd, CancellationToken.None));
+
+        await _audit.LogAsync("ai_budget.package_purchased", "TenantAiBudget", budget.Id.ToString(),
+            $"{dto.PackageLabel}: +{dto.AdditionalBudgetUsd:0.00}$ Budget für {dto.PriceEur:0.00}€ verkauft, Rechnung wird versendet.",
+            id);
+
+        return Ok(new { tenantId = id, monthlyBudgetUsd = budget.MonthlyBudgetUsd, message = "Paket gebucht, Rechnung wird versendet." });
+    }
+
     /// <summary>Pending "more AI capacity" requests from tenants (AiFinderAdminController's
     /// RequestBudgetIncrease), platform-wide — the SuperAdmin-side half of that request/approve
     /// loop, same shape as the Agency subscription-request list.</summary>
@@ -2457,4 +2504,5 @@ public record ChangePlanDto(string Plan, string? Interval = null, decimal? Negot
 public record SetAiBudgetDto(decimal? MonthlyBudgetUsd);
 
 public record ApproveAiBudgetRequestDto(decimal? ApprovedBudgetUsd);
+public record PurchaseAiBudgetPackageDto(decimal AdditionalBudgetUsd, decimal PriceEur, string PackageLabel);
 public record UpdatePlanPriceDto(decimal MonthlyPrice, decimal AnnualPrice);

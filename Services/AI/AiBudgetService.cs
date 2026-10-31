@@ -98,6 +98,38 @@ public class AiBudgetService
                     budget.Id.ToString(),
                     $"{budget.CurrentPeriodCostUsd:0.00}$ von {effectiveBudget:0.00}$ verbraucht — KI-Aufrufe pausiert bis zur nächsten Periode.",
                     budget.TenantId);
+
+                var admin = await db.PlatformUsers
+                    .Where(u => u.TenantId == budget.TenantId && u.Role == PlatformRole.TenantAdmin)
+                    .OrderBy(u => u.CreatedAt)
+                    .FirstOrDefaultAsync();
+                if (admin != null)
+                {
+                    try
+                    {
+                        await emailService.SendAiBudgetHardCapEmailAsync(
+                            admin.Email, admin.FirstName, budget.CurrentPeriodCostUsd, effectiveBudget);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to send AI budget hard-cap email for TenantId={TenantId}", budget.TenantId);
+                    }
+                }
+
+                var tenant = await db.Tenants.Include(t => t.Settings).FirstOrDefaultAsync(t => t.Id == budget.TenantId);
+                if (tenant != null)
+                {
+                    try
+                    {
+                        await emailService.SendAiBudgetHardCapOpsAlertAsync(
+                            tenant.Settings?.CompanyName ?? tenant.Name, tenant.Slug, budget.CurrentPeriodCostUsd, effectiveBudget);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to send AI budget hard-cap ops alert for TenantId={TenantId}", budget.TenantId);
+                    }
+                }
+
                 continue;
             }
 
