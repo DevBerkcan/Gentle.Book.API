@@ -19,7 +19,6 @@ namespace GentleBook.Api.Controllers;
 [ApiController]
 [Route("api/admin/brand-import")]
 [Authorize]
-[EnableRateLimiting("brand-import-limit")]
 public class BrandImportController : ControllerBase
 {
     private readonly GentleBookDbContext _db;
@@ -144,7 +143,12 @@ public class BrandImportController : ControllerBase
     }
 
     // ── Analysis ─────────────────────────────────────────────────────────────
+    // Rate-limited here only (not controller-wide): this is the one action that actually fetches
+    // an external website. Previously the limit sat on the whole controller, so the 2s status
+    // poll (GetJob) burned through the same 6-per-10-min budget and users got rate-limited while
+    // their own analysis was still running — before it could ever finish.
     [HttpPost("analyze")]
+    [EnableRateLimiting("brand-import-limit")]
     public async Task<IActionResult> Analyze([FromBody] StartBrandAnalysisRequest request, CancellationToken ct)
     {
         var check = RequireTenantAdmin(out var tenantId);
@@ -190,6 +194,7 @@ public class BrandImportController : ControllerBase
     }
 
     [HttpPost("results/{id:guid}/reanalyze")]
+    [EnableRateLimiting("brand-import-limit")]
     public async Task<IActionResult> Reanalyze(Guid id, CancellationToken ct)
     {
         var check = RequireTenantAdmin(out var tenantId);

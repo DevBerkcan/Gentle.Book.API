@@ -1597,6 +1597,37 @@ namespace GentleBook.Api.Migrations
                     b.ToTable("LinkClicks");
                 });
 
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.LinkPageDesignVersion", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LinktreeConfig")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("LinktreeStyle")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("PrimaryColor")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "CreatedAt");
+
+                    b.ToTable("LinkPageDesignVersions");
+                });
+
             modelBuilder.Entity("GentleBook.Api.Data.Entities.LoyaltyPointsTransaction", b =>
                 {
                     b.Property<Guid>("Id")

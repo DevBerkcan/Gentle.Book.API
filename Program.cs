@@ -345,9 +345,13 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = 429;
     options.OnRejected = async (ctx, ct) =>
     {
+        var retryAfterSeconds = ctx.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+            ? (int)Math.Ceiling(retryAfter.TotalSeconds)
+            : 60;
+        ctx.HttpContext.Response.Headers.RetryAfter = retryAfterSeconds.ToString();
         ctx.HttpContext.Response.ContentType = "application/json";
         await ctx.HttpContext.Response.WriteAsync(
-            """{"message":"Zu viele Anfragen. Bitte warten Sie einen Moment."}""", ct);
+            $$"""{"message":"Zu viele Anfragen. Bitte warte noch etwa {{retryAfterSeconds}} Sekunden und versuche es dann erneut.","retryAfterSeconds":{{retryAfterSeconds}}}""", ct);
     };
 });
 

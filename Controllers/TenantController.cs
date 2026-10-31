@@ -597,6 +597,14 @@ public class TenantController : ControllerBase
             _db.TenantSettings.Add(settings);
         }
 
+        // Snapshot the design as it was BEFORE this request's changes — captured now, before any
+        // of the fields below get overwritten — so a later "restore" brings back exactly what was
+        // here a moment ago. Only relevant for design-editor saves (LinktreeConfig present); plain
+        // settings edits (company name, phone, …) don't touch the booking-page design at all.
+        var preChangePrimaryColor = settings.PrimaryColor;
+        var preChangeLinktreeStyle = settings.LinktreeStyle;
+        var preChangeLinktreeConfig = settings.LinktreeConfig;
+
         if (!string.IsNullOrWhiteSpace(dto.CompanyName))
             settings.CompanyName = dto.CompanyName.Trim();
         settings.Tagline = dto.Tagline?.Trim() ?? settings.Tagline;
@@ -717,11 +725,141 @@ public class TenantController : ControllerBase
 
         settings.UpdatedAt = DateTime.UtcNow;
 
+        // Only write a history row for an actual design-editor save (LinktreeConfig present in
+        // the request) that really changed something, and only once there was a previous design
+        // worth being able to go back to (skips the tenant's very first-ever save).
+        var designChanged = dto.LinktreeConfig != null && preChangeLinktreeConfig != null && (
+            settings.PrimaryColor != preChangePrimaryColor ||
+            settings.LinktreeStyle != preChangeLinktreeStyle ||
+            settings.LinktreeConfig != preChangeLinktreeConfig);
+
+        if (designChanged)
+        {
+            _db.LinkPageDesignVersions.Add(new LinkPageDesignVersion
+            {
+                TenantId = tenantId,
+                PrimaryColor = preChangePrimaryColor,
+                LinktreeStyle = preChangeLinktreeStyle,
+                LinktreeConfig = preChangeLinktreeConfig,
+                CreatedAt = DateTime.UtcNow,
+            });
+
+            // Cap retention per tenant so this doesn't grow unbounded over months of tweaking —
+            // keep the most recent 40 steps back, which is plenty for an undo history. Skip one
+            // fewer than the cap: the new row above is still pending (not yet in the DB this
+            // query hits), so trimming to (cap - 1) existing rows leaves exactly `cap` once it's saved.
+            const int maxVersionsPerTenant = 40;
+            var staleVersions = await _db.LinkPageDesignVersions
+                .Where(v => v.TenantId == tenantId)
+                .OrderByDescending(v => v.CreatedAt)
+                .Skip(maxVersionsPerTenant - 1)
+                .ToListAsync();
+            if (staleVersions.Count > 0)
+                _db.LinkPageDesignVersions.RemoveRange(staleVersions);
+        }
+
         await _db.SaveChangesAsync();
 
         await _audit.LogAsync("settings.updated", "TenantSettings", settings.Id.ToString(), "Studio-Einstellungen geändert");
 
         return Ok(new { message = "Einstellungen gespeichert" });
+    }
+
+    // GET /api/tenant/design-history — recent snapshots of the booking-page design (newest
+    // first), so the admin can see what they changed and when, and jump back to any step.
+    [HttpGet("design-history")]
+    public async Task<IActionResult> GetDesignHistory()
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var versions = await _db.LinkPageDesignVersions
+            .Where(v => v.TenantId == tenantId)
+            .OrderByDescending(v => v.CreatedAt)
+            .Take(40)
+            .ToListAsync();
+
+        var data = versions.Select(v => new
+        {
+            v.Id,
+            v.CreatedAt,
+            v.PrimaryColor,
+            v.LinktreeStyle,
+            pageTemplate = ExtractPageTemplate(v.LinktreeConfig),
+        });
+
+        return Ok(new { data });
+    }
+
+    // POST /api/tenant/design-history/{id}/restore — brings back a previous design snapshot.
+    // Snapshots the CURRENT design first (same rule as UpdateSettings above), so restoring is
+    // never a one-way trip: the admin can always jump forward again to what they just had.
+    [HttpPost("design-history/{id:guid}/restore")]
+    public async Task<IActionResult> RestoreDesignVersion(Guid id)
+    {
+        var check = RequireTenantAdmin();
+        if (check != null) return check;
+
+        var tenantId = _tenantContext.TenantId!.Value;
+        var version = await _db.LinkPageDesignVersions.FirstOrDefaultAsync(v => v.Id == id && v.TenantId == tenantId);
+        if (version == null) return NotFound(new { message = "Dieser Verlaufseintrag wurde nicht gefunden." });
+
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        if (settings == null) return NotFound(new { message = "Keine Einstellungen vorhanden." });
+
+        // Plan-gate the template we're restoring to, exactly like a normal design save would —
+        // a downgrade since that snapshot was taken must not let it back in through the side door.
+        var restoredTemplate = ExtractPageTemplate(version.LinktreeConfig);
+        if (restoredTemplate != null)
+        {
+            var tenantPlan = await _db.Subscriptions.Where(s => s.TenantId == tenantId).Select(s => s.Plan).FirstOrDefaultAsync();
+            var requiredPlanName = LinkPageTemplates.ValidateTemplateForPlan(restoredTemplate, tenantPlan);
+            if (requiredPlanName != null)
+                return StatusCode(402, new { message = $"Dieses Template ist ab dem Tarif \"{requiredPlanName}\" verfügbar.", feature = "linkPageTemplate", upgrade = true, requiredPlan = requiredPlanName });
+        }
+
+        _db.LinkPageDesignVersions.Add(new LinkPageDesignVersion
+        {
+            TenantId = tenantId,
+            PrimaryColor = settings.PrimaryColor,
+            LinktreeStyle = settings.LinktreeStyle,
+            LinktreeConfig = settings.LinktreeConfig,
+            CreatedAt = DateTime.UtcNow,
+        });
+
+        settings.PrimaryColor = version.PrimaryColor;
+        settings.LinktreeStyle = version.LinktreeStyle ?? settings.LinktreeStyle;
+        settings.LinktreeConfig = version.LinktreeConfig;
+        settings.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        await _audit.LogAsync("settings.design_restored", "TenantSettings", settings.Id.ToString(),
+            $"Design wiederhergestellt auf Stand vom {version.CreatedAt:yyyy-MM-dd HH:mm} UTC", tenantId: tenantId);
+
+        return Ok(new
+        {
+            message = "Design wiederhergestellt.",
+            primaryColor = settings.PrimaryColor,
+            linktreeStyle = settings.LinktreeStyle,
+            linktreeConfig = settings.LinktreeConfig,
+        });
+    }
+
+    private static string? ExtractPageTemplate(string? linktreeConfigJson)
+    {
+        if (string.IsNullOrWhiteSpace(linktreeConfigJson)) return null;
+        try
+        {
+            using var parsed = System.Text.Json.JsonDocument.Parse(linktreeConfigJson);
+            return parsed.RootElement.TryGetProperty("pageTemplate", out var prop) && prop.ValueKind == System.Text.Json.JsonValueKind.String
+                ? prop.GetString()
+                : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
     }
 
     // GET /api/tenant/locations

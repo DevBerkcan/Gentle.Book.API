@@ -80,6 +80,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<IntakeFormResponse> IntakeFormResponses { get; set; }
     public DbSet<IntakeFormAnswer> IntakeFormAnswers { get; set; }
     public DbSet<Voucher> Vouchers { get; set; }
+    public DbSet<LinkPageDesignVersion> LinkPageDesignVersions { get; set; }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -131,6 +132,7 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<IntakeFormResponse>().HasQueryFilter(r => CurrentTenantId == null || r.TenantId == CurrentTenantId);
         modelBuilder.Entity<IntakeFormAnswer>().HasQueryFilter(a => CurrentTenantId == null || a.TenantId == CurrentTenantId);
         modelBuilder.Entity<Voucher>().HasQueryFilter(v => CurrentTenantId == null || v.TenantId == CurrentTenantId);
+        modelBuilder.Entity<LinkPageDesignVersion>().HasQueryFilter(v => CurrentTenantId == null || v.TenantId == CurrentTenantId);
 
         modelBuilder.Entity<BrandImportJob>(entity =>
         {
@@ -162,6 +164,13 @@ public class GentleBookDbContext : DbContext
             entity.Property(a => a.DiscoveryHint).HasMaxLength(200);
             entity.Property(a => a.ContentType).HasMaxLength(100);
             entity.HasIndex(a => new { a.TenantId, a.ImportResultId });
+        });
+
+        modelBuilder.Entity<LinkPageDesignVersion>(entity =>
+        {
+            entity.Property(v => v.PrimaryColor).HasMaxLength(20);
+            entity.Property(v => v.LinktreeStyle).HasMaxLength(20);
+            entity.HasIndex(v => new { v.TenantId, v.CreatedAt });
         });
 
         modelBuilder.Entity<WaitlistEntry>(entity =>
