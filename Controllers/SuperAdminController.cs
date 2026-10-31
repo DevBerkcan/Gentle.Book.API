@@ -2008,11 +2008,16 @@ public class SuperAdminController : ControllerBase
 
     // ── Impersonate ───────────────────────────────────────────────────────────
 
-    /// <summary>Generate a TenantAdmin JWT for the first admin of the given tenant (Superadmin only).</summary>
+    /// <summary>Generate a TenantAdmin JWT for the first admin of the given tenant (Superadmin only).
+    /// Requires a reason — support access must be on-demand and traceable to a specific need
+    /// (AVV: "nur auf Anlass"), not just a free-form "look around" login.</summary>
     [HttpPost("tenants/{tenantId:guid}/impersonate")]
-    public async Task<IActionResult> ImpersonateTenant(Guid tenantId)
+    public async Task<IActionResult> ImpersonateTenant(Guid tenantId, [FromBody] ImpersonateTenantDto dto)
     {
         if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        if (string.IsNullOrWhiteSpace(dto?.Reason))
+            return BadRequest(new { message = "Bitte gib einen Grund für den Support-Zugriff an." });
 
         var tenant = await _db.Tenants.FindAsync(tenantId);
         if (tenant == null) return NotFound(new { message = "System nicht gefunden" });
@@ -2031,9 +2036,10 @@ public class SuperAdminController : ControllerBase
             ?? "superadmin";
         var token = _jwt.GenerateTenantAdminToken(adminUser.Id, adminUser.Email, tenant.Id, tenant.Slug, impersonatedBy: superAdminEmail);
 
-        _logger.LogInformation("SuperAdmin {SuperAdmin} impersonated tenant {TenantId} ({TenantName}) as {Email}", superAdminEmail, tenantId, tenant.Name, adminUser.Email);
+        var reason = dto.Reason.Trim();
+        _logger.LogInformation("SuperAdmin {SuperAdmin} impersonated tenant {TenantId} ({TenantName}) as {Email}, reason: {Reason}", superAdminEmail, tenantId, tenant.Name, adminUser.Email, reason);
         await _audit.LogAsync("tenant.impersonated", "Tenant", tenantId.ToString(),
-            $"Impersonation als {adminUser.Email} für System \"{tenant.Name}\"", tenantId);
+            $"Impersonation als {adminUser.Email} für System \"{tenant.Name}\" — Grund: {reason}", tenantId);
 
         return Ok(new
         {
@@ -2454,6 +2460,7 @@ public class SuperAdminController : ControllerBase
 
 public record CreateLegalDocumentDto(string Type, string Version, string? Language, string FullText);
 public record RejectDataRequestDto(string Reason);
+public record ImpersonateTenantDto(string Reason);
 
 public record CreateTenantDto(
     string Name,

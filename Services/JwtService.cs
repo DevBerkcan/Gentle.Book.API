@@ -32,6 +32,11 @@ public class JwtService
         return BuildToken(claims, "Jwt:Secret", "Jwt:Issuer", "Jwt:Audience", "Jwt:ExpiryHours");
     }
 
+    // A support session via impersonation gets a much shorter lifetime than a normal login —
+    // minimizes how long a SuperAdmin-issued token into a tenant's account stays valid, per the
+    // AVV's "only as long as needed for support" expectation.
+    public static readonly TimeSpan ImpersonationSessionLifetime = TimeSpan.FromMinutes(60);
+
     // ── TenantAdmin token ───────────────────────────────────────────────────
     // impersonatedBy: set when a SuperAdmin generates this token via impersonation —
     // makes impersonated sessions distinguishable in logs and audits.
@@ -53,7 +58,8 @@ public class JwtService
             claims.Add(new Claim("impersonatedBy", impersonatedBy));
         if (locationId.HasValue)
             claims.Add(new Claim("locationId", locationId.Value.ToString()));
-        return BuildToken(claims, "Jwt:Secret", "Jwt:Issuer", "Jwt:Audience", "Jwt:ExpiryHours");
+        var overrideExpiry = !string.IsNullOrEmpty(impersonatedBy) ? ImpersonationSessionLifetime : (TimeSpan?)null;
+        return BuildToken(claims, "Jwt:Secret", "Jwt:Issuer", "Jwt:Audience", "Jwt:ExpiryHours", overrideExpiry);
     }
 
     public static string? GetImpersonatedBy(ClaimsPrincipal user)
@@ -77,7 +83,8 @@ public class JwtService
         => GenerateEmployeeToken(employeeId, name, username, role, Guid.Empty, string.Empty);
 
     // ── Private builder ─────────────────────────────────────────────────────
-    private string BuildToken(List<Claim> claims, string secretKey, string issuerKey, string audienceKey, string expiryKey)
+    private string BuildToken(List<Claim> claims, string secretKey, string issuerKey, string audienceKey, string expiryKey,
+        TimeSpan? overrideExpiry = null)
     {
         var secret = _config[secretKey]
             ?? throw new InvalidOperationException($"{secretKey} is not configured");
@@ -88,14 +95,14 @@ public class JwtService
 
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-        var expiryHours = int.TryParse(_config[expiryKey], out var h) ? h : 8;
+        var expiry = overrideExpiry ?? TimeSpan.FromHours(int.TryParse(_config[expiryKey], out var h) ? h : 8);
 
         var token = new JwtSecurityToken(
             issuer: issuer,
             audience: audience,
             claims: claims,
             notBefore: DateTime.UtcNow,
-            expires: DateTime.UtcNow.AddHours(expiryHours),
+            expires: DateTime.UtcNow.Add(expiry),
             signingCredentials: creds
         );
 

@@ -443,4 +443,32 @@ public class AdminController : ControllerBase
             return StatusCode(500, new { message = "E-Mail konnte nicht gesendet werden." });
         }
     }
+
+    /// <summary>
+    /// Lets a tenant see when GentleBook support logged into their account, as whom, and why —
+    /// the tenant-facing half of the "nur auf Anlass, protokolliert" support-access rule (AVV).
+    /// TenantAdmin only: this is account-level visibility, not something every employee needs.
+    /// </summary>
+    [HttpGet("support-access-log")]
+    public async Task<IActionResult> GetSupportAccessLog([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        if (JwtService.GetRole(User) != "TenantAdmin") return Forbid();
+
+        var tenantId = JwtService.GetTenantId(User);
+        if (tenantId == null) return Forbid();
+
+        pageSize = Math.Clamp(pageSize, 1, 100);
+        var query = _db.AuditLogs.AsNoTracking()
+            .Where(a => a.TenantId == tenantId.Value && a.Action == "tenant.impersonated");
+
+        var total = await query.CountAsync();
+        var items = await query
+            .OrderByDescending(a => a.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(a => new { a.Id, a.ActorName, a.Details, a.CreatedAt })
+            .ToListAsync();
+
+        return Ok(new { items, totalCount = total, page, pageSize });
+    }
 }
