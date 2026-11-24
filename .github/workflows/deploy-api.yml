@@ -79,7 +79,10 @@ jobs:
         if: steps.secrets.outputs.configured == 'true'
         run: |
           dotnet publish GentleBook.Api.csproj -c Release -r win-x86 --self-contained false -o publish
-          rm -f publish/appsettings*.json publish/web.config
+          # Config never ships — at ANY depth (a stray nested publish folder once carried a copy).
+          find publish \( -iname 'appsettings*.json' -o -iname 'web.config*' \) -delete
+          if find publish \( -iname 'appsettings*.json' -o -iname 'web.config*' \) | grep -q .; then echo "::error::Konfigurationsdateien im Paket"; exit 1; fi
+          if find publish -mindepth 1 -type d \( -iname 'publish*' -o -iname '_backup*' \) | grep -q .; then echo "::error::Alte Build-Ordner im Paket"; exit 1; fi
           test -f publish/GentleBook.Api.dll
           # The MonsterASP app pool is 32-bit: an x64 build fails with HTTP 500.30 and no log
           # (2026-07-31 outage). The x86 native SNI must sit at the package root.
