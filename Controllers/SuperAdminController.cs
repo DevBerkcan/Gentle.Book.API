@@ -455,6 +455,7 @@ public class SuperAdminController : ControllerBase
             await _db.WaitlistEntries.IgnoreQueryFilters().Where(w => w.TenantId == id).ExecuteDeleteAsync();
             await _db.EmployeeNotes.IgnoreQueryFilters().Where(n => n.TenantId == id).ExecuteDeleteAsync();
             await _db.Bookings.IgnoreQueryFilters().Where(b => b.TenantId == id).ExecuteDeleteAsync();
+            await _db.TreatmentPackages.IgnoreQueryFilters().Where(p => p.TenantId == id).ExecuteDeleteAsync();
 
             await _db.BlockedTimeSlots.IgnoreQueryFilters().Where(b => b.TenantId == id).ExecuteDeleteAsync();
             await _db.EmployeeVacations.IgnoreQueryFilters().Where(v => v.TenantId == id).ExecuteDeleteAsync();

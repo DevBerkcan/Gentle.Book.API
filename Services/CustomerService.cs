@@ -315,6 +315,16 @@ public class CustomerService
         foreach (var booking in customer.Bookings)
             booking.CustomerNotes = null;
 
+        var activePackages = await _context.TreatmentPackages
+            .Where(p => p.CustomerId == customer.Id && p.Status == TreatmentPackageStatus.Active)
+            .ToListAsync();
+        foreach (var package in activePackages)
+        {
+            package.Status = TreatmentPackageStatus.Cancelled;
+            package.BookingToken = TreatmentPackageRules.NewBookingToken(); // kill the old personal link
+            package.UpdatedAt = DateTime.UtcNow;
+        }
+
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("Customer anonymized (GDPR Art. 17 erasure): {CustomerId}", customer.Id);

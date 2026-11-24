@@ -728,6 +728,10 @@ public class ServiceService
                 $"Dieser Service hat {totalBookingCount} Buchung(en) (auch vergangene zählen als Verlauf). " +
                 "Bitte deaktivieren Sie den Service stattdessen — Löschen ist nur für Services ohne jede Buchungshistorie möglich.");
 
+        if (await _context.TreatmentPackages.AnyAsync(p => p.ServiceId == service.Id))
+            throw new InvalidOperationException(
+                "Für diesen Service existieren Behandlungspakete. Bitte deaktivieren Sie den Service stattdessen.");
+
         // Use a transaction to ensure all operations succeed or fail together
         using var transaction = await _context.Database.BeginTransactionAsync();
         try

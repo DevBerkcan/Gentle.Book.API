@@ -52,6 +52,12 @@ public class Booking
     /// <summary>Guards VoucherService.RefundVoucherForBookingAsync against refunding the same booking's voucher usage twice (e.g. Cancel then Delete on an already-cancelled booking).</summary>
     public bool VoucherRefunded { get; set; } = false;
 
+    /// <summary>
+    /// The treatment package this appointment is a session of (null = ordinary single booking).
+    /// A session is only debited once this booking reaches Completed — see TreatmentPackage.
+    /// </summary>
+    public Guid? TreatmentPackageId { get; set; }
+
     // Timestamps
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -64,6 +70,7 @@ public class Booking
     public Service Service { get; set; } = null!;
     public Employee? Employee { get; set; }
     public BusinessLocation? Location { get; set; }
+    public TreatmentPackage? TreatmentPackage { get; set; }
     public ICollection<EmailLog> EmailLogs { get; set; } = new List<EmailLog>();
 
     public static string GenerateBookingNumber(DateOnly date, Guid id)

@@ -8,7 +8,10 @@ public record CreateBookingDto(
     CustomerInfoDto Customer,
     string? CustomerNotes,
     Guid? EmployeeId,       // optional – chosen employee
-    string? WaitlistToken = null
+    string? WaitlistToken = null,
+    // Personal package booking link (TreatmentPackage.BookingToken). The server resolves the
+    // package + customer from it; never trusts a client-sent package/customer id.
+    string? PackageToken = null
     // No LocationId here on purpose: Booking.LocationId is derived from the booked Service's
     // LocationId (BookingService.CreateBookingAsync) — the location is already implied by
     // which service was picked, and trusting a client-supplied location would let it diverge

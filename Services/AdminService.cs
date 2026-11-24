@@ -409,6 +409,26 @@ public class AdminService
             throw new InvalidOperationException(
                 $"Statuswechsel von \"{oldStatus}\" nach \"{newStatus}\" ist nicht zulässig.");
 
+        // Behandlungspaket: the session is debited purely by this booking becoming Completed
+        // (balance is derived, see TreatmentPackage) — so re-saving an already Completed booking
+        // (oldStatus == newStatus) can never debit twice. Only guard against completing a session
+        // beyond the package size; Re-confirming a cancelled package booking must also respect
+        // the package's remaining capacity.
+        if (booking.TreatmentPackageId is { } packageId && oldStatus != newStatus)
+        {
+            var package = await _context.TreatmentPackages.FirstOrDefaultAsync(p => p.Id == packageId);
+            if (package != null)
+            {
+                var progress = await TreatmentPackageRules.GetProgressAsync(_context, package, excludeBookingId: booking.Id);
+                if (newStatus == BookingStatus.Completed && progress.IsUsedUp)
+                    throw new InvalidOperationException(
+                        $"Das Behandlungspaket \"{package.Name}\" ist bereits vollständig verbraucht. Bitte die Paketzuordnung dieses Termins zuerst entfernen.");
+                if (newStatus == BookingStatus.Confirmed && oldStatus == BookingStatus.Cancelled && progress.BookableSessions <= 0)
+                    throw new InvalidOperationException(
+                        $"Für das Behandlungspaket \"{package.Name}\" sind keine freien Sitzungen mehr übrig. Bitte die Paketzuordnung zuerst entfernen.");
+            }
+        }
+
         booking.Status = newStatus;
         booking.AdminNotes = dto.AdminNotes;
         booking.UpdatedAt = DateTime.UtcNow;
@@ -503,6 +523,12 @@ public class AdminService
         {
             throw new ArgumentException("Buchung nicht gefunden");
         }
+
+        // A completed package session is the debit record itself (the balance is derived from
+        // it) — hard-deleting it would silently hand the customer a free session back.
+        if (booking.TreatmentPackageId != null && booking.Status == BookingStatus.Completed)
+            throw new InvalidOperationException(
+                "Abgeschlossene Paketsitzungen können nicht gelöscht werden, da sie den Paketstand belegen.");
 
         _logger.LogInformation(
             "Admin deleting booking {BookingId} for customer {CustomerEmail}. Reason: {Reason}",

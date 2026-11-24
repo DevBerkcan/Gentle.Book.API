@@ -124,8 +124,37 @@ public class BookingService
             throw new InvalidOperationException(
                 $"Termine können maximal {maxAdvanceDays} Tage im Voraus gebucht werden");
 
-        // 5-6. Find or create customer (lookup by email OR phone)
-        var customer = await FindOrCreateCustomerForPublicBookingAsync(tenantId, dto.Customer, dto.EmployeeId);
+        // 5-6. Resolve the customer. A personal package link (dto.PackageToken) books for the
+        // package's own customer — validated server-side inside this serializable transaction
+        // so two concurrent link bookings can't both take the last open session.
+        TreatmentPackage? package = null;
+        Customer customer;
+        if (!string.IsNullOrWhiteSpace(dto.PackageToken))
+        {
+            package = await _context.TreatmentPackages.IgnoreQueryFilters()
+                .FirstOrDefaultAsync(p => p.BookingToken == dto.PackageToken && p.TenantId == tenantId);
+            if (package == null || !GentleBook.Api.Configuration.TreatmentPackageGate.IsAllowed(subscription.Plan))
+                throw new ArgumentException("Dieser persönliche Buchungslink ist nicht mehr gültig. Bitte wenden Sie sich an das Studio.");
+
+            var packageError = await TreatmentPackageRules.ValidateAssignmentAsync(
+                _context, package, package.CustomerId, service.Id, excludeBookingId: null);
+            if (packageError != null)
+                throw new InvalidOperationException(package.ServiceId != service.Id
+                    ? "Dieser persönliche Buchungslink gilt für eine andere Leistung."
+                    : "Über diesen persönlichen Buchungslink kann derzeit kein weiterer Termin gebucht werden. Bitte wenden Sie sich an das Studio.");
+
+            customer = await _context.Customers.IgnoreQueryFilters()
+                .FirstAsync(c => c.Id == package.CustomerId && c.TenantId == tenantId);
+            // Fill missing contact data only — never overwrite what the studio has on file.
+            if (string.IsNullOrWhiteSpace(customer.Email) && !string.IsNullOrWhiteSpace(dto.Customer.Email))
+                customer.Email = dto.Customer.Email.Trim();
+            if (string.IsNullOrWhiteSpace(customer.Phone) && !string.IsNullOrWhiteSpace(dto.Customer.Phone))
+                customer.Phone = dto.Customer.Phone.Trim();
+        }
+        else
+        {
+            customer = await FindOrCreateCustomerForPublicBookingAsync(tenantId, dto.Customer, dto.EmployeeId);
+        }
 
         // 7. Resolve employee (optional) — must belong to the same tenant as the service
         Employee? employee = null;
@@ -156,6 +185,7 @@ public class BookingService
             // email, or anyone who knows a stranger's email). See Booking.ContactFirstName.
             ContactFirstName = dto.Customer.FirstName,
             ContactLastName = dto.Customer.LastName,
+            TreatmentPackageId = package?.Id,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
         };
