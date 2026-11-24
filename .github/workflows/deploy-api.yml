@@ -1,0 +1,157 @@
+# Deploys the API to MonsterASP (site62449, IIS in-process, 32-bit app pool) on every push to main.
+#
+# Mirrors the proven manual procedure (see DEPLOYMENT.md / 2026-11-24 deploy):
+#   tests → publish win-x86 (code only) → backup current version → app_offline.htm → upload
+#   → remove app_offline.htm → verify. EF migrations run automatically on app start.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   MONSTERASP_SFTP_USER      e.g. site62449
+#   MONSTERASP_SFTP_PASSWORD  the MonsterASP FTP/SFTP password
+#
+# Safety:
+#   - SFTP (encrypted) with a PINNED host key — never plain FTP from GitHub's runners.
+#   - The package never contains appsettings*.json or web.config, so production config
+#     (DB, SMTP, Mollie, JWT secret) on the server is never overwritten.
+#   - This repository is PUBLIC: the backup artifact deliberately excludes every config file,
+#     uploads/ and logs/ — it only holds compiled code, which is public here anyway.
+name: Deploy API (MonsterASP)
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Probelauf: Tests, Build, Verbindung und Backup – ohne etwas am Server zu ändern'
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-api-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SFTP_HOST: site62449.siteasp.net
+  API_URL: https://gentlebook.runasp.net
+  DOTNET_NOLOGO: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Unit tests
+        run: dotnet test Gentle.Book.API.Tests/Gentle.Book.API.Tests.csproj -c Release
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Check secrets
+        id: secrets
+        env:
+          SFTP_USER: ${{ secrets.MONSTERASP_SFTP_USER }}
+          SFTP_PASS: ${{ secrets.MONSTERASP_SFTP_PASSWORD }}
+        run: |
+          if [ -z "$SFTP_USER" ] || [ -z "$SFTP_PASS" ]; then
+            echo "::warning::Secrets MONSTERASP_SFTP_USER / MONSTERASP_SFTP_PASSWORD sind nicht gesetzt — Deploy wird übersprungen (siehe DEPLOYMENT.md)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish (win-x86, code only)
+        if: steps.secrets.outputs.configured == 'true'
+        run: |
+          dotnet publish GentleBook.Api.csproj -c Release -r win-x86 --self-contained false -o publish
+          rm -f publish/appsettings*.json publish/web.config
+          test -f publish/GentleBook.Api.dll
+          # The MonsterASP app pool is 32-bit: an x64 build fails with HTTP 500.30 and no log
+          # (2026-07-31 outage). The x86 native SNI must sit at the package root.
+          test -f publish/Microsoft.Data.SqlClient.SNI.dll
+          size=$(stat -c%s publish/Microsoft.Data.SqlClient.SNI.dll)
+          [ "$size" = "414248" ] || echo "::warning::SNI.dll ist $size Byte statt 414248 (bekannte x86-Variante) — Bitness prüfen."
+          echo "Paket: $(find publish -type f | wc -l) Dateien"
+
+      - name: Install lftp + pin SFTP host key
+        if: steps.secrets.outputs.configured == 'true'
+        run: |
+          sudo apt-get update -y -qq && sudo apt-get install -y -qq lftp
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "site62449.siteasp.net ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGXHt3StlKuaaewYkw6gJUy41XlfjSGxFLEkpNhJYvcm" >> ~/.ssh/known_hosts
+          cat > ~/.lftprc <<'EOF'
+          set sftp:auto-confirm no
+          set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts"
+          set net:max-retries 4
+          set net:reconnect-interval-base 5
+          set net:timeout 60
+          set cmd:fail-exit yes
+          EOF
+
+      - name: Backup current version (code only)
+        if: steps.secrets.outputs.configured == 'true'
+        env:
+          LFTP_PASSWORD: ${{ secrets.MONSTERASP_SFTP_PASSWORD }}
+          SFTP_USER: ${{ secrets.MONSTERASP_SFTP_USER }}
+        run: |
+          mkdir -p backup
+          lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "mirror --verbose=0 --parallel=4 --exclude-glob appsettings*.json --exclude-glob web.config* --exclude-glob *.bak-* --exclude-glob app_offline.htm --exclude uploads/ --exclude logs/ wwwroot backup; bye"
+          test -f backup/GentleBook.Api.dll
+          echo "Backup: $(find backup -type f | wc -l) Dateien"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.secrets.outputs.configured == 'true'
+        with:
+          name: api-backup-${{ github.sha }}
+          path: backup
+          retention-days: 14
+
+      - name: Deploy (app_offline → upload → online)
+        if: ${{ steps.secrets.outputs.configured == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        env:
+          LFTP_PASSWORD: ${{ secrets.MONSTERASP_SFTP_PASSWORD }}
+          SFTP_USER: ${{ secrets.MONSTERASP_SFTP_USER }}
+        run: |
+          printf '%s' '<html><body style="font-family:sans-serif;text-align:center;padding:40px">GentleBook wird aktualisiert – in einer Minute wieder da.</body></html>' > app_offline.htm
+          lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "put app_offline.htm -o wwwroot/app_offline.htm; bye"
+          sleep 5   # let IIS unload the app so GentleBook.Api.dll is no longer locked
+          lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "mirror --reverse --verbose=1 --parallel=4 publish wwwroot; bye"
+          lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "rm wwwroot/app_offline.htm; bye"
+
+      - name: Verify
+        if: ${{ steps.secrets.outputs.configured == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        run: |
+          for i in $(seq 1 24); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$API_URL/health" || true)
+            [ "$code" = "200" ] && break
+            sleep 5
+          done
+          [ "$code" = "200" ] || { echo "::error::/health antwortet mit $code"; exit 1; }
+          # Protected endpoints must exist (401 = present and auth-guarded, 404 = old build).
+          for p in /api/referrals/stats /api/treatment-packages/follow-ups /api/tenant/price-calculator; do
+            c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$API_URL$p")
+            echo "$p -> $c"
+            [ "$c" = "401" ] || { echo "::error::$p antwortet mit $c statt 401"; exit 1; }
+          done
+          echo "Deploy erfolgreich."
+
+      - name: On failure
+        if: failure()
+        run: |
+          echo "::error::Deploy fehlgeschlagen. Falls die Wartungsseite (app_offline.htm) noch aktiv ist: per WebFTP löschen oder Workflow erneut starten."
+          echo "Rollback: Artefakt api-backup-${{ github.sha }} herunterladen und den Inhalt nach wwwroot hochladen (vorher app_offline.htm)."

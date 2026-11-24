@@ -119,7 +119,7 @@ public class ManualBookingService
         }
         else
         {
-            customer = await FindOrCreateCustomer(dto, dto.EmployeeId);
+            customer = await FindOrCreateCustomerForManualBookingAsync(dto, dto.EmployeeId);
         }
 
         // Create booking
@@ -304,7 +304,16 @@ public class ManualBookingService
         );
     }
 
-    private async Task<Customer> FindOrCreateCustomer(CreateManualBookingDto dto, Guid? employeeId)
+    // Public (like BookingService.FindOrCreateCustomerForPublicBookingAsync) only so it is directly
+    // unit-testable — CreateManualBookingAsync opens a SERIALIZABLE transaction EF InMemory can't run.
+    //
+    // E-mail and phone identify a person studio-wide, so they are matched across the WHOLE tenant
+    // (same as the public booking flow). Previously they were scoped to the appointment's employee:
+    // an admin booking an existing client with employee B created a SECOND customer record whenever
+    // that client "belonged" to employee A or to nobody — splitting her history, treatment packages,
+    // stamp card and referral rewards across two Kundenkarteien. Name-only matching stays scoped to
+    // the employee: two different people can share a name, so it is only a weak signal.
+    public async Task<Customer> FindOrCreateCustomerForManualBookingAsync(CreateManualBookingDto dto, Guid? employeeId)
     {
         var tenantId = _tenantContext.TenantId
             ?? throw new InvalidOperationException("TenantId fehlt");
@@ -317,32 +326,31 @@ public class ManualBookingService
 
         Customer? customer = null;
 
-        // 1. Find by email (tenant-wide for admins, employee-scoped for employees)
+        // 1. Find by email (studio-wide — an e-mail address is one person)
         if (email != null)
         {
             customer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.TenantId == tenantId
-                    && c.Email != null
-                    && c.Email.ToLower() == email.ToLower()
-                    && (!employeeId.HasValue || c.EmployeeId == employeeId.Value));
+                .Where(c => c.TenantId == tenantId && c.Email != null && c.Email.ToLower() == email.ToLower())
+                .OrderBy(c => c.CreatedAt)
+                .FirstOrDefaultAsync();
 
             if (customer != null)
                 _logger.LogInformation("Found existing customer by email: {Email} for employee {EmployeeId}", email, employeeId);
         }
 
-        // 2. Find by phone (tenant-wide for admins, employee-scoped for employees)
+        // 2. Find by phone (studio-wide)
         if (customer == null && phone != null)
         {
             customer = await _context.Customers
-                .FirstOrDefaultAsync(c => c.TenantId == tenantId
-                    && c.Phone == phone
-                    && (!employeeId.HasValue || c.EmployeeId == employeeId.Value));
+                .Where(c => c.TenantId == tenantId && c.Phone == phone)
+                .OrderBy(c => c.CreatedAt)
+                .FirstOrDefaultAsync();
 
             if (customer != null)
                 _logger.LogInformation("Found existing customer by phone: {Phone} for employee {EmployeeId}", phone, employeeId);
         }
 
-        // 3. Find by name (tenant-wide for admins, employee-scoped for employees)
+        // 3. Find by name (weak signal — stays scoped to the appointment's employee)
         if (customer == null)
         {
             customer = await _context.Customers
@@ -370,7 +378,6 @@ public class ManualBookingService
                 var emailTaken = await _context.Customers
                     .AnyAsync(c => c.TenantId == tenantId
                         && c.Email == email
-                        && (!employeeId.HasValue || c.EmployeeId == employeeId.Value)
                         && c.Id != customer.Id);
 
                 if (!emailTaken)
@@ -383,7 +390,6 @@ public class ManualBookingService
                 var phoneTaken = await _context.Customers
                     .AnyAsync(c => c.TenantId == tenantId
                         && c.Phone == phone
-                        && (!employeeId.HasValue || c.EmployeeId == employeeId.Value)
                         && c.Id != customer.Id);
 
                 if (!phoneTaken)

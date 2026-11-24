@@ -10,5 +10,13 @@ services:
     volumes:
       - gentlebook-mssqldata:/var/opt/mssql
 
+  # Local mail catcher for development + E2E (e2e/fixtures.ts polls its API on :5080).
+  # appsettings.Development.json sends via localhost:1025. Web UI: http://localhost:5080
+  smtp4dev:
+    image: rnwood/smtp4dev:v3
+    ports:
+      - "5080:80"
+      - "1025:25"
+
 volumes:
   gentlebook-mssqldata:
