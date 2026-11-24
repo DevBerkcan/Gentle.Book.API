@@ -167,9 +167,8 @@ public class ManualBookingService
                 : discountAmount;
         }
 
-        // Same trigger point as the public booking flow (BookingService.CreateBookingAsync) —
-        // a customer is rewarded regardless of whether staff or the customer made the booking.
-        await _voucherService.MaybeIssueAutoRewardAsync(tenantId, customer);
+        // Stempelpass rewards are issued on COMPLETION now (VoucherService.
+        // MaybeIssueVisitRewardForCompletedBookingAsync), not at booking time.
 
         await _context.SaveChangesAsync();
         await tx.CommitAsync();

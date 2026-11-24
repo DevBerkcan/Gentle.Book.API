@@ -108,6 +108,13 @@ public class TenantSettings
     public string LoyaltyRewardType { get; set; } = "MonetaryValue"; // "MonetaryValue" | "PercentageDiscount" | "SessionPackage"
     public decimal? LoyaltyRewardValue { get; set; }
 
+    // ── Freunde machen Freude (Trial/Professional/Agency, see ReferralGate) ──
+    // Off by default — a studio opts in and states its own reward (e.g. "Nail-Art-Upgrade beim
+    // nächsten Besuch"); both the referrer and the new customer get it once the new customer's
+    // first appointment is completed.
+    public bool ReferralEnabled { get; set; } = false;
+    public string? ReferralRewardText { get; set; } // ≤ 300 chars, enforced in ReferralsController
+
     // ── Team-Reports (Agency) ──────────────────────────────────
     public string DigestFrequency { get; set; } = "None"; // "None" | "Daily" | "Weekly"
 

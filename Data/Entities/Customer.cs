@@ -20,6 +20,17 @@ public class Customer
     public DateTime? ConsentGivenAt { get; set; }
     public int LoyaltyPoints { get; set; } = 0;
 
+    /// <summary>
+    /// Secret for the customer's permanent personal Studio-Pass (/pass/{token}): next appointment,
+    /// manage/rebook, open package sessions, stamps, rewards, "Freundin einladen". Random 256-bit,
+    /// created lazily (first confirmation email / first studio "copy pass link"); renewable by the
+    /// studio; cleared on GDPR erasure. Never shared publicly — unlike ReferralCode.
+    /// </summary>
+    public string? PassToken { get; set; }
+
+    /// <summary>Short public code for this customer's referral link (/booking/{slug}/book?ref=CODE). Safe to share via WhatsApp — grants no access to anything.</summary>
+    public string? ReferralCode { get; set; }
+
     // Navigation
     public Tenant Tenant { get; set; } = null!;
     public ICollection<Booking> Bookings { get; set; } = new List<Booking>();

@@ -310,6 +310,8 @@ public class CustomerService
         customer.EmailVerificationToken = null;
         customer.EmailVerificationTokenExpiry = null;
         customer.IsEmailVerified = false;
+        customer.PassToken = null;      // personal Studio-Pass link stops working
+        customer.ReferralCode = null;   // shared referral link stops working
         customer.UpdatedAt = DateTime.UtcNow;
 
         foreach (var booking in customer.Bookings)

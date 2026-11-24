@@ -14,7 +14,7 @@ namespace Gentle.Book.API.Tests;
 public class BookingCompletionLastVisitTests
 {
     private static BookingCompletionService Build(GentleBook.Api.Data.GentleBookDbContext db) =>
-        new(db, new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), NullLogger<BookingCompletionService>.Instance);
+        new(db, new LoyaltyService(db, NullLogger<LoyaltyService>.Instance), TestServiceFactory.CreateVoucherService(db), NullLogger<BookingCompletionService>.Instance);
 
     private static (Tenant tenant, Customer customer, Booking booking) SeedOverdueConfirmedBooking(
         GentleBook.Api.Data.GentleBookDbContext db, DateTime? existingLastVisit = null)

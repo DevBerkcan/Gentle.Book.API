@@ -102,9 +102,11 @@ public class EmailService
             var cancellationToken = GenerateCancellationToken(bookingId);
             var frontendBase = string.IsNullOrEmpty(_emailOptions.FrontendUrl) ? _emailOptions.BaseUrl : _emailOptions.FrontendUrl;
             var cancellationUrl = $"{frontendBase}/booking/cancel/{cancellationToken}";
+            // Personal Studio-Pass (created lazily here; saved together with the EmailLog below).
+            var passUrl = $"{frontendBase}/pass/{await StudioPassRules.EnsurePassTokenPersistedAsync(_context, booking.CustomerId)}";
 
-            builder.HtmlBody = GetConfirmationEmailHtml(booking, cancellationUrl, tenantName1, tenantLogo1, currency1, primaryColor1);
-            builder.TextBody = GetConfirmationEmailText(booking, cancellationUrl, tenantName1, currency1);
+            builder.HtmlBody = GetConfirmationEmailHtml(booking, cancellationUrl, tenantName1, tenantLogo1, currency1, primaryColor1, passUrl);
+            builder.TextBody = GetConfirmationEmailText(booking, cancellationUrl, tenantName1, currency1, passUrl);
 
             message.Body = builder.ToMessageBody();
 
@@ -1722,7 +1724,7 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 </html>";
     }
 
-    private string GetConfirmationEmailHtml(Booking booking, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null, string currency = "EUR", string primaryColor = "#6355E4")
+    private string GetConfirmationEmailHtml(Booking booking, string cancellationUrl, string tenantName = "GentleBook", string? tenantLogoUrl = null, string currency = "EUR", string primaryColor = "#6355E4", string? passUrl = null)
     {
         var content = $@"
             <div class='greeting'>
@@ -1769,6 +1771,12 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
                     <span class='detail-value'><span class='price'>{Math.Max(0, booking.Service.Price - voucherDiscountHtml):0.00} {currency}</span></span>
                 </div>" : "")}
             </div>
+
+            {(passUrl != null ? $@"
+            <div style='text-align: center; margin: 0 0 28px 0;'>
+                <a href='{passUrl}' style='display: inline-block; background: #ffffff; color: {primaryColor}; border: 2px solid {primaryColor}; text-decoration: none; padding: 12px 28px; border-radius: 40px; font-weight: 600; font-size: 15px;'>Ihr persönlicher Studio-Pass</a>
+                <p style='color: var(--text-secondary); font-size: 12px; margin-top: 10px;'>Termine, Nachbuchen und Ihre Boni – jederzeit an einem Ort.</p>
+            </div>" : "")}
 
             <div class='cancel-section'>
                 <div class='cancel-title'>Termin stornieren?</div>
@@ -1967,9 +1975,9 @@ Eingegangen: {DateTime.Now:dd.MM.yyyy HH:mm}";
 
     #region Plain Text Versions
 
-    private string GetConfirmationEmailText(Booking booking, string cancellationUrl, string tenantName = "Buchungssystem", string currency = "EUR")
+    private string GetConfirmationEmailText(Booking booking, string cancellationUrl, string tenantName = "Buchungssystem", string currency = "EUR", string? passUrl = null)
     {
-        return $@"
+        return (passUrl != null ? $"IHR PERSÖNLICHER STUDIO-PASS: {passUrl}\n" : "") + $@"
 {tenantName.ToUpperInvariant()} - IHRE BUCHUNGSBESTÄTIGUNG
 
 ------------------------------------------------
@@ -2094,6 +2102,9 @@ STORNIERUNG:
     }
 
     private string GenerateCancellationToken(Guid bookingId) => GenerateActionToken(bookingId, "cancel");
+
+    /// <summary>Same signed token as the e-mail cancellation links — used by the Studio-Pass for "Termin verwalten".</summary>
+    public string CreateCancellationToken(Guid bookingId) => GenerateCancellationToken(bookingId);
 
     private string GenerateActionToken(Guid bookingId, string action)
     {

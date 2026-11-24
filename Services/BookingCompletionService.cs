@@ -16,12 +16,14 @@ public class BookingCompletionService
 {
     private readonly GentleBookDbContext _context;
     private readonly LoyaltyService _loyaltyService;
+    private readonly VoucherService _voucherService;
     private readonly ILogger<BookingCompletionService> _logger;
 
     private static readonly TimeSpan GracePeriod = TimeSpan.FromHours(1);
 
-    public BookingCompletionService(GentleBookDbContext context, LoyaltyService loyaltyService, ILogger<BookingCompletionService> logger)
+    public BookingCompletionService(GentleBookDbContext context, LoyaltyService loyaltyService, VoucherService voucherService, ILogger<BookingCompletionService> logger)
     {
+        _voucherService = voucherService;
         _context = context;
         _loyaltyService = loyaltyService;
         _logger = logger;
@@ -90,7 +92,11 @@ public class BookingCompletionService
         await _context.SaveChangesAsync();
 
         foreach (var booking in completed)
+        {
             await _loyaltyService.AwardPointsForBookingAsync(booking.Id);
+            await _voucherService.MaybeIssueVisitRewardForCompletedBookingAsync(booking.Id);
+            await StudioPassRules.QualifyReferralOnCompletionAsync(_context, booking);
+        }
 
         _logger.LogInformation("Auto-complete: {Count} booking(s) marked Completed across {TenantCount} Agency tenant(s).", completed.Count, tenants.Count);
     }
