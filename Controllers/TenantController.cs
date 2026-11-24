@@ -147,6 +147,43 @@ public class TenantController : ControllerBase
         return Ok(new { slug });
     }
 
+    // ── GET /api/tenant/price-calculator ────────────────────────────
+    // Read-only for the studio: the URL is set exclusively by a SuperAdmin
+    // (SuperAdminController.SetTenantPriceCalculator) — there is intentionally no tenant-side
+    // PUT/DELETE. Professional + Agency only (PriceCalculatorGate); on any other plan the stored
+    // URL is never returned, so a downgraded studio can't reach it via the API either.
+    [HttpGet("price-calculator")]
+    public async Task<IActionResult> GetPriceCalculator()
+    {
+        var role = JwtService.GetRole(User);
+        if (role is not ("TenantAdmin" or "LocationAdmin")) return Forbid();
+        if (_tenantContext.TenantId is not { } tenantId) return Unauthorized(new { message = "Kein Tenant im Token" });
+
+        var plan = await _db.Subscriptions
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => (SubscriptionPlan?)s.Plan)
+            .FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
+
+        if (!PriceCalculatorGate.IsAllowed(plan))
+        {
+            return StatusCode(402, new
+            {
+                message = "Der Preisrechner ist in den Tarifen Pro und Agency enthalten.",
+                feature = "price_calculator",
+                upgrade = true,
+                currentPlan = PlanLimits.Get(plan).DisplayName,
+                requiredPlan = PlanLimits.Get(SubscriptionPlan.Professional).DisplayName,
+            });
+        }
+
+        var url = await _db.TenantSettings.AsNoTracking()
+            .Where(s => s.TenantId == tenantId)
+            .Select(s => s.PriceCalculatorUrl)
+            .FirstOrDefaultAsync();
+
+        return Ok(new { url });
+    }
+
     // ── GET /api/tenant/domain ──────────────────────────────────────
     [HttpGet("domain")]
     public async Task<IActionResult> GetDomain()

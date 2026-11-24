@@ -455,6 +455,7 @@ public class SuperAdminController : ControllerBase
             await _db.WaitlistEntries.IgnoreQueryFilters().Where(w => w.TenantId == id).ExecuteDeleteAsync();
             await _db.EmployeeNotes.IgnoreQueryFilters().Where(n => n.TenantId == id).ExecuteDeleteAsync();
             await _db.Bookings.IgnoreQueryFilters().Where(b => b.TenantId == id).ExecuteDeleteAsync();
+            await _db.TreatmentPackages.IgnoreQueryFilters().Where(p => p.TenantId == id).ExecuteDeleteAsync();
 
             await _db.BlockedTimeSlots.IgnoreQueryFilters().Where(b => b.TenantId == id).ExecuteDeleteAsync();
             await _db.EmployeeVacations.IgnoreQueryFilters().Where(v => v.TenantId == id).ExecuteDeleteAsync();
@@ -733,6 +734,61 @@ public class SuperAdminController : ControllerBase
             $"{settings.CustomDomain} → {dto.Status}", id);
 
         return Ok(new { domain = settings.CustomDomain, status = settings.CustomDomainStatus });
+    }
+
+    // ── Preisrechner-Link (Professional + Agency) ───────────────────
+    // Only a SuperAdmin sets/changes/removes the URL; the studio itself can only read it (see
+    // TenantController.GetPriceCalculator). Storing is allowed on any plan so the link can be
+    // prepared before an upgrade — `availableForPlan` tells the UI whether the studio sees it.
+    [HttpGet("tenants/{id:guid}/price-calculator")]
+    public async Task<IActionResult> GetTenantPriceCalculator(Guid id)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var settings = await _db.TenantSettings.AsNoTracking().FirstOrDefaultAsync(s => s.TenantId == id);
+        if (settings == null) return NotFound(new { message = "Tenant-Einstellungen nicht gefunden" });
+
+        var plan = await _db.Subscriptions.Where(s => s.TenantId == id)
+            .Select(s => (SubscriptionPlan?)s.Plan).FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
+
+        return Ok(new
+        {
+            url = settings.PriceCalculatorUrl,
+            plan = plan.ToString(),
+            availableForPlan = PriceCalculatorGate.IsAllowed(plan),
+        });
+    }
+
+    [HttpPut("tenants/{id:guid}/price-calculator")]
+    public async Task<IActionResult> SetTenantPriceCalculator(Guid id, [FromBody] SetPriceCalculatorUrlDto dto)
+    {
+        if (ForbidIfNotSuperAdmin() is { } err) return err;
+
+        var (url, error) = PriceCalculatorGate.Normalize(dto.Url);
+        if (error != null) return BadRequest(new { message = error });
+
+        var settings = await _db.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == id);
+        if (settings == null) return NotFound(new { message = "Tenant-Einstellungen nicht gefunden" });
+
+        var previous = settings.PriceCalculatorUrl;
+        settings.PriceCalculatorUrl = url;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+
+        await _audit.LogAsync(
+            url == null ? "price_calculator.removed" : "price_calculator.updated",
+            "TenantSettings", settings.Id.ToString(),
+            $"{previous ?? "—"} → {url ?? "—"}", id);
+
+        var plan = await _db.Subscriptions.Where(s => s.TenantId == id)
+            .Select(s => (SubscriptionPlan?)s.Plan).FirstOrDefaultAsync() ?? SubscriptionPlan.Trial;
+
+        return Ok(new
+        {
+            url = settings.PriceCalculatorUrl,
+            plan = plan.ToString(),
+            availableForPlan = PriceCalculatorGate.IsAllowed(plan),
+        });
     }
 
     /// <summary>Upgrade or change a tenant's subscription plan.</summary>
@@ -2504,6 +2560,7 @@ public record UpdateTenantSettingsDto(
 public record CreateTenantUserDto(string Email, string? Password, string FirstName, string LastName, bool? SendWelcomeEmail = true);
 public record ExtendTrialDto(int Days);
 public record SetDomainStatusDto(string Status);
+public record SetPriceCalculatorUrlDto(string? Url);
 public record ActivateRequestDto(string? Note, bool ConfirmOverrideMollie = false, decimal? NegotiatedMonthlyPrice = null, decimal? NegotiatedAnnualPrice = null);
 public record AgencyOfferDto(decimal MonthlyPrice, decimal AnnualPrice, int? ValidForDays = 14, string? Note = null);
 public record ChangePlanDto(string Plan, string? Interval = null, decimal? NegotiatedMonthlyPrice = null, decimal? NegotiatedAnnualPrice = null);

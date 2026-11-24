@@ -121,6 +121,37 @@ public class PublicBookingController : ControllerBase
         return Ok(services);
     }
 
+    // ── Personal package booking link ─────────────────────────
+
+    /// <summary>
+    /// Checks a personal package link before the customer picks a slot. Returns ONLY whether it
+    /// is usable and for which service — never the customer's name, notes or package balance
+    /// (the link may be forwarded/leaked). The binding check is repeated server-side when the
+    /// booking is actually created (BookingService.CreateBookingAsync).
+    /// </summary>
+    [HttpGet("package-link/{token}")]
+    public async Task<IActionResult> CheckPackageLink(string slug, string token)
+    {
+        var (tenantId, found) = await ResolveTenant(slug);
+        if (!found || string.IsNullOrWhiteSpace(token) || token.Length > 64) return NotFound(new { valid = false });
+
+        var package = await _db.TreatmentPackages.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.BookingToken == token && p.TenantId == tenantId);
+        if (package == null || !await GentleBook.Api.Services.TreatmentPackageRules.IsEnabledForTenantAsync(_db, tenantId))
+            return NotFound(new { valid = false });
+
+        var service = await _db.Services.AsNoTracking()
+            .Where(s => s.Id == package.ServiceId && s.TenantId == tenantId && s.IsActive)
+            .Select(s => new { s.Id, s.Name })
+            .FirstOrDefaultAsync();
+        if (service == null) return NotFound(new { valid = false });
+
+        var error = await GentleBook.Api.Services.TreatmentPackageRules.ValidateAssignmentAsync(
+            _db, package, package.CustomerId, package.ServiceId, excludeBookingId: null);
+
+        return Ok(new { valid = error == null, serviceId = service.Id, serviceName = service.Name });
+    }
+
     // ── Employees ─────────────────────────────────────────────
 
     /// <summary>Returns active employees (for employee selection in booking form).</summary>

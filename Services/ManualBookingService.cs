@@ -101,8 +101,26 @@ public class ManualBookingService
                 .FirstOrDefaultAsync(e => e.Id == dto.EmployeeId.Value && e.IsActive);
         }
 
-        // Find or create customer (with employee assignment)
-        var customer = await FindOrCreateCustomer(dto, dto.EmployeeId);
+        // Find or create customer (with employee assignment). Booking a package session always
+        // books for the package's own customer — the package (tenant-filtered) is the authority,
+        // not the typed name/email.
+        TreatmentPackage? package = null;
+        Customer customer;
+        if (dto.TreatmentPackageId is { } packageId)
+        {
+            if (!await TreatmentPackageRules.IsEnabledForTenantAsync(_context, tenantId))
+                throw new InvalidOperationException("Behandlungspakete sind in Ihrem Tarif nicht enthalten.");
+            package = await _context.TreatmentPackages.FirstOrDefaultAsync(p => p.Id == packageId && p.TenantId == tenantId)
+                ?? throw new ArgumentException("Behandlungspaket nicht gefunden");
+            var packageError = await TreatmentPackageRules.ValidateAssignmentAsync(
+                _context, package, package.CustomerId, service.Id, excludeBookingId: null);
+            if (packageError != null) throw new InvalidOperationException(packageError);
+            customer = await _context.Customers.FirstAsync(c => c.Id == package.CustomerId);
+        }
+        else
+        {
+            customer = await FindOrCreateCustomer(dto, dto.EmployeeId);
+        }
 
         // Create booking
         var booking = new Booking
@@ -117,6 +135,7 @@ public class ManualBookingService
             EndTime = endTime,
             Status = BookingStatus.Confirmed, // Auto-confirm for manual bookings
             CustomerNotes = dto.CustomerNotes,
+            TreatmentPackageId = package?.Id,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };

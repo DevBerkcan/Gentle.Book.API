@@ -531,6 +531,9 @@ namespace GentleBook.Api.Migrations
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<Guid?>("TreatmentPackageId")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
 
@@ -550,6 +553,8 @@ namespace GentleBook.Api.Migrations
                     b.HasIndex("LocationId");
 
                     b.HasIndex("ServiceId");
+
+                    b.HasIndex("TreatmentPackageId");
 
                     b.HasIndex("TenantId", "BookingDate");
 
@@ -2819,6 +2824,9 @@ namespace GentleBook.Api.Migrations
                     b.Property<string>("Phone")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("PriceCalculatorUrl")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("PrimaryColor")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -2872,6 +2880,67 @@ namespace GentleBook.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("TenantSettings");
+                });
+
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.TreatmentPackage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("BookingToken")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<int>("PreviouslyUsedSessions")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("ServiceId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("TotalSessions")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BookingToken")
+                        .IsUnique();
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("ServiceId");
+
+                    b.HasIndex("TenantId", "CustomerId");
+
+                    b.HasIndex("TenantId", "Status");
+
+                    b.ToTable("TreatmentPackages");
                 });
 
             modelBuilder.Entity("GentleBook.Api.Data.Entities.TrialAccessInvitation", b =>
@@ -3199,6 +3268,11 @@ namespace GentleBook.Api.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("GentleBook.Api.Data.Entities.TreatmentPackage", "TreatmentPackage")
+                        .WithMany("Bookings")
+                        .HasForeignKey("TreatmentPackageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Customer");
 
                     b.Navigation("Employee");
@@ -3208,6 +3282,8 @@ namespace GentleBook.Api.Migrations
                     b.Navigation("Service");
 
                     b.Navigation("Tenant");
+
+                    b.Navigation("TreatmentPackage");
                 });
 
             modelBuilder.Entity("GentleBook.Api.Data.Entities.BusinessHours", b =>
@@ -3696,6 +3772,33 @@ namespace GentleBook.Api.Migrations
                     b.Navigation("Tenant");
                 });
 
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.TreatmentPackage", b =>
+                {
+                    b.HasOne("GentleBook.Api.Data.Entities.Customer", "Customer")
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GentleBook.Api.Data.Entities.Service", "Service")
+                        .WithMany()
+                        .HasForeignKey("ServiceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GentleBook.Api.Data.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Customer");
+
+                    b.Navigation("Service");
+
+                    b.Navigation("Tenant");
+                });
+
             modelBuilder.Entity("GentleBook.Api.Data.Entities.TrialAccessInvitation", b =>
                 {
                     b.HasOne("GentleBook.Api.Data.Entities.Tenant", "Tenant")
@@ -3846,6 +3949,11 @@ namespace GentleBook.Api.Migrations
                     b.Navigation("Subscription");
 
                     b.Navigation("Users");
+                });
+
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.TreatmentPackage", b =>
+                {
+                    b.Navigation("Bookings");
                 });
 #pragma warning restore 612, 618
         }

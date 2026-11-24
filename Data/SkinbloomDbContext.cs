@@ -81,6 +81,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<IntakeFormAnswer> IntakeFormAnswers { get; set; }
     public DbSet<Voucher> Vouchers { get; set; }
     public DbSet<LinkPageDesignVersion> LinkPageDesignVersions { get; set; }
+    public DbSet<TreatmentPackage> TreatmentPackages { get; set; }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -133,6 +134,7 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<IntakeFormAnswer>().HasQueryFilter(a => CurrentTenantId == null || a.TenantId == CurrentTenantId);
         modelBuilder.Entity<Voucher>().HasQueryFilter(v => CurrentTenantId == null || v.TenantId == CurrentTenantId);
         modelBuilder.Entity<LinkPageDesignVersion>().HasQueryFilter(v => CurrentTenantId == null || v.TenantId == CurrentTenantId);
+        modelBuilder.Entity<TreatmentPackage>().HasQueryFilter(p => CurrentTenantId == null || p.TenantId == CurrentTenantId);
 
         modelBuilder.Entity<BrandImportJob>(entity =>
         {
@@ -609,6 +611,28 @@ public class GentleBookDbContext : DbContext
             entity.HasIndex(e => new { e.TenantId, e.BookingDate });
             entity.HasIndex(e => new { e.TenantId, e.Status });
             entity.HasIndex(e => new { e.TenantId, e.LocationId });
+            // Restrict: packages are never hard-deleted in normal operation (only Cancelled), and
+            // Tenant already cascades to both tables — a second cascade path would be rejected by SQL Server.
+            entity.HasOne(e => e.TreatmentPackage)
+                  .WithMany(p => p.Bookings)
+                  .HasForeignKey(e => e.TreatmentPackageId)
+                  .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => e.TreatmentPackageId);
+        });
+
+        // ── TreatmentPackage (Behandlungspakete) ──────────────
+        modelBuilder.Entity<TreatmentPackage>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.BookingToken).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20);
+            entity.HasIndex(e => e.BookingToken).IsUnique();
+            entity.HasIndex(e => new { e.TenantId, e.Status });
+            entity.HasIndex(e => new { e.TenantId, e.CustomerId });
+            entity.HasOne(e => e.Tenant).WithMany().HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Customer).WithMany().HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.Service).WithMany().HasForeignKey(e => e.ServiceId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── BusinessHours ─────────────────────────────────────

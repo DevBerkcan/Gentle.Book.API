@@ -411,6 +411,7 @@ public class SubscriptionService
             db.WaitlistEntries.RemoveRange(await db.WaitlistEntries.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
             db.EmployeeNotes.RemoveRange(await db.EmployeeNotes.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
             db.Bookings.RemoveRange(await db.Bookings.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
+            db.TreatmentPackages.RemoveRange(await db.TreatmentPackages.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
             db.BlockedTimeSlots.RemoveRange(await db.BlockedTimeSlots.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
             db.EmployeeVacations.RemoveRange(await db.EmployeeVacations.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());
             db.EmployeeSchedules.RemoveRange(await db.EmployeeSchedules.IgnoreQueryFilters().Where(x => x.TenantId == tenantId).ToListAsync());

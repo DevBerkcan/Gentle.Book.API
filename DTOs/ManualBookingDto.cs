@@ -11,7 +11,10 @@ public record CreateManualBookingDto(
     string? Phone,
     string? CustomerNotes,
     Guid? EmployeeId,
-    string? VoucherCode
+    string? VoucherCode,
+    // Optional: book this appointment as a session of a treatment package. When set, the
+    // booking is made for the package's own customer (not matched by name/email).
+    Guid? TreatmentPackageId = null
 );
 
 public record ManualBookingResponseDto(
