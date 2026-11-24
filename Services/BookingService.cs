@@ -209,9 +209,12 @@ public class BookingService
             customer.LastVisit = DateTime.SpecifyKind(bookingDateTime, DateTimeKind.Utc);
         customer.UpdatedAt = DateTime.UtcNow;
 
-        // Same trigger point as the manual/staff booking flow (ManualBookingService) — a
-        // customer is rewarded regardless of whether they booked themselves or staff did.
-        await _voucherService.MaybeIssueAutoRewardAsync(tenantId, customer);
+        // Stempelpass rewards are issued on COMPLETION now (VoucherService.
+        // MaybeIssueVisitRewardForCompletedBookingAsync), not here at booking time.
+
+        // "Freunde machen Freude": first booking of a new customer via ?ref=CODE. Never throws.
+        if (package == null)
+            await StudioPassRules.TryRecordReferralAsync(_context, tenantId, dto.ReferralCode, customer, booking);
 
         await _context.SaveChangesAsync();
         await tx.CommitAsync();

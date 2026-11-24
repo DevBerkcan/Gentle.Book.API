@@ -470,7 +470,11 @@ public class AdminService
         // customer earns points whether staff completed the booking by hand or it auto-completed.
         // No-ops for non-Agency tenants / disabled feature (see LoyaltyService).
         if (newStatus == BookingStatus.Completed && oldStatus != BookingStatus.Completed)
+        {
             await _loyaltyService.AwardPointsForBookingAsync(booking.Id);
+            await _voucherService.MaybeIssueVisitRewardForCompletedBookingAsync(booking.Id);
+            await StudioPassRules.QualifyReferralOnCompletionAsync(_context, booking);
+        }
 
         _logger.LogInformation(
             "Booking {BookingId} status updated from {OldStatus} to {NewStatus} by admin",

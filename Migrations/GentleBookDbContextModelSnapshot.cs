@@ -969,9 +969,17 @@ namespace GentleBook.Api.Migrations
                     b.Property<string>("Notes")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("PassToken")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<string>("Phone")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("ReferralCode")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
@@ -985,6 +993,14 @@ namespace GentleBook.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("EmployeeId");
+
+                    b.HasIndex("PassToken")
+                        .IsUnique()
+                        .HasFilter("[PassToken] IS NOT NULL");
+
+                    b.HasIndex("ReferralCode")
+                        .IsUnique()
+                        .HasFilter("[ReferralCode] IS NOT NULL");
 
                     b.HasIndex("TenantId", "Email")
                         .HasFilter("[Email] IS NOT NULL AND [Email] <> ''");
@@ -1885,6 +1901,60 @@ namespace GentleBook.Api.Migrations
                         .HasFilter("[TenantId] IS NOT NULL");
 
                     b.ToTable("PlatformUsers");
+                });
+
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.Referral", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("FirstBookingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("QualifiedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid?>("QualifyingBookingId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ReferredCustomerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ReferredRewardRedeemedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("ReferrerCustomerId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("ReferrerRewardRedeemedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("RewardText")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReferredCustomerId")
+                        .IsUnique();
+
+                    b.HasIndex("ReferrerCustomerId");
+
+                    b.HasIndex("TenantId", "Status");
+
+                    b.ToTable("Referrals");
                 });
 
             modelBuilder.Entity("GentleBook.Api.Data.Entities.Review", b =>
@@ -2835,6 +2905,12 @@ namespace GentleBook.Api.Migrations
                     b.Property<string>("PrivacyUrl")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<bool>("ReferralEnabled")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ReferralRewardText")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("SecondaryColor")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -3591,6 +3667,33 @@ namespace GentleBook.Api.Migrations
                         .OnDelete(DeleteBehavior.Cascade);
 
                     b.Navigation("Location");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("GentleBook.Api.Data.Entities.Referral", b =>
+                {
+                    b.HasOne("GentleBook.Api.Data.Entities.Customer", "ReferredCustomer")
+                        .WithMany()
+                        .HasForeignKey("ReferredCustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GentleBook.Api.Data.Entities.Customer", "ReferrerCustomer")
+                        .WithMany()
+                        .HasForeignKey("ReferrerCustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GentleBook.Api.Data.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ReferredCustomer");
+
+                    b.Navigation("ReferrerCustomer");
 
                     b.Navigation("Tenant");
                 });

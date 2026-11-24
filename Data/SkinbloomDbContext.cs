@@ -82,6 +82,7 @@ public class GentleBookDbContext : DbContext
     public DbSet<Voucher> Vouchers { get; set; }
     public DbSet<LinkPageDesignVersion> LinkPageDesignVersions { get; set; }
     public DbSet<TreatmentPackage> TreatmentPackages { get; set; }
+    public DbSet<Referral> Referrals { get; set; }
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
@@ -135,6 +136,7 @@ public class GentleBookDbContext : DbContext
         modelBuilder.Entity<Voucher>().HasQueryFilter(v => CurrentTenantId == null || v.TenantId == CurrentTenantId);
         modelBuilder.Entity<LinkPageDesignVersion>().HasQueryFilter(v => CurrentTenantId == null || v.TenantId == CurrentTenantId);
         modelBuilder.Entity<TreatmentPackage>().HasQueryFilter(p => CurrentTenantId == null || p.TenantId == CurrentTenantId);
+        modelBuilder.Entity<Referral>().HasQueryFilter(r => CurrentTenantId == null || r.TenantId == CurrentTenantId);
 
         modelBuilder.Entity<BrandImportJob>(entity =>
         {
@@ -633,6 +635,31 @@ public class GentleBookDbContext : DbContext
             entity.HasOne(e => e.Tenant).WithMany().HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne(e => e.Customer).WithMany().HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(e => e.Service).WithMany().HasForeignKey(e => e.ServiceId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ── Studio-Pass + Freunde machen Freude ───────────────
+        modelBuilder.Entity<Customer>(entity =>
+        {
+            entity.Property(e => e.PassToken).HasMaxLength(64);
+            entity.Property(e => e.ReferralCode).HasMaxLength(16);
+            // Nullable + unique → SQL Server gets a filtered index (WHERE ... IS NOT NULL), so the
+            // many existing customers without a token/code don't collide.
+            entity.HasIndex(e => e.PassToken).IsUnique();
+            entity.HasIndex(e => e.ReferralCode).IsUnique();
+        });
+
+        modelBuilder.Entity<Referral>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.RewardText).HasMaxLength(300);
+            // One referrer per new customer, ever.
+            entity.HasIndex(e => e.ReferredCustomerId).IsUnique();
+            entity.HasIndex(e => new { e.TenantId, e.Status });
+            entity.HasIndex(e => e.ReferrerCustomerId);
+            entity.HasOne(e => e.Tenant).WithMany().HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.ReferrerCustomer).WithMany().HasForeignKey(e => e.ReferrerCustomerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.ReferredCustomer).WithMany().HasForeignKey(e => e.ReferredCustomerId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // ── BusinessHours ─────────────────────────────────────

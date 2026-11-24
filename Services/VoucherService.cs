@@ -27,11 +27,42 @@ public class VoucherService
     /// place for the "every Nth visit" reward rule so both stay consistent. No-ops silently if
     /// the feature is off, the tenant isn't Agency, or the threshold wasn't just crossed.
     /// </summary>
-    public async Task MaybeIssueAutoRewardAsync(Guid tenantId, Customer customer)
+    /// <summary>Completed visits of a customer — the basis of the digital stamp card (Stempelpass).</summary>
+    public static Task<int> CountCompletedVisitsAsync(GentleBook.Api.Data.GentleBookDbContext db, Guid customerId) =>
+        db.Bookings.IgnoreQueryFilters().CountAsync(b => b.CustomerId == customerId && b.Status == BookingStatus.Completed);
+
+    public static string VisitRewardNote(int everyN, int visit) =>
+        $"Automatisch: Stammkunden-Belohnung nach {everyN} Besuchen (Besuch {visit})";
+
+    /// <summary>
+    /// Stempelpass: issues the studio's "every N visits" reward when a booking is COMPLETED and the
+    /// customer's completed-visit count hits a multiple of N. Previously this counted bookings at
+    /// creation time (Customer.TotalBookings), so booked-then-cancelled appointments earned stamps.
+    /// Idempotent per milestone (voucher note carries the visit number), so a re-saved or
+    /// auto-completed booking never issues the same reward twice.
+    /// </summary>
+    public async Task MaybeIssueVisitRewardForCompletedBookingAsync(Guid bookingId)
     {
-        var settings = await _context.TenantSettings.FirstOrDefaultAsync(s => s.TenantId == tenantId);
+        var booking = await _context.Bookings.IgnoreQueryFilters().FirstOrDefaultAsync(b => b.Id == bookingId);
+        if (booking == null || booking.Status != BookingStatus.Completed) return;
+        var tenantId = booking.TenantId;
+
+        var settings = await _context.TenantSettings.IgnoreQueryFilters().FirstOrDefaultAsync(s => s.TenantId == tenantId);
         if (settings == null || settings.LoyaltyRewardEveryNVisits <= 0) return;
-        if (customer.TotalBookings % settings.LoyaltyRewardEveryNVisits != 0) return;
+
+        var visits = await CountCompletedVisitsAsync(_context, booking.CustomerId);
+        if (visits == 0 || visits % settings.LoyaltyRewardEveryNVisits != 0) return;
+
+        var note = VisitRewardNote(settings.LoyaltyRewardEveryNVisits, visits);
+        if (await _context.Vouchers.IgnoreQueryFilters().AnyAsync(v => v.CustomerId == booking.CustomerId && v.Note == note)) return;
+
+        var customer = await _context.Customers.IgnoreQueryFilters().FirstOrDefaultAsync(c => c.Id == booking.CustomerId);
+        if (customer == null) return;
+        await IssueVisitRewardAsync(tenantId, customer, settings, note, visits);
+    }
+
+    private async Task IssueVisitRewardAsync(Guid tenantId, Customer customer, TenantSettings settings, string note, int visits)
+    {
 
         var plan = await _context.Subscriptions
             .Where(s => s.TenantId == tenantId)
@@ -50,7 +81,7 @@ public class VoucherService
                     ? (int)Math.Round(settings.LoyaltyRewardValue.Value) : null,
                 percentageValue: type == VoucherType.PercentageDiscount ? settings.LoyaltyRewardValue : null,
                 expiresAt: null,
-                note: $"Automatisch: Stammkunden-Belohnung nach {settings.LoyaltyRewardEveryNVisits} Besuchen",
+                note: note,
                 issuedByPlatformUserId: Guid.Empty);
 
             if (!string.IsNullOrWhiteSpace(customer.Email))
@@ -62,7 +93,7 @@ public class VoucherService
             }
 
             _logger.LogInformation("Auto-issued loyalty reward voucher {Code} to customer {CustomerId} after {Visits} visits",
-                voucher.Code, customer.Id, customer.TotalBookings);
+                voucher.Code, customer.Id, visits);
         }
         catch (ArgumentException ex)
         {
