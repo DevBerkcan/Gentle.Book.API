@@ -1,5 +1,29 @@
 # GentleBook API — Deployment auf MonsterASP
 
+## Automatisches Deployment (GitHub Actions)
+
+Jeder Push auf `main` deployt die API automatisch über `.github/workflows/deploy-api.yml`:
+Tests → `dotnet publish -r win-x86` (ohne `appsettings*.json`/`web.config`) → Backup der
+laufenden Version als Artefakt → `app_offline.htm` → Upload per **SFTP** (Host-Key fest
+hinterlegt) → `app_offline.htm` entfernen → Prüfung (`/health` = 200, geschützte Endpunkte = 401).
+EF-Migrationen laufen beim App-Start.
+
+Einmalig einrichten (Repo → Settings → Secrets and variables → Actions):
+
+| Secret | Wert |
+|---|---|
+| `MONSTERASP_SFTP_USER` | `site62449` |
+| `MONSTERASP_SFTP_PASSWORD` | FTP/SFTP-Passwort aus dem MonsterASP-Panel |
+
+Erster Test: Actions → „Deploy API (MonsterASP)“ → „Run workflow“ mit `dry_run` = an
+(baut, verbindet und sichert, ändert aber nichts am Server). Danach deployt jeder Merge auf `main`.
+
+Rollback: Artefakt `api-backup-<sha>` des betreffenden Laufs herunterladen und dessen Inhalt
+(nach `app_offline.htm`) nach `wwwroot` hochladen. Die Migrationen sind additiv — die ältere
+Version läuft mit dem neueren Schema weiter.
+
+Die manuelle Variante unten bleibt als Notfallweg gültig.
+
 ## Umgebungen
 
 Production und Staging müssen als zwei getrennte Anwendungen mit getrennten

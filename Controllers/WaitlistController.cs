@@ -146,6 +146,54 @@ public class WaitlistController : ControllerBase
         return null;
     }
 
+    /// <summary>
+    /// "Abgesagte Termine nachbesetzen": how many freed slots the waitlist actually refilled.
+    /// Offered = a waitlisted customer was notified about a freed slot; Refilled = she booked that
+    /// reserved slot (WaitlistStatus.Booked) and the resulting booking wasn't cancelled again.
+    /// Revenue uses the service price (what the studio would otherwise have lost).
+    /// </summary>
+    [HttpGet("stats")]
+    public async Task<IActionResult> GetStats()
+    {
+        var check = RequireAdmin();
+        if (check != null) return check;
+        var tenantId = _tenantContext.TenantId!.Value;
+        var since = DateTime.UtcNow.AddDays(-30);
+
+        var entries = await _db.WaitlistEntries
+            .Where(w => w.TenantId == tenantId && w.NotifiedAt != null)
+            .Select(w => new { w.NotifiedAt, w.Status, w.BookingId, w.BookedAt })
+            .ToListAsync();
+
+        var bookingIds = entries.Where(e => e.Status == WaitlistStatus.Booked && e.BookingId != null).Select(e => e.BookingId!.Value).ToList();
+        var refilledBookings = await _db.Bookings
+            .Where(b => bookingIds.Contains(b.Id) && b.Status != BookingStatus.Cancelled)
+            .Select(b => new { b.Id, b.Service.Price, b.Service.Currency })
+            .ToListAsync();
+        var refilledIds = refilledBookings.Select(b => b.Id).ToHashSet();
+
+        object Window(DateTime? from)
+        {
+            var offered = entries.Where(e => from == null || e.NotifiedAt >= from).ToList();
+            var refilled = offered.Where(e => e.BookingId != null && refilledIds.Contains(e.BookingId.Value)).ToList();
+            return new
+            {
+                offered = offered.Count,
+                refilled = refilled.Count,
+                expired = offered.Count(e => e.Status == WaitlistStatus.Expired),
+                refilledRevenue = refilledBookings.Where(b => refilled.Any(r => r.BookingId == b.Id)).Sum(b => b.Price),
+            };
+        }
+
+        return Ok(new
+        {
+            last30Days = Window(since),
+            total = Window(null),
+            currency = refilledBookings.Select(b => b.Currency).FirstOrDefault() ?? "EUR",
+            waitingNow = await _db.WaitlistEntries.CountAsync(w => w.TenantId == tenantId && w.Status == WaitlistStatus.Pending),
+        });
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] WaitlistStatus? status, [FromQuery] string? date)
     {
