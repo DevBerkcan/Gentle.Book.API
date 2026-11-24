@@ -124,7 +124,22 @@ jobs:
           path: backup
           retention-days: 14
 
+      # Write-path self-test BEFORE the site goes offline: upload a nested test folder with
+      # exactly the mirror options used for the real upload, then delete it. Catches server
+      # restrictions (2026-11-24: SFTPGo denies chmod → mirror aborted with the site in
+      # maintenance mode) while the app is still serving. Runs in dry-run mode too.
+      - name: Upload self-test (site stays online)
+        if: steps.secrets.outputs.configured == 'true'
+        env:
+          LFTP_PASSWORD: ${{ secrets.MONSTERASP_SFTP_PASSWORD }}
+          SFTP_USER: ${{ secrets.MONSTERASP_SFTP_USER }}
+        run: |
+          mkdir -p selftest/sub && echo ok > selftest/a.txt && echo ok > selftest/sub/b.txt
+          lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "mirror --reverse --no-perms --verbose=1 selftest wwwroot/_deploy_selftest; rm -r wwwroot/_deploy_selftest; bye"
+          echo "Upload-Selbsttest ok"
+
       - name: Deploy (app_offline → upload → online)
+        id: deploy
         if: ${{ steps.secrets.outputs.configured == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         env:
           LFTP_PASSWORD: ${{ secrets.MONSTERASP_SFTP_PASSWORD }}
@@ -133,10 +148,12 @@ jobs:
           printf '%s' '<html><body style="font-family:sans-serif;text-align:center;padding:40px">GentleBook wird aktualisiert – in einer Minute wieder da.</body></html>' > app_offline.htm
           lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "put app_offline.htm -o wwwroot/app_offline.htm; bye"
           sleep 5   # let IIS unload the app so GentleBook.Api.dll is no longer locked
-          lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "mirror --reverse --verbose=1 --parallel=4 publish wwwroot; bye"
+          # --no-perms: MonsterASP's SFTPGo forbids chmod; without it mirror aborts after uploading.
+          lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "mirror --reverse --no-perms --verbose=1 --parallel=4 publish wwwroot; bye"
           lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "rm wwwroot/app_offline.htm; bye"
 
       - name: Verify
+        id: verify
         if: ${{ steps.secrets.outputs.configured == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         run: |
           for i in $(seq 1 24); do
@@ -146,15 +163,31 @@ jobs:
           done
           [ "$code" = "200" ] || { echo "::error::/health antwortet mit $code"; exit 1; }
           # Protected endpoints must exist (401 = present and auth-guarded, 404 = old build).
-          for p in /api/referrals/stats /api/treatment-packages/follow-ups /api/tenant/price-calculator; do
+          for p in /api/referrals/stats /api/treatment-packages/follow-ups /api/tenant/price-calculator /api/waitlist/stats; do
             c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$API_URL$p")
             echo "$p -> $c"
             [ "$c" = "401" ] || { echo "::error::$p antwortet mit $c statt 401"; exit 1; }
           done
           echo "Deploy erfolgreich."
 
-      - name: On failure
-        if: failure()
+      # Upload or verification failed after the site went offline: restore the backup taken at
+      # the start of this run and ALWAYS bring the site back online — never leave it at 503.
+      - name: Rollback + bring site online
+        if: ${{ failure() && (steps.deploy.outcome == 'failure' || steps.verify.outcome == 'failure') }}
+        env:
+          LFTP_PASSWORD: ${{ secrets.MONSTERASP_SFTP_PASSWORD }}
+          SFTP_USER: ${{ secrets.MONSTERASP_SFTP_USER }}
         run: |
-          echo "::error::Deploy fehlgeschlagen. Falls die Wartungsseite (app_offline.htm) noch aktiv ist: per WebFTP löschen oder Workflow erneut starten."
-          echo "Rollback: Artefakt api-backup-${{ github.sha }} herunterladen und den Inhalt nach wwwroot hochladen (vorher app_offline.htm)."
+          set +e
+          printf '%s' '<html><body>GentleBook wird aktualisiert.</body></html>' > app_offline.htm
+          lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "set cmd:fail-exit no; put app_offline.htm -o wwwroot/app_offline.htm; bye"
+          sleep 5
+          lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "set cmd:fail-exit no; mirror --reverse --no-perms --verbose=1 --parallel=4 backup wwwroot; bye"
+          lftp -u "$SFTP_USER" --env-password "sftp://$SFTP_HOST" -e "set cmd:fail-exit no; rm wwwroot/app_offline.htm; bye"
+          for i in $(seq 1 24); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$API_URL/health")
+            [ "$code" = "200" ] && break
+            sleep 5
+          done
+          echo "::error::Deploy fehlgeschlagen — vorherige Version wiederhergestellt. /health nach Rollback: $code"
+          [ "$code" = "200" ] || echo "::error::Seite antwortet nach dem Rollback nicht mit 200 — bitte sofort prüfen (WebFTP: app_offline.htm?)."
