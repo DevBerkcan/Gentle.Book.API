@@ -4,6 +4,10 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Old local publish outputs (gitignored) must never become content of a new publish:
+         on 2026-11-24 a local `dotnet publish` copied publish/ and publish-prod/ — including old
+         appsettings.Production.json files — into the package and onto the server. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);publish/**;publish-*/**;api_publish/**;publish_out/**;_backup*/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
