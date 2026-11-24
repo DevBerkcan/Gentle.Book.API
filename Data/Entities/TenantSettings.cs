@@ -30,6 +30,12 @@ public class TenantSettings
     public string? PrivacyUrl { get; set; }
     public string? ImprintUrl { get; set; }
 
+    // ── Preisrechner (Professional + Agency) ──────────────────
+    // External price-calculator URL, set ONLY by a SuperAdmin (SuperAdminController), read by
+    // the studio's admins via GET /api/tenant/price-calculator — see PriceCalculatorGate. Kept
+    // on a downgrade (just not served) so a re-upgrade brings the same link back.
+    public string? PriceCalculatorUrl { get; set; }
+
     // ── Billing Address (structured, for Mollie + CRM invoicing) ──
     public string? LegalCompanyName { get; set; }
     public string? BillingStreet { get; set; }

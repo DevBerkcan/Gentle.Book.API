@@ -2819,6 +2819,9 @@ namespace GentleBook.Api.Migrations
                     b.Property<string>("Phone")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("PriceCalculatorUrl")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("PrimaryColor")
                         .IsRequired()
                         .HasMaxLength(20)
